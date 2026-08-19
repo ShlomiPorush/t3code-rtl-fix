@@ -1,0 +1,10 @@
+[data-message-role="assistant"] > div.relative.min-w-0 > :first-child {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+[data-message-role="assistant"] > div.relative.min-w-0 > :first-child pre,
+[data-message-role="assistant"] > div.relative.min-w-0 > :first-child code {
+  direction: ltr !important;
+  text-align: left !important;
+}

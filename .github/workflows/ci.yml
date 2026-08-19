@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Run tests
+        run: npm test
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          [void][scriptblock]::Create((Get-Content -Raw install.ps1))
+          [void][scriptblock]::Create((Get-Content -Raw uninstall.ps1))
