@@ -17,7 +17,6 @@ need to open DevTools and paste CSS manually.
 
 - Windows
 - The T3 Code desktop app
-- Node.js 18 or newer
 
 ## Install
 
@@ -67,9 +66,11 @@ The uninstaller restores the original shortcuts. You can then delete the
 
 ## How it works
 
-The shortcut starts a small local Node.js launcher. The launcher opens T3 Code
-with Chromium's `--remote-debugging-pipe` option and injects `rtl.css` into the
-T3 Code page. It also registers the CSS for future page reloads.
+The shortcut uses the Node.js runtime already bundled inside T3 Code's Electron
+executable to start a small local launcher. No separate Node.js installation is
+required. The launcher then opens T3 Code normally with Chromium's
+`--remote-debugging-pipe` option and injects `rtl.css` into the T3 Code page. It
+also registers the CSS for future page reloads.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.
@@ -86,15 +87,16 @@ debugging port and does not send data over the network.
 
 ## Test
 
-On Windows with Microsoft Edge installed:
+Contributors need Node.js 18 or newer. On Windows with Microsoft Edge installed:
 
 ```powershell
 npm test
 ```
 
-The smoke test verifies CSS injection through a Chromium debugging pipe. The
-unit tests also verify that no TCP debugging port is enabled and that shipped
-user-facing text contains no Hebrew.
+The smoke test verifies CSS injection through a Chromium debugging pipe. A
+separate regression test performs a complete installation and removal under
+Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
+enabled and that shipped user-facing text contains no Hebrew.
 
 ## License
 
