@@ -1,7 +1,7 @@
 # T3 Code RTL Fix
 
 Automatically aligns each T3 Code user and assistant message from its own text
-while keeping code, commands, file paths, and table structure left to right.
+while keeping code, commands, and file paths left to right.
 
 The fix is applied every time the T3 Code desktop app starts. It removes the
 need to open DevTools and paste CSS manually.
@@ -12,7 +12,8 @@ need to open DevTools and paste CSS manually.
 - English messages remain left to right and left aligned.
 - Hebrew and Arabic prose stays right to left even when it starts with English or a number.
 - Each paragraph and other prose block resolves its direction independently.
-- Code, commands, file paths, and table structure remain left to right.
+- Code, commands, and file paths remain left to right.
+- Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
   direction of their text.
 - T3 Code itself is not patched or repackaged.

@@ -20,11 +20,28 @@
 [data-message-role] .chat-markdown pre,
 [data-message-role] .chat-markdown code,
 [data-message-role] .chat-markdown a.chat-markdown-file-link,
-[data-message-role] .chat-markdown .chat-markdown-codeblock,
-[data-message-role] .chat-markdown .chat-markdown-table-container {
+[data-message-role] .chat-markdown .chat-markdown-codeblock {
   direction: ltr !important;
   text-align: left !important;
   unicode-bidi: isolate;
+}
+
+[data-message-role]
+  .chat-markdown
+  .chat-markdown-table-container[data-expanded="true"]
+  table {
+  width: 100% !important;
+  min-width: 100% !important;
+  table-layout: fixed;
+}
+
+[data-message-role]
+  .chat-markdown
+  .chat-markdown-table-container[data-expanded="true"]
+  :is(th, td) {
+  max-width: none !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
 }
 
 [data-message-role] .chat-markdown ul {
