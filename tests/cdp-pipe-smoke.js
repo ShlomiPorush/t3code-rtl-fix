@@ -80,8 +80,9 @@ async function run() {
     </style>
     <div data-message-role="assistant">
       <div id="rtl-message" class="chat-markdown">
-        <p>${rtlText}</p>
+        <p id="rtl-paragraph">${rtlText}</p>
         <code id="inline-code">npm test</code>
+        <p id="english-paragraph">An English paragraph.</p>
         <a id="file-link" class="chat-markdown-file-link">src/index.ts</a>
         <ul id="rtl-list"><li class="task-list-item"><input id="task-checkbox" type="checkbox">${rtlText}</li></ul>
         <blockquote id="rtl-quote">${rtlText}</blockquote>
@@ -92,13 +93,13 @@ async function run() {
       </div>
     </div>
     <div data-message-role="assistant">
-      <div id="code-first-message" class="chat-markdown"><code>npm</code><p>${rtlText}</p></div>
+      <div id="code-first-message" class="chat-markdown"><code>npm</code><p id="code-first-paragraph">${rtlText}</p></div>
     </div>
     <div data-message-role="user">
-      <div id="english-message" class="chat-markdown"><p>English user message.</p></div>
+      <div id="english-message" class="chat-markdown"><p id="english-user-paragraph">English user message.</p></div>
     </div>
     <div data-message-role="user">
-      <div id="rtl-user-message" class="chat-markdown"><p>${rtlText}</p></div>
+      <div id="rtl-user-message" class="chat-markdown"><p id="rtl-user-paragraph">${rtlText}</p></div>
     </div>`;
   await send("Runtime.evaluate", {
     expression: `document.body.innerHTML = ${JSON.stringify(fixtureHtml)}`,
@@ -108,7 +109,7 @@ async function run() {
     expression: `new Promise((resolve) => {
       const dynamicRow = document.createElement("div");
       dynamicRow.setAttribute("data-message-role", "assistant");
-      dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p>${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
+      dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p id="dynamic-paragraph">${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
       document.body.appendChild(dynamicRow);
       setTimeout(() => {
         const style = (id) => getComputedStyle(document.getElementById(id));
@@ -116,11 +117,18 @@ async function run() {
           styleInjected: Boolean(document.getElementById("t3-rtl-fix")),
           rtlMessageDir: document.getElementById("rtl-message").dir,
           rtlMessageDirection: style("rtl-message").direction,
+          rtlParagraphDir: document.getElementById("rtl-paragraph").dir,
+          rtlParagraphDirection: style("rtl-paragraph").direction,
+          englishParagraphDir: document.getElementById("english-paragraph").dir,
+          englishParagraphDirection: style("english-paragraph").direction,
           englishMessageDir: document.getElementById("english-message").dir,
           englishMessageDirection: style("english-message").direction,
           rtlUserMessageDir: document.getElementById("rtl-user-message").dir,
           rtlUserMessageDirection: style("rtl-user-message").direction,
+          rtlUserParagraphDir: document.getElementById("rtl-user-paragraph").dir,
+          rtlUserParagraphDirection: style("rtl-user-paragraph").direction,
           codeFirstDirection: style("code-first-message").direction,
+          codeFirstParagraphDirection: style("code-first-paragraph").direction,
           inlineCodeDir: document.getElementById("inline-code").dir,
           fileLinkDir: document.getElementById("file-link").dir,
           listPaddingLeft: style("rtl-list").paddingLeft,
@@ -135,6 +143,7 @@ async function run() {
           rtlCellDir: document.getElementById("rtl-cell").dir,
           dynamicMessageDir: document.getElementById("dynamic-message").dir,
           dynamicMessageDirection: style("dynamic-message").direction,
+          dynamicParagraphDirection: style("dynamic-paragraph").direction,
           dynamicCodeDir: document.getElementById("dynamic-code").dir,
         });
       }, 0);
@@ -147,11 +156,18 @@ async function run() {
     styleInjected: true,
     rtlMessageDir: "auto",
     rtlMessageDirection: "rtl",
+    rtlParagraphDir: "auto",
+    rtlParagraphDirection: "rtl",
+    englishParagraphDir: "auto",
+    englishParagraphDirection: "ltr",
     englishMessageDir: "auto",
     englishMessageDirection: "ltr",
     rtlUserMessageDir: "auto",
-    rtlUserMessageDirection: "rtl",
-    codeFirstDirection: "rtl",
+    rtlUserMessageDirection: "ltr",
+    rtlUserParagraphDir: "auto",
+    rtlUserParagraphDirection: "rtl",
+    codeFirstDirection: "ltr",
+    codeFirstParagraphDirection: "rtl",
     inlineCodeDir: "ltr",
     fileLinkDir: "ltr",
     listPaddingLeft: "0px",
@@ -165,7 +181,8 @@ async function run() {
     englishCellDir: "auto",
     rtlCellDir: "auto",
     dynamicMessageDir: "auto",
-    dynamicMessageDirection: "rtl",
+    dynamicMessageDirection: "ltr",
+    dynamicParagraphDirection: "rtl",
     dynamicCodeDir: "ltr",
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -192,6 +209,6 @@ child.on("exit", () => {
   const resolved = path.resolve(testProfile);
   const tempRoot = `${path.resolve(os.tmpdir())}${path.sep}`;
   if (resolved.startsWith(tempRoot) && path.basename(resolved).startsWith("t3-rtl-pipe-test-")) {
-    fs.rmSync(resolved, { recursive: true, force: true });
+    fs.rmSync(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
 });

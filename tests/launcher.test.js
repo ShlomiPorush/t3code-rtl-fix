@@ -34,7 +34,7 @@ test("the launcher uses T3 Code's bundled Node runtime", () => {
 
 test("the stylesheet uses content-aware alignment and logical RTL layout", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
-  assert.match(css, /\.chat-markdown\s*{[\s\S]*text-align:\s*start\s*!important/);
+  assert.match(css, /\.chat-markdown,[\s\S]*text-align:\s*start\s*!important/);
   assert.match(css, /pre,[\s\S]*code[\s\S]*direction:\s*ltr\s*!important/);
   assert.match(css, /padding-inline-start:/);
   assert.match(css, /border-inline-start:/);
@@ -45,6 +45,10 @@ test("the stylesheet uses content-aware alignment and logical RTL layout", () =>
 test("the injected script auto-directs messages and observes new content", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[data-message-role\] \.chat-markdown/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown p/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown h1/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown blockquote/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown li/);
   assert.match(source, /setDirection\(root, autoDirectionSelector, "auto"\)/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
   assert.match(source, /new MutationObserver/);

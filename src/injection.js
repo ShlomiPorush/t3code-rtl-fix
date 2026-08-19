@@ -4,6 +4,15 @@ const FIX_ID = "t3-rtl-fix";
 const STATE_KEY = "__t3RtlFixState";
 const AUTO_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown',
+  '[data-message-role] .chat-markdown p',
+  '[data-message-role] .chat-markdown h1',
+  '[data-message-role] .chat-markdown h2',
+  '[data-message-role] .chat-markdown h3',
+  '[data-message-role] .chat-markdown h4',
+  '[data-message-role] .chat-markdown h5',
+  '[data-message-role] .chat-markdown h6',
+  '[data-message-role] .chat-markdown blockquote',
+  '[data-message-role] .chat-markdown li',
   '[data-message-role] .chat-markdown th',
   '[data-message-role] .chat-markdown td',
 ].join(", ");

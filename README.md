@@ -10,7 +10,7 @@ need to open DevTools and paste CSS manually.
 
 - Hebrew and Arabic messages use right-to-left direction and right alignment.
 - English messages remain left to right and left aligned.
-- Mixed-language messages follow the first meaningful prose character.
+- Each paragraph and other prose block follows its own first meaningful character.
 - Code, commands, file paths, and table structure remain left to right.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
   direction of their text.
