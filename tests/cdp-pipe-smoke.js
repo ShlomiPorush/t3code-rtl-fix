@@ -83,6 +83,9 @@ async function run() {
         <p id="rtl-paragraph">${rtlText}</p>
         <code id="inline-code">npm test</code>
         <p id="english-paragraph">An English paragraph.</p>
+        <p id="english-leading-paragraph">pstack ${rtlText}</p>
+        <p>${rtlText} <strong id="english-strong">Claude Code</strong> ${rtlText}</p>
+        <ol><li id="english-leading-item"><strong>pstack</strong> ${rtlText} Cursor, ${rtlText} Claude Code.</li></ol>
         <a id="file-link" class="chat-markdown-file-link">src/index.ts</a>
         <ul id="rtl-list"><li class="task-list-item"><input id="task-checkbox" type="checkbox">${rtlText}</li></ul>
         <blockquote id="rtl-quote">${rtlText}</blockquote>
@@ -100,6 +103,9 @@ async function run() {
     </div>
     <div data-message-role="user">
       <div id="rtl-user-message" class="chat-markdown"><p id="rtl-user-paragraph">${rtlText}</p></div>
+    </div>
+    <div data-message-role="assistant">
+      <div class="chat-markdown"><p id="streamed-paragraph">pstack</p></div>
     </div>`;
   await send("Runtime.evaluate", {
     expression: `document.body.innerHTML = ${JSON.stringify(fixtureHtml)}`,
@@ -111,6 +117,7 @@ async function run() {
       dynamicRow.setAttribute("data-message-role", "assistant");
       dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p id="dynamic-paragraph">${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
       document.body.appendChild(dynamicRow);
+      document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
       setTimeout(() => {
         const style = (id) => getComputedStyle(document.getElementById(id));
         resolve({
@@ -121,6 +128,12 @@ async function run() {
           rtlParagraphDirection: style("rtl-paragraph").direction,
           englishParagraphDir: document.getElementById("english-paragraph").dir,
           englishParagraphDirection: style("english-paragraph").direction,
+          englishLeadingParagraphDir: document.getElementById("english-leading-paragraph").dir,
+          englishLeadingParagraphDirection: style("english-leading-paragraph").direction,
+          englishStrongDir: document.getElementById("english-strong").dir,
+          englishStrongDirection: style("english-strong").direction,
+          englishLeadingItemDir: document.getElementById("english-leading-item").dir,
+          englishLeadingItemDirection: style("english-leading-item").direction,
           englishMessageDir: document.getElementById("english-message").dir,
           englishMessageDirection: style("english-message").direction,
           rtlUserMessageDir: document.getElementById("rtl-user-message").dir,
@@ -145,6 +158,8 @@ async function run() {
           dynamicMessageDirection: style("dynamic-message").direction,
           dynamicParagraphDirection: style("dynamic-paragraph").direction,
           dynamicCodeDir: document.getElementById("dynamic-code").dir,
+          streamedParagraphDir: document.getElementById("streamed-paragraph").dir,
+          streamedParagraphDirection: style("streamed-paragraph").direction,
         });
       }, 0);
     })`,
@@ -154,19 +169,25 @@ async function run() {
   const actual = result.result?.value;
   const expected = {
     styleInjected: true,
-    rtlMessageDir: "auto",
+    rtlMessageDir: "rtl",
     rtlMessageDirection: "rtl",
-    rtlParagraphDir: "auto",
+    rtlParagraphDir: "rtl",
     rtlParagraphDirection: "rtl",
     englishParagraphDir: "auto",
     englishParagraphDirection: "ltr",
+    englishLeadingParagraphDir: "rtl",
+    englishLeadingParagraphDirection: "rtl",
+    englishStrongDir: "auto",
+    englishStrongDirection: "ltr",
+    englishLeadingItemDir: "rtl",
+    englishLeadingItemDirection: "rtl",
     englishMessageDir: "auto",
     englishMessageDirection: "ltr",
-    rtlUserMessageDir: "auto",
-    rtlUserMessageDirection: "ltr",
-    rtlUserParagraphDir: "auto",
+    rtlUserMessageDir: "rtl",
+    rtlUserMessageDirection: "rtl",
+    rtlUserParagraphDir: "rtl",
     rtlUserParagraphDirection: "rtl",
-    codeFirstDirection: "ltr",
+    codeFirstDirection: "rtl",
     codeFirstParagraphDirection: "rtl",
     inlineCodeDir: "ltr",
     fileLinkDir: "ltr",
@@ -179,11 +200,13 @@ async function run() {
     alertBorderRight: "2px",
     tableDir: "ltr",
     englishCellDir: "auto",
-    rtlCellDir: "auto",
-    dynamicMessageDir: "auto",
-    dynamicMessageDirection: "ltr",
+    rtlCellDir: "rtl",
+    dynamicMessageDir: "rtl",
+    dynamicMessageDirection: "rtl",
     dynamicParagraphDirection: "rtl",
     dynamicCodeDir: "ltr",
+    streamedParagraphDir: "rtl",
+    streamedParagraphDirection: "rtl",
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);

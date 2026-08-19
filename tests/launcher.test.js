@@ -49,8 +49,13 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /\[data-message-role\] \.chat-markdown h1/);
   assert.match(source, /\[data-message-role\] \.chat-markdown blockquote/);
   assert.match(source, /\[data-message-role\] \.chat-markdown li/);
-  assert.match(source, /setDirection\(root, autoDirectionSelector, "auto"\)/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown strong/);
+  assert.match(source, /\[data-message-role\] \.chat-markdown em/);
+  assert.match(source, /\.chat-markdown a:not\(\.chat-markdown-file-link\)/);
+  assert.match(source, /hasRtlProse/);
+  assert.match(source, /hasRtlProse\(element\) \? "rtl" : "auto"/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
+  assert.match(source, /characterData: true/);
   assert.match(source, /new MutationObserver/);
   assert.match(source, /body \{ color: red; \}/);
 });
