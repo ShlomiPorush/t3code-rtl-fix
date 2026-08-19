@@ -18,23 +18,31 @@ function log(message) {
   }
 }
 
-function readTrimmed(filePath) {
-  return fs.readFileSync(filePath, "utf8").trim();
+function readSavedPath(filePath) {
+  const contents = fs.readFileSync(filePath);
+  if (contents[0] === 0xff && contents[1] === 0xfe) {
+    return contents.subarray(2).toString("utf16le").trim();
+  }
+  return contents.toString("utf8").replace(/^\uFEFF/, "").trim();
 }
 
 let appPath;
 try {
-  appPath = readTrimmed(appPathFile);
+  appPath = readSavedPath(appPathFile);
 } catch (error) {
   log(`Could not read ${appPathFile}: ${error.message}`);
   process.exit(1);
 }
+
+const t3Environment = { ...process.env };
+delete t3Environment.ELECTRON_RUN_AS_NODE;
 
 function startWithoutInjection(reason) {
   log(`Starting without the RTL fix: ${reason}`);
   if (!fs.existsSync(appPath)) return;
   const fallback = spawn(appPath, [], {
     detached: true,
+    env: t3Environment,
     stdio: "ignore",
     windowsHide: false,
   });
@@ -74,6 +82,7 @@ const injectionSource = `(() => {
 })();`;
 
 const child = spawn(appPath, ["--remote-debugging-pipe"], {
+  env: t3Environment,
   stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
   windowsHide: false,
 });

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$T3CodePath,
-    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA "T3RTLFix")
+    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA "T3RTLFix"),
+    [string[]]$ShortcutSearchRoots
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,19 +29,18 @@ function Read-ShortcutManifest {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
-        return @()
+        return
     }
-    return @(Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json)
+
+    $document = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    foreach ($item in $document) {
+        Write-Output $item
+    }
 }
 
 $appPath = Find-T3CodePath -RequestedPath $T3CodePath
 if (-not $appPath -or -not (Test-Path -LiteralPath $appPath)) {
     throw "T3 Code was not found. Pass its executable path with -T3CodePath."
-}
-
-$nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
-if (-not $nodeCommand) {
-    throw "Node.js was not found. Install Node.js and run this installer again."
 }
 
 $sourceDirectory = Join-Path $PSScriptRoot "src"
@@ -57,8 +57,16 @@ foreach ($fileName in $requiredFiles) {
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall.ps1") -Destination $InstallDirectory -Force
 
-Set-Content -LiteralPath (Join-Path $InstallDirectory "app-path.txt") -Value $appPath -Encoding utf8NoBOM
-Set-Content -LiteralPath (Join-Path $InstallDirectory "node-path.txt") -Value $nodeCommand.Source -Encoding utf8NoBOM
+[System.IO.File]::WriteAllText(
+    (Join-Path $InstallDirectory "app-path.txt"),
+    $appPath,
+    [System.Text.Encoding]::Unicode
+)
+
+$legacyNodePathFile = Join-Path $InstallDirectory "node-path.txt"
+if (Test-Path -LiteralPath $legacyNodePathFile) {
+    Remove-Item -LiteralPath $legacyNodePathFile -Force
+}
 
 $manifestPath = Join-Path $InstallDirectory "shortcuts.json"
 $manifest = [System.Collections.Generic.List[object]]::new()
@@ -66,10 +74,14 @@ foreach ($saved in (Read-ShortcutManifest -Path $manifestPath)) {
     $manifest.Add($saved)
 }
 
-$desktop = [Environment]::GetFolderPath("Desktop")
-$programs = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
+if (-not $ShortcutSearchRoots -or $ShortcutSearchRoots.Count -eq 0) {
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $programs = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
+    $ShortcutSearchRoots = @($desktop, $programs)
+}
+
 $shortcutPaths = @(
-    Get-ChildItem -LiteralPath $desktop, $programs -Filter "T3 Code*.lnk" -File -Recurse -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $ShortcutSearchRoots -Filter "T3 Code*.lnk" -File -Recurse -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty FullName -Unique
 )
 
@@ -113,6 +125,7 @@ foreach ($shortcutPath in $shortcutPaths) {
 }
 
 if ($shortcutPaths.Count -eq 0) {
+    $desktop = [Environment]::GetFolderPath("Desktop")
     $shortcutPath = Join-Path $desktop "T3 Code RTL.lnk"
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $wscriptPath
@@ -133,7 +146,12 @@ if ($shortcutPaths.Count -eq 0) {
     $updated++
 }
 
-$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+$manifestJson = $manifest | ConvertTo-Json -Depth 4
+[System.IO.File]::WriteAllText(
+    $manifestPath,
+    $manifestJson,
+    [System.Text.Encoding]::Unicode
+)
 
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"

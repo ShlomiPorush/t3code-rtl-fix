@@ -14,6 +14,9 @@ jobs:
           node-version: 24
       - name: Run tests
         run: npm test
+      - name: Test Windows PowerShell 5.1 installer
+        shell: powershell
+        run: .\tests\windows-powershell-compatibility.ps1
       - name: Parse PowerShell scripts
         shell: pwsh
         run: |

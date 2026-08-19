@@ -10,14 +10,21 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Shortcut backup was not found at $manifestPath"
 }
 
-$manifest = @(Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json)
+$manifestDocument = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$manifest = @()
+foreach ($item in $manifestDocument) {
+    $manifest += $item
+}
+
 $shell = New-Object -ComObject WScript.Shell
 $restored = 0
 $removed = 0
 
 foreach ($saved in $manifest) {
     $shortcutPath = [string]$saved.Path
-    if ([bool]$saved.Created) {
+    $createdProperty = $saved.PSObject.Properties["Created"]
+    $wasCreated = $null -ne $createdProperty -and [bool]$saved.Created
+    if ($wasCreated) {
         if (Test-Path -LiteralPath $shortcutPath) {
             Remove-Item -LiteralPath $shortcutPath -Force
             $removed++
