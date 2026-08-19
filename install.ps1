@@ -44,7 +44,7 @@ if (-not $appPath -or -not (Test-Path -LiteralPath $appPath)) {
 }
 
 $sourceDirectory = Join-Path $PSScriptRoot "src"
-$requiredFiles = @("rtl.css", "t3-rtl-launcher.js", "launch-t3-rtl.vbs")
+$requiredFiles = @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launch-t3-rtl.vbs")
 foreach ($fileName in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $sourceDirectory $fileName))) {
         throw "Required file is missing: src\$fileName"

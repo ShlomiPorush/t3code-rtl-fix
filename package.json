@@ -1,8 +1,8 @@
 {
   "name": "t3code-rtl-fix",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Automatic RTL styling for assistant messages in T3 Code on Windows",
+  "description": "Automatic per-message RTL styling for T3 Code on Windows",
   "license": "MIT",
   "scripts": {
     "test": "node --test tests/*.test.js && node tests/cdp-pipe-smoke.js"

@@ -1,10 +1,54 @@
-[data-message-role="assistant"] > div.relative.min-w-0 > :first-child {
-  direction: rtl !important;
-  text-align: right !important;
+[data-message-role] .chat-markdown {
+  text-align: start !important;
 }
 
-[data-message-role="assistant"] > div.relative.min-w-0 > :first-child pre,
-[data-message-role="assistant"] > div.relative.min-w-0 > :first-child code {
+[data-message-role] .chat-markdown pre,
+[data-message-role] .chat-markdown code,
+[data-message-role] .chat-markdown a.chat-markdown-file-link,
+[data-message-role] .chat-markdown .chat-markdown-codeblock,
+[data-message-role] .chat-markdown .chat-markdown-table-container {
   direction: ltr !important;
   text-align: left !important;
+  unicode-bidi: isolate;
+}
+
+[data-message-role] .chat-markdown ul {
+  padding-left: 0 !important;
+  padding-inline-start: 1.25rem !important;
+}
+
+[data-message-role] .chat-markdown ol {
+  padding-left: 0 !important;
+  padding-inline-start: var(--list-gutter, 1.25rem) !important;
+}
+
+[data-message-role] .chat-markdown li.task-list-item input[type="checkbox"] {
+  margin: 0 0 0.15em !important;
+  margin-inline: calc(-1 * var(--list-gutter, 1.25rem)) 0.35em !important;
+}
+
+[data-message-role] .chat-markdown blockquote {
+  border-left: 0 !important;
+  border-inline-start: 2px solid var(--border) !important;
+  padding-left: 0 !important;
+  padding-inline-start: 0.8rem !important;
+}
+
+[data-message-role] .chat-markdown section[data-footnotes] ol {
+  padding-left: 0 !important;
+  padding-inline-start: 1.25rem !important;
+}
+
+[data-message-role] .chat-markdown div[role="note"] {
+  border-left-style: none !important;
+  border-left-width: 0 !important;
+  border-inline-start-style: solid !important;
+  border-inline-start-width: 2px !important;
+  padding-left: 0 !important;
+  padding-inline-start: 0.75rem !important;
+}
+
+[data-message-role] .chat-markdown th,
+[data-message-role] .chat-markdown td {
+  text-align: start !important;
 }

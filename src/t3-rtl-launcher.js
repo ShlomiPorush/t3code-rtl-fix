@@ -3,8 +3,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { buildInjectionSource } = require("./injection");
 
-const FIX_ID = "t3-rtl-fix";
 const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
 const logPath = path.join(__dirname, "launcher.log");
@@ -62,24 +62,7 @@ try {
   process.exit(1);
 }
 
-const injectionSource = `(() => {
-  const id = ${JSON.stringify(FIX_ID)};
-  const css = ${JSON.stringify(css)};
-  const apply = () => {
-    if (!document.head) return false;
-    let style = document.getElementById(id);
-    if (!style) {
-      style = document.createElement("style");
-      style.id = id;
-      document.head.appendChild(style);
-    }
-    if (style.textContent !== css) style.textContent = css;
-    return true;
-  };
-  if (!apply()) {
-    document.addEventListener("DOMContentLoaded", apply, { once: true });
-  }
-})();`;
+const injectionSource = buildInjectionSource(css);
 
 const child = spawn(appPath, ["--remote-debugging-pipe"], {
   env: t3Environment,

@@ -47,6 +47,7 @@ try {
     $savedAppPath = [System.IO.File]::ReadAllText($appPathFile, [System.Text.Encoding]::Unicode)
     Assert-Equal $savedAppPath $fakeAppPath "The UTF-16 app path was not written correctly"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "node-path.txt")) $false "The installer still created a Node.js path file"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "injection.js")) $true "The browser injection helper was not installed"
 
     & cscript.exe //nologo (Join-Path $installDirectory "launch-t3-rtl.vbs") /check
     if ($LASTEXITCODE -ne 0) {

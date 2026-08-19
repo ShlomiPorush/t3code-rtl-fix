@@ -1,15 +1,19 @@
 # T3 Code RTL Fix
 
-Automatically displays T3 Code assistant messages from right to left while
-keeping code blocks and inline code left to right.
+Automatically aligns each T3 Code user and assistant message from its own text
+while keeping code, commands, file paths, and table structure left to right.
 
 The fix is applied every time the T3 Code desktop app starts. It removes the
 need to open DevTools and paste CSS manually.
 
 ## What it changes
 
-- Assistant message content uses right-to-left direction and right alignment.
-- `pre` and `code` elements remain left to right and left aligned.
+- Hebrew and Arabic messages use right-to-left direction and right alignment.
+- English messages remain left to right and left aligned.
+- Mixed-language messages follow the first meaningful prose character.
+- Code, commands, file paths, and table structure remain left to right.
+- Lists, task lists, quotes, footnotes, alerts, and table cells follow the
+  direction of their text.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
@@ -69,8 +73,9 @@ The uninstaller restores the original shortcuts. You can then delete the
 The shortcut uses the Node.js runtime already bundled inside T3 Code's Electron
 executable to start a small local launcher. No separate Node.js installation is
 required. The launcher then opens T3 Code normally with Chromium's
-`--remote-debugging-pipe` option and injects `rtl.css` into the T3 Code page. It
-also registers the CSS for future page reloads.
+`--remote-debugging-pipe` option and injects the fix into the T3 Code page. The
+fix applies `dir="auto"` to existing and newly rendered messages, injects
+`rtl.css`, and registers both parts for future page reloads.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.

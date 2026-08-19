@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { buildInjectionSource } = require("../src/injection");
 
 const root = path.resolve(__dirname, "..");
 
@@ -31,10 +32,23 @@ test("the launcher uses T3 Code's bundled Node runtime", () => {
   assert.doesNotMatch(installer, /Get-Command node/);
 });
 
-test("the RTL stylesheet preserves left-to-right code blocks", () => {
+test("the stylesheet uses content-aware alignment and logical RTL layout", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
-  assert.match(css, /direction:\s*rtl\s*!important/);
+  assert.match(css, /\.chat-markdown\s*{[\s\S]*text-align:\s*start\s*!important/);
   assert.match(css, /pre,[\s\S]*code[\s\S]*direction:\s*ltr\s*!important/);
+  assert.match(css, /padding-inline-start:/);
+  assert.match(css, /border-inline-start:/);
+  assert.match(css, /text-align:\s*start\s*!important/);
+  assert.doesNotMatch(css, /direction:\s*rtl\s*!important/);
+});
+
+test("the injected script auto-directs messages and observes new content", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  assert.match(source, /\[data-message-role\] \.chat-markdown/);
+  assert.match(source, /setDirection\(root, autoDirectionSelector, "auto"\)/);
+  assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
+  assert.match(source, /new MutationObserver/);
+  assert.match(source, /body \{ color: red; \}/);
 });
 
 test("every shipped source file contains only English UI text", () => {
@@ -44,7 +58,9 @@ test("every shipped source file contains only English UI text", () => {
     "uninstall.ps1",
     path.join("tests", "windows-powershell-compatibility.ps1"),
     path.join("src", "launch-t3-rtl.vbs"),
+    path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
+    path.join("src", "rtl.css"),
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), "utf8");

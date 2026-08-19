@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { buildInjectionSource } = require("../src/injection");
 
 const edgePath = path.join(
   process.env["ProgramFiles(x86)"] || "",
@@ -12,6 +13,9 @@ const edgePath = path.join(
   "Application",
   "msedge.exe",
 );
+const css = fs.readFileSync(path.join(__dirname, "..", "src", "rtl.css"), "utf8");
+const injectionSource = buildInjectionSource(css);
+const rtlText = "\u05d4\u05d5\u05d3\u05e2\u05d4 \u05d1\u05e2\u05d1\u05e8\u05d9\u05ea";
 
 if (process.platform !== "win32" || !fs.existsSync(edgePath)) {
   process.stdout.write("CDP pipe smoke test skipped: Microsoft Edge is unavailable\n");
@@ -66,15 +70,108 @@ async function run() {
     targetId: page.targetId,
     flatten: true,
   });
+  const fixtureHtml = `
+    <style>
+      :root { --border: rgb(10, 20, 30); }
+      .chat-markdown ul { --list-gutter: 20px; padding-left: 20px; }
+      .chat-markdown li.task-list-item input { margin: 0 5px 2px -20px; }
+      .chat-markdown blockquote { border-left: 2px solid var(--border); padding-left: 12px; }
+      .chat-markdown div[role="note"] { border-left: 2px solid blue; padding-left: 12px; }
+    </style>
+    <div data-message-role="assistant">
+      <div id="rtl-message" class="chat-markdown">
+        <p>${rtlText}</p>
+        <code id="inline-code">npm test</code>
+        <a id="file-link" class="chat-markdown-file-link">src/index.ts</a>
+        <ul id="rtl-list"><li class="task-list-item"><input id="task-checkbox" type="checkbox">${rtlText}</li></ul>
+        <blockquote id="rtl-quote">${rtlText}</blockquote>
+        <div id="rtl-alert" role="note">${rtlText}</div>
+        <div id="table" class="chat-markdown-table-container">
+          <table><tbody><tr><td id="english-cell">Name</td><td id="rtl-cell">${rtlText}</td></tr></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div data-message-role="assistant">
+      <div id="code-first-message" class="chat-markdown"><code>npm</code><p>${rtlText}</p></div>
+    </div>
+    <div data-message-role="user">
+      <div id="english-message" class="chat-markdown"><p>English user message.</p></div>
+    </div>
+    <div data-message-role="user">
+      <div id="rtl-user-message" class="chat-markdown"><p>${rtlText}</p></div>
+    </div>`;
   await send("Runtime.evaluate", {
-    expression: 'document.head.insertAdjacentHTML("beforeend", "<style id=\\"t3-rtl-fix\\">body{direction:rtl}</style>")',
+    expression: `document.body.innerHTML = ${JSON.stringify(fixtureHtml)}`,
   }, sessionId);
+  await send("Runtime.evaluate", { expression: injectionSource }, sessionId);
   const result = await send("Runtime.evaluate", {
-    expression: 'document.getElementById("t3-rtl-fix")?.textContent === "body{direction:rtl}"',
+    expression: `new Promise((resolve) => {
+      const dynamicRow = document.createElement("div");
+      dynamicRow.setAttribute("data-message-role", "assistant");
+      dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p>${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
+      document.body.appendChild(dynamicRow);
+      setTimeout(() => {
+        const style = (id) => getComputedStyle(document.getElementById(id));
+        resolve({
+          styleInjected: Boolean(document.getElementById("t3-rtl-fix")),
+          rtlMessageDir: document.getElementById("rtl-message").dir,
+          rtlMessageDirection: style("rtl-message").direction,
+          englishMessageDir: document.getElementById("english-message").dir,
+          englishMessageDirection: style("english-message").direction,
+          rtlUserMessageDir: document.getElementById("rtl-user-message").dir,
+          rtlUserMessageDirection: style("rtl-user-message").direction,
+          codeFirstDirection: style("code-first-message").direction,
+          inlineCodeDir: document.getElementById("inline-code").dir,
+          fileLinkDir: document.getElementById("file-link").dir,
+          listPaddingLeft: style("rtl-list").paddingLeft,
+          listPaddingRight: style("rtl-list").paddingRight,
+          taskMarginInlineStart: style("task-checkbox").marginInlineStart,
+          quoteBorderLeft: style("rtl-quote").borderLeftWidth,
+          quoteBorderRight: style("rtl-quote").borderRightWidth,
+          alertBorderLeft: style("rtl-alert").borderLeftWidth,
+          alertBorderRight: style("rtl-alert").borderRightWidth,
+          tableDir: document.getElementById("table").dir,
+          englishCellDir: document.getElementById("english-cell").dir,
+          rtlCellDir: document.getElementById("rtl-cell").dir,
+          dynamicMessageDir: document.getElementById("dynamic-message").dir,
+          dynamicMessageDirection: style("dynamic-message").direction,
+          dynamicCodeDir: document.getElementById("dynamic-code").dir,
+        });
+      }, 0);
+    })`,
+    awaitPromise: true,
     returnByValue: true,
   }, sessionId);
-  if (result.result?.value !== true) throw new Error("The style was not injected");
-  process.stdout.write("CDP pipe injection passed\n");
+  const actual = result.result?.value;
+  const expected = {
+    styleInjected: true,
+    rtlMessageDir: "auto",
+    rtlMessageDirection: "rtl",
+    englishMessageDir: "auto",
+    englishMessageDirection: "ltr",
+    rtlUserMessageDir: "auto",
+    rtlUserMessageDirection: "rtl",
+    codeFirstDirection: "rtl",
+    inlineCodeDir: "ltr",
+    fileLinkDir: "ltr",
+    listPaddingLeft: "0px",
+    listPaddingRight: "20px",
+    taskMarginInlineStart: "-20px",
+    quoteBorderLeft: "0px",
+    quoteBorderRight: "2px",
+    alertBorderLeft: "0px",
+    alertBorderRight: "2px",
+    tableDir: "ltr",
+    englishCellDir: "auto",
+    rtlCellDir: "auto",
+    dynamicMessageDir: "auto",
+    dynamicMessageDirection: "rtl",
+    dynamicCodeDir: "ltr",
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);
+  }
+  process.stdout.write("CDP pipe direction injection passed\n");
 }
 
 const timeout = setTimeout(() => {
