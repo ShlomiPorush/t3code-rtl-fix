@@ -1,6 +1,6 @@
 {
   "name": "t3code-rtl-fix",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Automatic per-message RTL styling for T3 Code on Windows",
   "license": "MIT",

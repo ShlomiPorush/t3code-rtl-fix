@@ -11,6 +11,12 @@
   text-align: start !important;
 }
 
+[data-message-role] .chat-markdown strong,
+[data-message-role] .chat-markdown em,
+[data-message-role] .chat-markdown a:not(.chat-markdown-file-link) {
+  unicode-bidi: isolate;
+}
+
 [data-message-role] .chat-markdown pre,
 [data-message-role] .chat-markdown code,
 [data-message-role] .chat-markdown a.chat-markdown-file-link,

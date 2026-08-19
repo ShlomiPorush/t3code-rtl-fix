@@ -2,8 +2,10 @@
 
 const FIX_ID = "t3-rtl-fix";
 const STATE_KEY = "__t3RtlFixState";
+const MARKDOWN_ROOT_SELECTOR = '[data-message-role] .chat-markdown';
+const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const AUTO_DIRECTION_SELECTOR = [
-  '[data-message-role] .chat-markdown',
+  MARKDOWN_ROOT_SELECTOR,
   '[data-message-role] .chat-markdown p',
   '[data-message-role] .chat-markdown h1',
   '[data-message-role] .chat-markdown h2',
@@ -13,6 +15,9 @@ const AUTO_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown h6',
   '[data-message-role] .chat-markdown blockquote',
   '[data-message-role] .chat-markdown li',
+  '[data-message-role] .chat-markdown strong',
+  '[data-message-role] .chat-markdown em',
+  '[data-message-role] .chat-markdown a:not(.chat-markdown-file-link)',
   '[data-message-role] .chat-markdown th',
   '[data-message-role] .chat-markdown td',
 ].join(", ");
@@ -29,6 +34,8 @@ function buildInjectionSource(css) {
   const id = ${JSON.stringify(FIX_ID)};
   const stateKey = ${JSON.stringify(STATE_KEY)};
   const css = ${JSON.stringify(css)};
+  const markdownRootSelector = ${JSON.stringify(MARKDOWN_ROOT_SELECTOR)};
+  const rtlTextPattern = new RegExp(${JSON.stringify(RTL_TEXT_PATTERN.source)}, "u");
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
 
@@ -63,9 +70,39 @@ function buildInjectionSource(css) {
     }
   };
 
+  const hasRtlProse = (element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const ltrAncestor = node.parentElement?.closest(ltrDirectionSelector);
+      if (ltrAncestor && ltrAncestor !== element && element.contains(ltrAncestor)) continue;
+      if (rtlTextPattern.test(node.data)) return true;
+    }
+    return false;
+  };
+
+  const setContentDirection = (root) => {
+    const apply = (element) => {
+      const ltrAncestor = element.closest(ltrDirectionSelector);
+      if (ltrAncestor && ltrAncestor !== element && !element.matches("th, td")) return;
+      element.setAttribute("dir", hasRtlProse(element) ? "rtl" : "auto");
+    };
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(autoDirectionSelector)) apply(root);
+    if (typeof root.querySelectorAll !== "function") return;
+    for (const element of root.querySelectorAll(autoDirectionSelector)) apply(element);
+  };
+
   const applyDirections = (root) => {
-    setDirection(root, autoDirectionSelector, "auto");
+    setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
+  };
+
+  const applyDirectionsAround = (node) => {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!element) return;
+    const markdownRoot = element.matches(markdownRootSelector)
+      ? element
+      : element.closest(markdownRootSelector);
+    applyDirections(markdownRoot ?? element);
   };
 
   const start = () => {
@@ -74,11 +111,16 @@ function buildInjectionSource(css) {
     state.observer = new MutationObserver((records) => {
       for (const record of records) {
         for (const node of record.addedNodes) {
-          if (node.nodeType === Node.ELEMENT_NODE) applyDirections(node);
+          applyDirectionsAround(node);
         }
+        if (record.type === "characterData") applyDirectionsAround(record.target);
       }
     });
-    state.observer.observe(document.documentElement, { childList: true, subtree: true });
+    state.observer.observe(document.documentElement, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
     return true;
   };
 
