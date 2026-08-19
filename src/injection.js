@@ -18,6 +18,7 @@ const AUTO_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown strong',
   '[data-message-role] .chat-markdown em',
   '[data-message-role] .chat-markdown a:not(.chat-markdown-file-link)',
+  '[data-message-role] .chat-markdown .chat-markdown-table-container',
   '[data-message-role] .chat-markdown th',
   '[data-message-role] .chat-markdown td',
 ].join(", ");
@@ -26,7 +27,6 @@ const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown code',
   '[data-message-role] .chat-markdown a.chat-markdown-file-link',
   '[data-message-role] .chat-markdown .chat-markdown-codeblock',
-  '[data-message-role] .chat-markdown .chat-markdown-table-container',
 ].join(", ");
 
 function buildInjectionSource(css) {

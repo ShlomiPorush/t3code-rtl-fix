@@ -77,6 +77,13 @@ async function run() {
       .chat-markdown li.task-list-item input { margin: 0 5px 2px -20px; }
       .chat-markdown blockquote { border-left: 2px solid var(--border); padding-left: 12px; }
       .chat-markdown div[role="note"] { border-left: 2px solid blue; padding-left: 12px; }
+      #table { width: 280px; }
+      #table-scroll { width: 100%; overflow-x: auto; }
+      .chat-markdown table { width: 100%; min-width: max-content; border-collapse: collapse; }
+      .chat-markdown th, .chat-markdown td { padding: 8px 12px; text-align: start; }
+      .chat-markdown-table-container[data-expanded="false"] th,
+      .chat-markdown-table-container[data-expanded="false"] td { white-space: nowrap; }
+      .chat-markdown-table-container[data-expanded="true"] td { overflow-wrap: anywhere; }
     </style>
     <div data-message-role="assistant">
       <div id="rtl-message" class="chat-markdown">
@@ -90,8 +97,13 @@ async function run() {
         <ul id="rtl-list"><li class="task-list-item"><input id="task-checkbox" type="checkbox">${rtlText}</li></ul>
         <blockquote id="rtl-quote">${rtlText}</blockquote>
         <div id="rtl-alert" role="note">${rtlText}</div>
-        <div id="table" class="chat-markdown-table-container">
-          <table><tbody><tr><td id="english-cell">Name</td><td id="rtl-cell">${rtlText}</td></tr></tbody></table>
+        <div id="table" class="chat-markdown-table-container" data-expanded="false">
+          <div id="table-scroll">
+            <table id="table-element">
+              <thead><tr><th>Number</th><th>${rtlText}</th><th>Details</th></tr></thead>
+              <tbody><tr><td id="english-cell">Name</td><td id="rtl-cell">${rtlText}</td><td>long-unbroken-table-content-that-needs-wrapping</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -118,6 +130,11 @@ async function run() {
       dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p id="dynamic-paragraph">${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
       document.body.appendChild(dynamicRow);
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
+      const tableContainer = document.getElementById("table");
+      const tableScroll = document.getElementById("table-scroll");
+      const tableElement = document.getElementById("table-element");
+      const collapsedTableOverflows = tableScroll.scrollWidth > tableScroll.clientWidth;
+      tableContainer.dataset.expanded = "true";
       setTimeout(() => {
         const style = (id) => getComputedStyle(document.getElementById(id));
         resolve({
@@ -152,6 +169,8 @@ async function run() {
           alertBorderLeft: style("rtl-alert").borderLeftWidth,
           alertBorderRight: style("rtl-alert").borderRightWidth,
           tableDir: document.getElementById("table").dir,
+          collapsedTableOverflows,
+          expandedTableFits: tableElement.getBoundingClientRect().width <= tableScroll.clientWidth + 1,
           englishCellDir: document.getElementById("english-cell").dir,
           rtlCellDir: document.getElementById("rtl-cell").dir,
           dynamicMessageDir: document.getElementById("dynamic-message").dir,
@@ -198,7 +217,9 @@ async function run() {
     quoteBorderRight: "2px",
     alertBorderLeft: "0px",
     alertBorderRight: "2px",
-    tableDir: "ltr",
+    tableDir: "rtl",
+    collapsedTableOverflows: true,
+    expandedTableFits: true,
     englishCellDir: "auto",
     rtlCellDir: "rtl",
     dynamicMessageDir: "rtl",

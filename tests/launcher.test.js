@@ -52,6 +52,7 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /\[data-message-role\] \.chat-markdown strong/);
   assert.match(source, /\[data-message-role\] \.chat-markdown em/);
   assert.match(source, /\.chat-markdown a:not\(\.chat-markdown-file-link\)/);
+  assert.match(source, /\.chat-markdown \.chat-markdown-table-container/);
   assert.match(source, /hasRtlProse/);
   assert.match(source, /hasRtlProse\(element\) \? "rtl" : "auto"/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
