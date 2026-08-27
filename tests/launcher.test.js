@@ -39,6 +39,12 @@ test("the stylesheet uses content-aware alignment and logical RTL layout", () =>
   assert.match(css, /padding-inline-start:/);
   assert.match(css, /border-inline-start:/);
   assert.match(css, /text-align:\s*start\s*!important/);
+  assert.match(css, /data-t3-rtl-plan-card/);
+  assert.match(
+    css,
+    /data-slot="collapsible-panel"[\s\S]*button[\s\S]*> :is\(kbd, svg:last-child\)[\s\S]*order:\s*-1/,
+  );
+  assert.doesNotMatch(css, /button\[dir=/);
   assert.doesNotMatch(css, /direction:\s*rtl\s*!important/);
 });
 
@@ -53,6 +59,11 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /\[data-message-role\] \.chat-markdown em/);
   assert.match(source, /\.chat-markdown a:not\(\.chat-markdown-file-link\)/);
   assert.match(source, /\.chat-markdown \.chat-markdown-table-container/);
+  assert.match(source, /data-pending-user-input-toggle/);
+  assert.match(source, /data-slot=\\"collapsible-panel\\"/);
+  assert.match(source, /data-t3-rtl-plan-card/);
+  assert.match(source, /Plan actions/);
+  assert.match(source, /markPlanCards/);
   assert.match(source, /hasRtlProse/);
   assert.match(source, /hasRtlProse\(element\) \? "rtl" : "auto"/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
