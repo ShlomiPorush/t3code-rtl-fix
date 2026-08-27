@@ -84,6 +84,13 @@ async function run() {
       .chat-markdown-table-container[data-expanded="false"] th,
       .chat-markdown-table-container[data-expanded="false"] td { white-space: nowrap; }
       .chat-markdown-table-container[data-expanded="true"] td { overflow-wrap: anywhere; }
+      .text-left { text-align: left; }
+      .flex { display: flex; }
+      .flex-1 { flex: 1 1 0%; }
+      .gap-3 { gap: 12px; }
+      .ml-auto { margin-left: auto; }
+      .w-full { width: 300px; }
+      .icon { width: 16px; height: 16px; }
     </style>
     <div data-message-role="assistant">
       <div id="rtl-message" class="chat-markdown">
@@ -118,6 +125,70 @@ async function run() {
     </div>
     <div data-message-role="assistant">
       <div class="chat-markdown"><p id="streamed-paragraph">pstack</p></div>
+    </div>
+    <div id="pending-card" data-slot="collapsible">
+      <button
+        id="pending-toggle"
+        class="flex w-full text-left"
+        data-slot="collapsible-trigger"
+        data-pending-user-input-toggle="expanded"
+      ><span>${rtlText}</span><span>3/3</span><svg id="pending-chevron" class="icon ml-auto"></svg></button>
+      <div data-slot="collapsible-panel">
+        <p id="pending-question">${rtlText} GitHub?</p>
+        <button id="pending-option" class="flex w-full gap-3 text-left">
+          <div id="pending-option-content" class="flex flex-1">
+            <span>${rtlText} Docker</span>
+          </div>
+          <kbd id="pending-shortcut">1</kbd>
+        </button>
+        <button id="pending-english-option" class="flex w-full gap-3 text-left">
+          <div id="pending-english-option-content" class="flex flex-1">
+            <span>Use the local fix</span>
+          </div>
+          <kbd id="pending-english-shortcut">2</kbd>
+        </button>
+        <button id="pending-selected-option" class="flex w-full gap-3 text-left">
+          <div id="pending-selected-option-content" class="flex flex-1">
+            <span>${rtlText} selected</span>
+          </div>
+          <kbd id="pending-selected-shortcut">3</kbd>
+        </button>
+        <button id="pending-english-selected-option" class="flex w-full gap-3 text-left">
+          <div id="pending-english-selected-option-content" class="flex flex-1">
+            <span>Selected English option</span>
+          </div>
+          <kbd id="pending-english-selected-shortcut">4</kbd>
+        </button>
+      </div>
+    </div>
+    <div id="plan-card">
+      <div class="flex">
+        <div class="flex flex-1"><span>Plan</span><p id="plan-title">${rtlText} RTL FIX</p></div>
+        <button aria-label="Plan actions">...</button>
+      </div>
+      <div>
+        <div id="plan-markdown" class="chat-markdown" dir="auto">
+          <h2 id="plan-heading">${rtlText}</h2>
+          <p id="plan-paragraph">${rtlText} <code>RTL FIX</code> ${rtlText}</p>
+          <ul><li id="plan-list-item"><code>dir=rtl</code> ${rtlText}</li></ul>
+        </div>
+      </div>
+    </div>
+    <div id="english-plan-card">
+      <div class="flex">
+        <div class="flex flex-1"><span>Plan</span><p id="english-plan-title">English plan</p></div>
+        <button aria-label="Plan actions">...</button>
+      </div>
+      <div>
+        <div id="english-plan-markdown" class="chat-markdown" dir="auto">
+          <h2 id="english-plan-heading">Summary</h2>
+          <p id="english-plan-paragraph">Keep the English layout unchanged.</p>
+        </div>
+      </div>
+    </div>
+    <div id="composer-chrome">
+      <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
+      <button>Submit answers</button>
     </div>`;
   await send("Runtime.evaluate", {
     expression: `document.body.innerHTML = ${JSON.stringify(fixtureHtml)}`,
@@ -129,6 +200,19 @@ async function run() {
       dynamicRow.setAttribute("data-message-role", "assistant");
       dynamicRow.innerHTML = '<div id="dynamic-message" class="chat-markdown"><p id="dynamic-paragraph">${rtlText}</p><pre><code id="dynamic-code">const value = 1;</code></pre></div>';
       document.body.appendChild(dynamicRow);
+      const dynamicPlanCard = document.createElement("div");
+      dynamicPlanCard.id = "dynamic-plan-card";
+      dynamicPlanCard.innerHTML = '<div><div><p id="dynamic-plan-title">${rtlText}</p></div><button aria-label="Plan actions">...</button></div><div><div id="dynamic-plan-markdown" class="chat-markdown" dir="auto"><p id="dynamic-plan-paragraph">${rtlText}</p></div></div>';
+      document.body.appendChild(dynamicPlanCard);
+      for (const [shortcutId, checkId] of [
+        ["pending-selected-shortcut", "pending-selected-check"],
+        ["pending-english-selected-shortcut", "pending-english-selected-check"],
+      ]) {
+        const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        check.id = checkId;
+        check.setAttribute("class", "icon");
+        document.getElementById(shortcutId).replaceWith(check);
+      }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
       const tableContainer = document.getElementById("table");
       const tableScroll = document.getElementById("table-scroll");
@@ -179,6 +263,73 @@ async function run() {
           dynamicCodeDir: document.getElementById("dynamic-code").dir,
           streamedParagraphDir: document.getElementById("streamed-paragraph").dir,
           streamedParagraphDirection: style("streamed-paragraph").direction,
+          pendingCardDir: document.getElementById("pending-card").dir,
+          pendingCardDirection: style("pending-card").direction,
+          pendingToggleDir: document.getElementById("pending-toggle").dir,
+          pendingToggleTextAlign: style("pending-toggle").textAlign,
+          pendingChevronAtFarEdge:
+            Math.abs(
+              document.getElementById("pending-chevron").getBoundingClientRect().left -
+                document.getElementById("pending-toggle").getBoundingClientRect().left,
+            ) <= 12,
+          pendingQuestionDir: document.getElementById("pending-question").dir,
+          pendingOptionDir: document.getElementById("pending-option").dir,
+          pendingOptionTextAlign: style("pending-option").textAlign,
+          pendingShortcutDir: document.getElementById("pending-shortcut").dir,
+          pendingShortcutAfterContent:
+            document.getElementById("pending-shortcut").getBoundingClientRect().left >=
+            document.getElementById("pending-option-content").getBoundingClientRect().right,
+          pendingEnglishOptionDir: document.getElementById("pending-english-option").dir,
+          pendingEnglishShortcutDir: document.getElementById("pending-english-shortcut").dir,
+          pendingEnglishShortcutBeforeContent:
+            document.getElementById("pending-english-shortcut").getBoundingClientRect().right <=
+            document
+              .getElementById("pending-english-option-content")
+              .getBoundingClientRect().left,
+          pendingSelectedOptionDir: document.getElementById("pending-selected-option").dir,
+          pendingSelectedOptionTextAlign: style("pending-selected-option").textAlign,
+          pendingSelectedCheckAfterContent:
+            document.getElementById("pending-selected-check").getBoundingClientRect().left >=
+            document
+              .getElementById("pending-selected-option-content")
+              .getBoundingClientRect().right,
+          pendingEnglishSelectedOptionDir: document.getElementById(
+            "pending-english-selected-option",
+          ).dir,
+          pendingEnglishSelectedOptionTextAlign: style(
+            "pending-english-selected-option",
+          ).textAlign,
+          pendingEnglishSelectedCheckBeforeContent:
+            document.getElementById("pending-english-selected-check").getBoundingClientRect()
+              .right <=
+            document
+              .getElementById("pending-english-selected-option-content")
+              .getBoundingClientRect().left,
+          planCardMarked: document.getElementById("plan-card").hasAttribute("data-t3-rtl-plan-card"),
+          planCardDir: document.getElementById("plan-card").dir,
+          planTitleDir: document.getElementById("plan-title").dir,
+          planTitleTextAlign: style("plan-title").textAlign,
+          planMarkdownDir: document.getElementById("plan-markdown").dir,
+          planHeadingDir: document.getElementById("plan-heading").dir,
+          planParagraphDir: document.getElementById("plan-paragraph").dir,
+          planListItemDir: document.getElementById("plan-list-item").dir,
+          englishPlanCardMarked: document
+            .getElementById("english-plan-card")
+            .hasAttribute("data-t3-rtl-plan-card"),
+          englishPlanCardDir: document.getElementById("english-plan-card").dir,
+          englishPlanTitleDir: document.getElementById("english-plan-title").dir,
+          englishPlanMarkdownDir: document.getElementById("english-plan-markdown").dir,
+          englishPlanHeadingDir: document.getElementById("english-plan-heading").dir,
+          englishPlanParagraphDir: document.getElementById("english-plan-paragraph").dir,
+          dynamicPlanCardMarked: document
+            .getElementById("dynamic-plan-card")
+            .hasAttribute("data-t3-rtl-plan-card"),
+          dynamicPlanCardDir: document.getElementById("dynamic-plan-card").dir,
+          dynamicPlanTitleDir: document.getElementById("dynamic-plan-title").dir,
+          dynamicPlanMarkdownDir: document.getElementById("dynamic-plan-markdown").dir,
+          dynamicPlanParagraphDir: document.getElementById("dynamic-plan-paragraph").dir,
+          pendingAnswerDir: document.getElementById("pending-answer").dir,
+          pendingAnswerDirection: style("pending-answer").direction,
         });
       }, 0);
     })`,
@@ -228,6 +379,46 @@ async function run() {
     dynamicCodeDir: "ltr",
     streamedParagraphDir: "rtl",
     streamedParagraphDirection: "rtl",
+    pendingCardDir: "rtl",
+    pendingCardDirection: "rtl",
+    pendingToggleDir: "rtl",
+    pendingToggleTextAlign: "start",
+    pendingChevronAtFarEdge: true,
+    pendingQuestionDir: "rtl",
+    pendingOptionDir: "rtl",
+    pendingOptionTextAlign: "start",
+    pendingShortcutDir: "ltr",
+    pendingShortcutAfterContent: true,
+    pendingEnglishOptionDir: "auto",
+    pendingEnglishShortcutDir: "ltr",
+    pendingEnglishShortcutBeforeContent: true,
+    pendingSelectedOptionDir: "rtl",
+    pendingSelectedOptionTextAlign: "start",
+    pendingSelectedCheckAfterContent: true,
+    pendingEnglishSelectedOptionDir: "auto",
+    pendingEnglishSelectedOptionTextAlign: "start",
+    pendingEnglishSelectedCheckBeforeContent: true,
+    planCardMarked: true,
+    planCardDir: "rtl",
+    planTitleDir: "rtl",
+    planTitleTextAlign: "start",
+    planMarkdownDir: "rtl",
+    planHeadingDir: "rtl",
+    planParagraphDir: "rtl",
+    planListItemDir: "rtl",
+    englishPlanCardMarked: true,
+    englishPlanCardDir: "auto",
+    englishPlanTitleDir: "auto",
+    englishPlanMarkdownDir: "auto",
+    englishPlanHeadingDir: "auto",
+    englishPlanParagraphDir: "auto",
+    dynamicPlanCardMarked: true,
+    dynamicPlanCardDir: "rtl",
+    dynamicPlanTitleDir: "rtl",
+    dynamicPlanMarkdownDir: "rtl",
+    dynamicPlanParagraphDir: "rtl",
+    pendingAnswerDir: "",
+    pendingAnswerDirection: "ltr",
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);

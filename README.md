@@ -16,6 +16,9 @@ need to open DevTools and paste CSS manually.
 - Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
   direction of their text.
+- Pending question cards align their content and option shortcuts without
+  changing English questions.
+- Proposed plan cards align their title and Markdown content independently.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
