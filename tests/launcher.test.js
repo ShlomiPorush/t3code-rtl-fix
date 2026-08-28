@@ -62,8 +62,12 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /data-pending-user-input-toggle/);
   assert.match(source, /data-slot=\\"collapsible-panel\\"/);
   assert.match(source, /data-t3-rtl-plan-card/);
+  assert.match(source, /data-t3-rtl-turn-plan/);
+  assert.match(source, /data-composer-tasks-badge/);
+  assert.match(source, /data-chat-composer-tasks-drawer/);
   assert.match(source, /Plan actions/);
   assert.match(source, /markPlanCards/);
+  assert.match(source, /markTurnPlans/);
   assert.match(source, /hasRtlProse/);
   assert.match(source, /hasRtlProse\(element\) \? "rtl" : "auto"/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);

@@ -19,6 +19,7 @@ need to open DevTools and paste CSS manually.
 - Pending question cards align their content and option shortcuts without
   changing English questions.
 - Proposed plan cards align their title and Markdown content independently.
+- Plan progress and composer task controls follow the direction of their steps.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 

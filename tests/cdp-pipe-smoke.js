@@ -186,6 +186,48 @@ async function run() {
         </div>
       </div>
     </div>
+    <div id="rtl-turn-plan" class="min-w-0 px-1 py-0.5">
+      <button id="rtl-turn-plan-toggle" class="flex w-full text-left" aria-expanded="false">
+        <svg id="rtl-turn-plan-chevron" class="icon"></svg>
+        <span aria-hidden class="flex"><span></span><span></span></span>
+        <span id="rtl-turn-plan-label" class="min-w-0 truncate">${rtlText}</span>
+        <span id="rtl-turn-plan-count" class="shrink-0 tabular-nums">0/3</span>
+      </button>
+      <div class="mt-0.5 space-y-px pl-6">
+        <div id="rtl-turn-plan-step" class="flex items-baseline"><span>○</span><span>${rtlText}</span></div>
+      </div>
+    </div>
+    <div id="rtl-expanded-turn-plan" class="min-w-0 px-1 py-0.5">
+      <button class="flex w-full text-left" aria-expanded="true">
+        <svg id="rtl-expanded-turn-plan-chevron" class="icon"></svg>
+        <span id="rtl-expanded-turn-plan-label" class="min-w-0 truncate">${rtlText}</span>
+        <span class="shrink-0 tabular-nums">1/3</span>
+      </button>
+    </div>
+    <div id="english-turn-plan" class="min-w-0 px-1 py-0.5">
+      <button id="english-turn-plan-toggle" class="flex w-full text-left" aria-expanded="false">
+        <svg id="english-turn-plan-chevron" class="icon"></svg>
+        <span aria-hidden class="flex"><span></span><span></span></span>
+        <span id="english-turn-plan-label" class="min-w-0 truncate">Implement the plan</span>
+        <span class="shrink-0 tabular-nums">1/3</span>
+      </button>
+    </div>
+    <div id="rtl-composer-tasks" class="chat-composer-tasks-tab flex" data-composer-tasks-badge="true">
+      <button id="rtl-composer-tasks-toggle" class="flex min-w-0 flex-1 text-left" aria-expanded="false" aria-label="Tasks: 0 of 3 complete">
+        <svg class="icon"></svg><span>Tasks</span>
+        <span id="rtl-composer-task-current" class="min-w-0 flex-1 truncate text-left" data-composer-task-current="true">${rtlText}</span>
+        <span class="tabular-nums">0/3</span><span aria-hidden class="flex"></span>
+      </button>
+      <button aria-label="Dismiss tasks for this turn"><svg class="icon"></svg></button>
+    </div>
+    <div id="english-composer-tasks" class="chat-composer-tasks-tab flex" data-composer-tasks-badge="true">
+      <button id="english-composer-tasks-toggle" class="flex min-w-0 flex-1 text-left" aria-expanded="false" aria-label="Tasks: 1 of 3 complete">
+        <svg class="icon"></svg><span>Tasks</span>
+        <span id="english-composer-task-current" class="min-w-0 flex-1 truncate text-left" data-composer-task-current="true">Implement the plan</span>
+        <span class="tabular-nums">1/3</span><span aria-hidden class="flex"></span>
+      </button>
+      <button aria-label="Dismiss tasks for this turn"><svg class="icon"></svg></button>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -328,6 +370,41 @@ async function run() {
           dynamicPlanTitleDir: document.getElementById("dynamic-plan-title").dir,
           dynamicPlanMarkdownDir: document.getElementById("dynamic-plan-markdown").dir,
           dynamicPlanParagraphDir: document.getElementById("dynamic-plan-paragraph").dir,
+          rtlTurnPlanMarked: document
+            .getElementById("rtl-turn-plan")
+            .hasAttribute("data-t3-rtl-turn-plan"),
+          rtlTurnPlanDir: document.getElementById("rtl-turn-plan").dir,
+          rtlTurnPlanToggleDir: document.getElementById("rtl-turn-plan-toggle").dir,
+          rtlTurnPlanToggleTextAlign: style("rtl-turn-plan-toggle").textAlign,
+          rtlTurnPlanChevronOppositeLabel:
+            document.getElementById("rtl-turn-plan-chevron").getBoundingClientRect().right <=
+            document.getElementById("rtl-turn-plan-count").getBoundingClientRect().left,
+          rtlCollapsedTurnPlanChevronTransform: style("rtl-turn-plan-chevron").transform,
+          rtlExpandedTurnPlanChevronTransform: style(
+            "rtl-expanded-turn-plan-chevron",
+          ).transform,
+          rtlTurnPlanStepDir: document.getElementById("rtl-turn-plan-step").dir,
+          rtlTurnPlanExpandedPaddingLeft: getComputedStyle(
+            document.getElementById("rtl-turn-plan-step").parentElement,
+          ).paddingLeft,
+          englishTurnPlanMarked: document
+            .getElementById("english-turn-plan")
+            .hasAttribute("data-t3-rtl-turn-plan"),
+          englishTurnPlanDir: document.getElementById("english-turn-plan").dir,
+          englishTurnPlanToggleDir: document.getElementById("english-turn-plan-toggle").dir,
+          englishTurnPlanChevronBeforeLabel:
+            document.getElementById("english-turn-plan-chevron").getBoundingClientRect().right <=
+            document.getElementById("english-turn-plan-label").getBoundingClientRect().left,
+          englishCollapsedTurnPlanChevronTransform: style(
+            "english-turn-plan-chevron",
+          ).transform,
+          rtlComposerTasksDir: document.getElementById("rtl-composer-tasks").dir,
+          rtlComposerTasksToggleDir: document.getElementById("rtl-composer-tasks-toggle").dir,
+          rtlComposerTaskCurrentDir: document.getElementById("rtl-composer-task-current").dir,
+          rtlComposerTaskCurrentTextAlign: style("rtl-composer-task-current").textAlign,
+          englishComposerTasksDir: document.getElementById("english-composer-tasks").dir,
+          englishComposerTasksToggleDir: document.getElementById("english-composer-tasks-toggle").dir,
+          englishComposerTaskCurrentDir: document.getElementById("english-composer-task-current").dir,
           pendingAnswerDir: document.getElementById("pending-answer").dir,
           pendingAnswerDirection: style("pending-answer").direction,
         });
@@ -417,6 +494,27 @@ async function run() {
     dynamicPlanTitleDir: "rtl",
     dynamicPlanMarkdownDir: "rtl",
     dynamicPlanParagraphDir: "rtl",
+    rtlTurnPlanMarked: true,
+    rtlTurnPlanDir: "rtl",
+    rtlTurnPlanToggleDir: "rtl",
+    rtlTurnPlanToggleTextAlign: "start",
+    rtlTurnPlanChevronOppositeLabel: true,
+    rtlCollapsedTurnPlanChevronTransform: "matrix(-1, 0, 0, 1, 0, 0)",
+    rtlExpandedTurnPlanChevronTransform: "none",
+    rtlTurnPlanStepDir: "rtl",
+    rtlTurnPlanExpandedPaddingLeft: "0px",
+    englishTurnPlanMarked: true,
+    englishTurnPlanDir: "auto",
+    englishTurnPlanToggleDir: "auto",
+    englishTurnPlanChevronBeforeLabel: true,
+    englishCollapsedTurnPlanChevronTransform: "none",
+    rtlComposerTasksDir: "rtl",
+    rtlComposerTasksToggleDir: "rtl",
+    rtlComposerTaskCurrentDir: "rtl",
+    rtlComposerTaskCurrentTextAlign: "start",
+    englishComposerTasksDir: "auto",
+    englishComposerTasksToggleDir: "auto",
+    englishComposerTaskCurrentDir: "auto",
     pendingAnswerDir: "",
     pendingAnswerDirection: "ltr",
   };
