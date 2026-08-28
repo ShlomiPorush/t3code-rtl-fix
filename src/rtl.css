@@ -125,3 +125,32 @@
 [data-t3-rtl-plan-card] > div:first-child p {
   text-align: start !important;
 }
+
+[data-t3-rtl-turn-plan],
+[data-t3-rtl-turn-plan] > button,
+[data-t3-rtl-turn-plan] > div,
+[data-t3-rtl-turn-plan] > div > div,
+:is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"]),
+:is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"])
+  button,
+:is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"])
+  [data-composer-task-current],
+:is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"])
+  [role="listitem"] {
+  text-align: start !important;
+}
+
+[data-t3-rtl-turn-plan] > div {
+  padding-left: 0 !important;
+  padding-inline-start: 1.5rem !important;
+}
+
+[data-t3-rtl-turn-plan][dir="rtl"] > button > svg:first-child {
+  order: 1;
+}
+
+[data-t3-rtl-turn-plan][dir="rtl"]
+  > button[aria-expanded="false"]
+  > svg:first-child {
+  transform: scaleX(-1);
+}

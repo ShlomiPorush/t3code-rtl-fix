@@ -3,8 +3,12 @@
 const FIX_ID = "t3-rtl-fix";
 const STATE_KEY = "__t3RtlFixState";
 const PLAN_CARD_MARKER = "data-t3-rtl-plan-card";
+const TURN_PLAN_MARKER = "data-t3-rtl-turn-plan";
 const PLAN_ACTION_SELECTOR = '[aria-label="Plan actions"]';
 const PLAN_CARD_SELECTOR = `[${PLAN_CARD_MARKER}]`;
+const TURN_PLAN_SELECTOR = `[${TURN_PLAN_MARKER}]`;
+const COMPOSER_TASK_ROOT_SELECTOR =
+  ':is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"])';
 const MARKDOWN_ROOT_SELECTOR =
   `:is([data-message-role], ${PLAN_CARD_SELECTOR}) .chat-markdown`;
 const PENDING_USER_INPUT_ROOT_SELECTOR =
@@ -13,6 +17,8 @@ const DIRECTION_ROOT_SELECTOR = [
   MARKDOWN_ROOT_SELECTOR,
   PENDING_USER_INPUT_ROOT_SELECTOR,
   PLAN_CARD_SELECTOR,
+  TURN_PLAN_SELECTOR,
+  COMPOSER_TASK_ROOT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const AUTO_DIRECTION_SELECTOR = [
@@ -54,6 +60,14 @@ const AUTO_DIRECTION_SELECTOR = [
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-pending-user-input-toggle]`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-slot="collapsible-panel"] p`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-slot="collapsible-panel"] button`,
+  TURN_PLAN_SELECTOR,
+  `${TURN_PLAN_SELECTOR} > button[aria-expanded]`,
+  `${TURN_PLAN_SELECTOR} > div`,
+  `${TURN_PLAN_SELECTOR} > div > div`,
+  COMPOSER_TASK_ROOT_SELECTOR,
+  `${COMPOSER_TASK_ROOT_SELECTOR} button[aria-expanded]`,
+  `${COMPOSER_TASK_ROOT_SELECTOR} [data-composer-task-current]`,
+  `${COMPOSER_TASK_ROOT_SELECTOR} [role="listitem"]`,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
@@ -73,7 +87,9 @@ function buildInjectionSource(css) {
   const stateKey = ${JSON.stringify(STATE_KEY)};
   const css = ${JSON.stringify(css)};
   const planCardMarker = ${JSON.stringify(PLAN_CARD_MARKER)};
+  const turnPlanMarker = ${JSON.stringify(TURN_PLAN_MARKER)};
   const planActionSelector = ${JSON.stringify(PLAN_ACTION_SELECTOR)};
+  const composerTaskRootSelector = ${JSON.stringify(COMPOSER_TASK_ROOT_SELECTOR)};
   const directionRootSelector = ${JSON.stringify(DIRECTION_ROOT_SELECTOR)};
   const rtlTextPattern = new RegExp(${JSON.stringify(RTL_TEXT_PATTERN.source)}, "u");
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
@@ -130,6 +146,25 @@ function buildInjectionSource(css) {
     }
   };
 
+  const markTurnPlans = (root) => {
+    const toggles = [];
+    const selector = 'button[aria-expanded]';
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(selector)) toggles.push(root);
+    if (typeof root.querySelectorAll === "function") {
+      toggles.push(...root.querySelectorAll(selector));
+    }
+    for (const toggle of toggles) {
+      if (toggle.closest(composerTaskRootSelector)) continue;
+      const count = Array.from(toggle.children).find(
+        (child) =>
+          child.matches?.("span.tabular-nums") &&
+          /^\\s*\\d+\\s*\\/\\s*\\d+\\s*$/.test(child.textContent ?? ""),
+      );
+      if (!count) continue;
+      toggle.parentElement?.setAttribute(turnPlanMarker, "");
+    }
+  };
+
   const hasRtlProse = (element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -153,6 +188,7 @@ function buildInjectionSource(css) {
 
   const applyDirections = (root) => {
     markPlanCards(root);
+    markTurnPlans(root);
     setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
   };
