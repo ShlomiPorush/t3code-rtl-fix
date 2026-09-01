@@ -126,6 +126,16 @@ async function run() {
     <div data-message-role="assistant">
       <div class="chat-markdown"><p id="streamed-paragraph">pstack</p></div>
     </div>
+    <div data-pull-request-summary-scroll>
+      <section data-pull-request-summary-section>
+        <div id="pull-request-markdown" class="chat-markdown">
+          <h2 id="pull-request-heading">${rtlText}</h2>
+          <p id="pull-request-paragraph">session-transfer ${rtlText}</p>
+          <p id="pull-request-english-paragraph">English pull request text.</p>
+          <ul><li id="pull-request-list-item"><code>npm test</code> ${rtlText}</li></ul>
+        </div>
+      </section>
+    </div>
     <div id="pending-card" data-slot="collapsible">
       <button
         id="pending-toggle"
@@ -305,6 +315,15 @@ async function run() {
           dynamicCodeDir: document.getElementById("dynamic-code").dir,
           streamedParagraphDir: document.getElementById("streamed-paragraph").dir,
           streamedParagraphDirection: style("streamed-paragraph").direction,
+          pullRequestMarkdownDir: document.getElementById("pull-request-markdown").dir,
+          pullRequestMarkdownDirection: style("pull-request-markdown").direction,
+          pullRequestHeadingDir: document.getElementById("pull-request-heading").dir,
+          pullRequestParagraphDir: document.getElementById("pull-request-paragraph").dir,
+          pullRequestEnglishParagraphDir: document.getElementById(
+            "pull-request-english-paragraph",
+          ).dir,
+          pullRequestListItemDir: document.getElementById("pull-request-list-item").dir,
+          pullRequestCodeDir: document.querySelector("#pull-request-list-item code").dir,
           pendingCardDir: document.getElementById("pending-card").dir,
           pendingCardDirection: style("pending-card").direction,
           pendingToggleDir: document.getElementById("pending-toggle").dir,
@@ -456,6 +475,13 @@ async function run() {
     dynamicCodeDir: "ltr",
     streamedParagraphDir: "rtl",
     streamedParagraphDirection: "rtl",
+    pullRequestMarkdownDir: "rtl",
+    pullRequestMarkdownDirection: "rtl",
+    pullRequestHeadingDir: "rtl",
+    pullRequestParagraphDir: "rtl",
+    pullRequestEnglishParagraphDir: "auto",
+    pullRequestListItemDir: "rtl",
+    pullRequestCodeDir: "ltr",
     pendingCardDir: "rtl",
     pendingCardDirection: "rtl",
     pendingToggleDir: "rtl",

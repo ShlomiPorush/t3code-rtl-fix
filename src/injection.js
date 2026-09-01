@@ -7,6 +7,8 @@ const TURN_PLAN_MARKER = "data-t3-rtl-turn-plan";
 const PLAN_ACTION_SELECTOR = '[aria-label="Plan actions"]';
 const PLAN_CARD_SELECTOR = `[${PLAN_CARD_MARKER}]`;
 const TURN_PLAN_SELECTOR = `[${TURN_PLAN_MARKER}]`;
+const PULL_REQUEST_MARKDOWN_ROOT_SELECTOR =
+  '[data-pull-request-summary-scroll] .chat-markdown';
 const COMPOSER_TASK_ROOT_SELECTOR =
   ':is([data-composer-tasks-badge="true"], [data-chat-composer-tasks-drawer="true"])';
 const MARKDOWN_ROOT_SELECTOR =
@@ -15,6 +17,7 @@ const PENDING_USER_INPUT_ROOT_SELECTOR =
   '[data-slot="collapsible"]:has([data-pending-user-input-toggle])';
 const DIRECTION_ROOT_SELECTOR = [
   MARKDOWN_ROOT_SELECTOR,
+  PULL_REQUEST_MARKDOWN_ROOT_SELECTOR,
   PENDING_USER_INPUT_ROOT_SELECTOR,
   PLAN_CARD_SELECTOR,
   TURN_PLAN_SELECTOR,
@@ -56,6 +59,22 @@ const AUTO_DIRECTION_SELECTOR = [
   `${PLAN_CARD_SELECTOR} .chat-markdown .chat-markdown-table-container`,
   `${PLAN_CARD_SELECTOR} .chat-markdown th`,
   `${PLAN_CARD_SELECTOR} .chat-markdown td`,
+  PULL_REQUEST_MARKDOWN_ROOT_SELECTOR,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} p`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h1`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h2`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h3`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h4`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h5`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h6`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} blockquote`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} li`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} strong`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} em`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} a:not(.chat-markdown-file-link)`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} th`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} td`,
   PENDING_USER_INPUT_ROOT_SELECTOR,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-pending-user-input-toggle]`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-slot="collapsible-panel"] p`,
@@ -78,6 +97,10 @@ const LTR_DIRECTION_SELECTOR = [
   `${PLAN_CARD_SELECTOR} .chat-markdown code`,
   `${PLAN_CARD_SELECTOR} .chat-markdown a.chat-markdown-file-link`,
   `${PLAN_CARD_SELECTOR} .chat-markdown .chat-markdown-codeblock`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} pre`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} code`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
+  `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} kbd`,
 ].join(", ");
 

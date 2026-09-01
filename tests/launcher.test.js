@@ -76,6 +76,15 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /body \{ color: red; \}/);
 });
 
+test("pull request markdown receives content-aware direction", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(css, /data-pull-request-summary-scroll[\s\S]*\.chat-markdown/);
+  assert.match(source, /\[data-pull-request-summary-scroll\] \.chat-markdown p/);
+  assert.match(source, /\[data-pull-request-summary-scroll\] \.chat-markdown code/);
+});
+
 test("every shipped source file contains only English UI text", () => {
   const files = [
     "README.md",
