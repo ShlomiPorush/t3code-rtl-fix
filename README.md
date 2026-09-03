@@ -21,6 +21,7 @@ need to open DevTools and paste CSS manually.
 - Proposed plan cards align their title and Markdown content independently.
 - Plan progress and composer task controls follow the direction of their steps.
 - Pull request descriptions and comments follow the direction of each Markdown block.
+- Rendered Markdown file previews follow the direction of each content block.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 

@@ -136,6 +136,18 @@ async function run() {
         </div>
       </section>
     </div>
+    <div data-preview-panel-mode="panel">
+      <button aria-label="Show markdown source"></button>
+      <div id="file-markdown" class="chat-markdown">
+        <h2 id="file-markdown-heading">${rtlText}</h2>
+        <p id="file-markdown-paragraph">Docker ${rtlText}</p>
+        <p id="file-markdown-english-paragraph">English file documentation.</p>
+        <div id="file-markdown-table" class="chat-markdown-table-container">
+          <table><tbody><tr><td id="file-markdown-rtl-cell">${rtlText}</td></tr></tbody></table>
+        </div>
+        <pre><code id="file-markdown-code">npm test</code></pre>
+      </div>
+    </div>
     <div id="pending-card" data-slot="collapsible">
       <button
         id="pending-toggle"
@@ -324,6 +336,16 @@ async function run() {
           ).dir,
           pullRequestListItemDir: document.getElementById("pull-request-list-item").dir,
           pullRequestCodeDir: document.querySelector("#pull-request-list-item code").dir,
+          fileMarkdownDir: document.getElementById("file-markdown").dir,
+          fileMarkdownDirection: style("file-markdown").direction,
+          fileMarkdownHeadingDir: document.getElementById("file-markdown-heading").dir,
+          fileMarkdownParagraphDir: document.getElementById("file-markdown-paragraph").dir,
+          fileMarkdownEnglishParagraphDir: document.getElementById(
+            "file-markdown-english-paragraph",
+          ).dir,
+          fileMarkdownTableDir: document.getElementById("file-markdown-table").dir,
+          fileMarkdownRtlCellDir: document.getElementById("file-markdown-rtl-cell").dir,
+          fileMarkdownCodeDir: document.getElementById("file-markdown-code").dir,
           pendingCardDir: document.getElementById("pending-card").dir,
           pendingCardDirection: style("pending-card").direction,
           pendingToggleDir: document.getElementById("pending-toggle").dir,
@@ -482,6 +504,14 @@ async function run() {
     pullRequestEnglishParagraphDir: "auto",
     pullRequestListItemDir: "rtl",
     pullRequestCodeDir: "ltr",
+    fileMarkdownDir: "rtl",
+    fileMarkdownDirection: "rtl",
+    fileMarkdownHeadingDir: "rtl",
+    fileMarkdownParagraphDir: "rtl",
+    fileMarkdownEnglishParagraphDir: "auto",
+    fileMarkdownTableDir: "rtl",
+    fileMarkdownRtlCellDir: "rtl",
+    fileMarkdownCodeDir: "ltr",
     pendingCardDir: "rtl",
     pendingCardDirection: "rtl",
     pendingToggleDir: "rtl",

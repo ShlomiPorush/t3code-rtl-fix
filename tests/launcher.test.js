@@ -85,6 +85,21 @@ test("pull request markdown receives content-aware direction", () => {
   assert.match(source, /\[data-pull-request-summary-scroll\] \.chat-markdown code/);
 });
 
+test("rendered markdown files receive content-aware direction", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(css, /data-preview-panel-mode[\s\S]*Show markdown source[\s\S]*\.chat-markdown/);
+  assert.match(
+    source,
+    /\[data-preview-panel-mode\]:has\(\[aria-label=\\"Show markdown source\\"\]\) \.chat-markdown p/,
+  );
+  assert.match(
+    source,
+    /\[data-preview-panel-mode\]:has\(\[aria-label=\\"Show markdown source\\"\]\) \.chat-markdown code/,
+  );
+});
+
 test("every shipped source file contains only English UI text", () => {
   const files = [
     "README.md",

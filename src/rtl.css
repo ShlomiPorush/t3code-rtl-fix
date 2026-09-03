@@ -1,34 +1,34 @@
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown p,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h1,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h2,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h3,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h4,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h5,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown h6,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown blockquote,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown li {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown p,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h1,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h2,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h3,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h4,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h5,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown h6,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown blockquote,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown li {
   text-align: start !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown strong,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown em,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll])
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown strong,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown em,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]))
   .chat-markdown
   a:not(.chat-markdown-file-link) {
   unicode-bidi: isolate;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown pre,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown code,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown a.chat-markdown-file-link,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown .chat-markdown-codeblock {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown pre,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown code,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown a.chat-markdown-file-link,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown .chat-markdown-codeblock {
   direction: ltr !important;
   text-align: left !important;
   unicode-bidi: isolate;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll])
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]))
   .chat-markdown
   .chat-markdown-table-container[data-expanded="true"]
   table {
@@ -37,7 +37,7 @@
   table-layout: fixed;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll])
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]))
   .chat-markdown
   .chat-markdown-table-container[data-expanded="true"]
   :is(th, td) {
@@ -46,17 +46,17 @@
   white-space: normal !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown ul {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown ul {
   padding-left: 0 !important;
   padding-inline-start: 1.25rem !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown ol {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown ol {
   padding-left: 0 !important;
   padding-inline-start: var(--list-gutter, 1.25rem) !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll])
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]))
   .chat-markdown
   li.task-list-item
   input[type="checkbox"] {
@@ -64,14 +64,14 @@
   margin-inline: calc(-1 * var(--list-gutter, 1.25rem)) 0.35em !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown blockquote {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown blockquote {
   border-left: 0 !important;
   border-inline-start: 2px solid var(--border) !important;
   padding-left: 0 !important;
   padding-inline-start: 0.8rem !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll])
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]))
   .chat-markdown
   section[data-footnotes]
   ol {
@@ -79,7 +79,7 @@
   padding-inline-start: 1.25rem !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown div[role="note"] {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown div[role="note"] {
   border-left-style: none !important;
   border-left-width: 0 !important;
   border-inline-start-style: solid !important;
@@ -88,8 +88,8 @@
   padding-inline-start: 0.75rem !important;
 }
 
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown th,
-:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll]) .chat-markdown td {
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown th,
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"])) .chat-markdown td {
   text-align: start !important;
 }
 
