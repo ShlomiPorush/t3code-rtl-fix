@@ -154,3 +154,24 @@
   > svg:first-child {
   transform: scaleX(-1);
 }
+
+/* The injected script gives this box a dir="auto" attribute, so each comment
+   resolves its own direction from what the user typed, and plaintext keeps
+   every line of a multi-line comment on its own side. The two belong together:
+   plaintext without that attribute leaves a long right-to-left line overflowing
+   past the start edge with no way to scroll back to it. */
+[data-citation-comment-editor="true"] textarea {
+  text-align: start !important;
+  unicode-bidi: plaintext;
+}
+
+/* Mirror the Cancel and Save row while the comment reads right to left. The
+   row is the only child element besides the box and its character counter. */
+[data-citation-comment-editor="true"]:has(textarea:dir(rtl)) > div {
+  flex-direction: row-reverse;
+}
+
+[data-assistant-citation-chip="true"] button {
+  margin-left: 0 !important;
+  margin-inline-start: 0.17em !important;
+}
