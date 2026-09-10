@@ -48,6 +48,20 @@ test("the stylesheet uses content-aware alignment and logical RTL layout", () =>
   assert.doesNotMatch(css, /direction:\s*rtl\s*!important/);
 });
 
+test("quoted text comments follow the direction of the typed comment", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(css, /\[data-citation-comment-editor="true"\] textarea[\s\S]*unicode-bidi: plaintext/);
+  assert.match(
+    css,
+    /\[data-citation-comment-editor="true"\]:has\(textarea:dir\(rtl\)\) > div[\s\S]*flex-direction: row-reverse/,
+  );
+  assert.match(css, /\[data-assistant-citation-chip="true"\] button[\s\S]*margin-inline-start:/);
+  assert.match(source, /\[data-citation-comment-editor=\\"true\\"\] textarea/);
+  assert.match(source, /\[data-assistant-citation-chip=\\"true\\"\] a > span/);
+});
+
 test("the injected script auto-directs messages and observes new content", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[data-message-role\] \.chat-markdown/);
@@ -69,7 +83,7 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /markPlanCards/);
   assert.match(source, /markTurnPlans/);
   assert.match(source, /hasRtlProse/);
-  assert.match(source, /hasRtlProse\(element\) \? "rtl" : "auto"/);
+  assert.match(source, /!editable && hasRtlProse\(element\) \? "rtl" : "auto"/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
   assert.match(source, /characterData: true/);
   assert.match(source, /new MutationObserver/);

@@ -85,6 +85,10 @@ async function run() {
       .chat-markdown-table-container[data-expanded="false"] td { white-space: nowrap; }
       .chat-markdown-table-container[data-expanded="true"] td { overflow-wrap: anywhere; }
       .text-left { text-align: left; }
+      .justify-end { justify-content: flex-end; }
+      .chip-button { margin-left: 3px; }
+      #citation-comment-editor, #english-citation-comment-editor { width: 280px; }
+      [data-citation-comment-editor] textarea { width: 100%; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
       .gap-3 { gap: 12px; }
@@ -250,6 +254,29 @@ async function run() {
       </button>
       <button aria-label="Dismiss tasks for this turn"><svg class="icon"></svg></button>
     </div>
+    <div id="citation-comment-editor" data-citation-comment-editor="true">
+      <textarea id="citation-comment-input" aria-label="Comment on selected text" placeholder="Add an optional comment..."></textarea>
+      <p id="citation-comment-status" role="status">Comments can contain up to 4,000 characters.</p>
+      <div id="citation-comment-actions" class="flex items-center justify-end gap-3">
+        <button id="citation-comment-cancel">Cancel</button>
+        <button id="citation-comment-save">Save</button>
+      </div>
+    </div>
+    <div id="english-citation-comment-editor" data-citation-comment-editor="true">
+      <textarea id="english-citation-comment-input" aria-label="Comment on selected text"></textarea>
+      <div id="english-citation-comment-actions" class="flex items-center justify-end gap-3">
+        <button id="english-citation-comment-cancel">Cancel</button>
+        <button id="english-citation-comment-save">Save</button>
+      </div>
+    </div>
+    <span id="rtl-citation-chip" class="flex" data-assistant-citation-chip="true">
+      <a id="rtl-citation-chip-link"><svg class="icon"></svg><span id="rtl-citation-chip-label">${rtlText}</span></a>
+      <button id="rtl-citation-chip-edit" class="chip-button" aria-label="Edit citation comment"><svg class="icon"></svg></button>
+    </span>
+    <span id="english-citation-chip" class="flex" data-assistant-citation-chip="true">
+      <a id="english-citation-chip-link"><svg class="icon"></svg><span id="english-citation-chip-label">Cite this line</span></a>
+      <button id="english-citation-chip-edit" class="chip-button" aria-label="Edit citation comment"><svg class="icon"></svg></button>
+    </span>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -278,6 +305,19 @@ async function run() {
         document.getElementById(shortcutId).replaceWith(check);
       }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
+      const dynamicCommentEditor = document.createElement("div");
+      dynamicCommentEditor.id = "dynamic-citation-comment-editor";
+      dynamicCommentEditor.setAttribute("data-citation-comment-editor", "true");
+      dynamicCommentEditor.innerHTML = '<textarea id="dynamic-citation-comment-input" aria-label="Comment on selected text"></textarea>';
+      document.body.appendChild(dynamicCommentEditor);
+      // The popup opens empty and the user types into it, so the comment
+      // direction has to follow the value rather than the initial markup.
+      const commentInput = document.getElementById("citation-comment-input");
+      commentInput.value = ${JSON.stringify(rtlText)};
+      commentInput.dispatchEvent(new Event("input", { bubbles: true }));
+      const englishCommentInput = document.getElementById("english-citation-comment-input");
+      englishCommentInput.value = "Rename this option.";
+      englishCommentInput.dispatchEvent(new Event("input", { bubbles: true }));
       const tableContainer = document.getElementById("table");
       const tableScroll = document.getElementById("table-scroll");
       const tableElement = document.getElementById("table-element");
@@ -448,6 +488,51 @@ async function run() {
           englishComposerTaskCurrentDir: document.getElementById("english-composer-task-current").dir,
           pendingAnswerDir: document.getElementById("pending-answer").dir,
           pendingAnswerDirection: style("pending-answer").direction,
+          citationCommentInputDir: document.getElementById("citation-comment-input").dir,
+          citationCommentInputDirection: style("citation-comment-input").direction,
+          citationCommentInputTextAlign: style("citation-comment-input").textAlign,
+          citationCommentInputUnicodeBidi: style("citation-comment-input").unicodeBidi,
+          citationCommentEditorDirection: style("citation-comment-editor").direction,
+          citationCommentStatusDir: document.getElementById("citation-comment-status").dir,
+          citationCommentStatusTextAlign: style("citation-comment-status").textAlign,
+          citationCommentSaveBeforeCancel:
+            document.getElementById("citation-comment-save").getBoundingClientRect().right <=
+            document.getElementById("citation-comment-cancel").getBoundingClientRect().left,
+          citationCommentActionsAtStart:
+            Math.abs(
+              document.getElementById("citation-comment-save").getBoundingClientRect().left -
+                document.getElementById("citation-comment-actions").getBoundingClientRect().left,
+            ) <= 1,
+          englishCitationCommentInputDir: document.getElementById(
+            "english-citation-comment-input",
+          ).dir,
+          englishCitationCommentInputDirection: style("english-citation-comment-input").direction,
+          englishCitationCommentEditorDirection: style("english-citation-comment-editor").direction,
+          englishCitationCommentCancelBeforeSave:
+            document.getElementById("english-citation-comment-cancel").getBoundingClientRect()
+              .right <=
+            document.getElementById("english-citation-comment-save").getBoundingClientRect().left,
+          dynamicCitationCommentInputDir: document.getElementById(
+            "dynamic-citation-comment-input",
+          ).dir,
+          rtlCitationChipDir: document.getElementById("rtl-citation-chip").dir,
+          rtlCitationChipDirection: style("rtl-citation-chip").direction,
+          rtlCitationChipLabelDir: document.getElementById("rtl-citation-chip-label").dir,
+          rtlCitationChipEditMarginLeft: style("rtl-citation-chip-edit").marginLeft,
+          rtlCitationChipEditMarginRightApplied:
+            parseFloat(style("rtl-citation-chip-edit").marginRight) > 0,
+          rtlCitationChipEditAfterLabel:
+            document.getElementById("rtl-citation-chip-edit").getBoundingClientRect().right <=
+            document.getElementById("rtl-citation-chip-link").getBoundingClientRect().left,
+          englishCitationChipDir: document.getElementById("english-citation-chip").dir,
+          englishCitationChipDirection: style("english-citation-chip").direction,
+          englishCitationChipLabelDir: document.getElementById("english-citation-chip-label").dir,
+          englishCitationChipEditMarginLeftApplied:
+            parseFloat(style("english-citation-chip-edit").marginLeft) > 0,
+          englishCitationChipEditMarginRight: style("english-citation-chip-edit").marginRight,
+          englishCitationChipEditAfterLabel:
+            document.getElementById("english-citation-chip-edit").getBoundingClientRect().left >=
+            document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
         });
       }, 0);
     })`,
@@ -573,6 +658,32 @@ async function run() {
     englishComposerTaskCurrentDir: "auto",
     pendingAnswerDir: "",
     pendingAnswerDirection: "ltr",
+    citationCommentInputDir: "auto",
+    citationCommentInputDirection: "rtl",
+    citationCommentInputTextAlign: "start",
+    citationCommentInputUnicodeBidi: "plaintext",
+    citationCommentEditorDirection: "ltr",
+    citationCommentStatusDir: "",
+    citationCommentStatusTextAlign: "start",
+    citationCommentSaveBeforeCancel: true,
+    citationCommentActionsAtStart: true,
+    englishCitationCommentInputDir: "auto",
+    englishCitationCommentInputDirection: "ltr",
+    englishCitationCommentEditorDirection: "ltr",
+    englishCitationCommentCancelBeforeSave: true,
+    dynamicCitationCommentInputDir: "auto",
+    rtlCitationChipDir: "rtl",
+    rtlCitationChipDirection: "rtl",
+    rtlCitationChipLabelDir: "rtl",
+    rtlCitationChipEditMarginLeft: "0px",
+    rtlCitationChipEditMarginRightApplied: true,
+    rtlCitationChipEditAfterLabel: true,
+    englishCitationChipDir: "auto",
+    englishCitationChipDirection: "ltr",
+    englishCitationChipLabelDir: "auto",
+    englishCitationChipEditMarginLeftApplied: true,
+    englishCitationChipEditMarginRight: "0px",
+    englishCitationChipEditAfterLabel: true,
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);

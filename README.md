@@ -22,6 +22,8 @@ need to open DevTools and paste CSS manually.
 - Plan progress and composer task controls follow the direction of their steps.
 - Pull request descriptions and comments follow the direction of each Markdown block.
 - Rendered Markdown file previews follow the direction of each content block.
+- Comments on quoted text and their citation chips follow the direction of the
+  comment while it is typed.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
