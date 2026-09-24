@@ -62,6 +62,16 @@ test("quoted text comments follow the direction of the typed comment", () => {
   assert.match(source, /\[data-assistant-citation-chip=\\"true\\"\] a > span/);
 });
 
+test("queued messages follow the direction of their prompt", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(source, /\[data-queued-message-id\] > div/);
+  assert.match(css, /\[data-queued-message-id\][\s\S]*> div\[dir="rtl"\][\s\S]*text-align: right/);
+  assert.match(css, /\[data-scroll-anchor-ignore\] > div:last-child[\s\S]*margin-inline-start: auto/);
+  assert.doesNotMatch(css, /match-parent/);
+});
+
 test("the injected script auto-directs messages and observes new content", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[data-message-role\] \.chat-markdown/);

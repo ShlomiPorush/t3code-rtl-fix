@@ -175,3 +175,17 @@
   margin-left: 0 !important;
   margin-inline-start: 0.17em !important;
 }
+
+/* A queued message card takes the direction of its prompt. The attachment
+   count is English, so it keeps its own word order but stays on the card's
+   side, and the Send now and Cancel buttons move to the far edge. */
+[data-queued-message-id]
+  > div[dir="rtl"]
+  > div:not(.whitespace-pre-wrap):not([data-scroll-anchor-ignore]) {
+  text-align: right !important;
+}
+
+[data-queued-message-id] > div > [data-scroll-anchor-ignore] > div:last-child {
+  margin-left: 0 !important;
+  margin-inline-start: auto !important;
+}

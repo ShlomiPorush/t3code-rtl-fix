@@ -24,6 +24,8 @@ need to open DevTools and paste CSS manually.
 - Rendered Markdown file previews follow the direction of each content block.
 - Comments on quoted text and their citation chips follow the direction of the
   comment while it is typed.
+- Queued messages follow the direction of their prompt, including their status
+  and action buttons.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
