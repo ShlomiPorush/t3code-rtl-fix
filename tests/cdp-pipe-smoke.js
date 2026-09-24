@@ -89,6 +89,7 @@ async function run() {
       .chip-button { margin-left: 3px; }
       #citation-comment-editor, #english-citation-comment-editor { width: 280px; }
       [data-citation-comment-editor] textarea { width: 100%; }
+      [data-queued-message-id] > div { width: 300px; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
       .gap-3 { gap: 12px; }
@@ -277,6 +278,29 @@ async function run() {
       <a id="english-citation-chip-link"><svg class="icon"></svg><span id="english-citation-chip-label">Cite this line</span></a>
       <button id="english-citation-chip-edit" class="chip-button" aria-label="Edit citation comment"><svg class="icon"></svg></button>
     </span>
+    <div data-timeline-row-kind="queued-message">
+      <div class="flex" data-queued-message-id="rtl-queued">
+        <div id="rtl-queued-card">
+          <div id="rtl-queued-prompt" class="whitespace-pre-wrap">${rtlText}?</div>
+          <div id="rtl-queued-details"><span id="rtl-queued-details-text">2 attachments, 1 context item</span></div>
+          <div id="rtl-queued-footer" class="flex" data-scroll-anchor-ignore="true">
+            <span id="rtl-queued-status" class="flex"><svg class="icon"></svg>Queued</span>
+            <div id="rtl-queued-actions" class="ml-auto flex"><button aria-label="Send now"></button><button aria-label="Cancel and return to the composer"></button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div data-timeline-row-kind="queued-message">
+      <div class="flex" data-queued-message-id="english-queued">
+        <div id="english-queued-card">
+          <div id="english-queued-prompt" class="whitespace-pre-wrap">Open your browser and I will connect to it.</div>
+          <div id="english-queued-footer" class="flex" data-scroll-anchor-ignore="true">
+            <span id="english-queued-status" class="flex"><svg class="icon"></svg>Queued</span>
+            <div id="english-queued-actions" class="ml-auto flex"><button aria-label="Send now"></button><button aria-label="Cancel and return to the composer"></button></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -533,6 +557,37 @@ async function run() {
           englishCitationChipEditAfterLabel:
             document.getElementById("english-citation-chip-edit").getBoundingClientRect().left >=
             document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
+          rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
+          rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
+          rtlQueuedDetailsDir: document.getElementById("rtl-queued-details").dir,
+          rtlQueuedDetailsDirection: style("rtl-queued-details").direction,
+          rtlQueuedDetailsOnCardSide:
+            Math.abs(
+              document.getElementById("rtl-queued-details-text").getBoundingClientRect().right -
+                document.getElementById("rtl-queued-details").getBoundingClientRect().right,
+            ) <= 1,
+          rtlQueuedStatusAtStart:
+            Math.abs(
+              document.getElementById("rtl-queued-status").getBoundingClientRect().right -
+                document.getElementById("rtl-queued-footer").getBoundingClientRect().right,
+            ) <= 1,
+          rtlQueuedActionsAtEnd:
+            Math.abs(
+              document.getElementById("rtl-queued-actions").getBoundingClientRect().left -
+                document.getElementById("rtl-queued-footer").getBoundingClientRect().left,
+            ) <= 1,
+          englishQueuedCardDir: document.getElementById("english-queued-card").dir,
+          englishQueuedPromptDirection: style("english-queued-prompt").direction,
+          englishQueuedStatusAtStart:
+            Math.abs(
+              document.getElementById("english-queued-status").getBoundingClientRect().left -
+                document.getElementById("english-queued-footer").getBoundingClientRect().left,
+            ) <= 1,
+          englishQueuedActionsAtEnd:
+            Math.abs(
+              document.getElementById("english-queued-actions").getBoundingClientRect().right -
+                document.getElementById("english-queued-footer").getBoundingClientRect().right,
+            ) <= 1,
         });
       }, 0);
     })`,
@@ -684,6 +739,17 @@ async function run() {
     englishCitationChipEditMarginLeftApplied: true,
     englishCitationChipEditMarginRight: "0px",
     englishCitationChipEditAfterLabel: true,
+    rtlQueuedCardDir: "rtl",
+    rtlQueuedPromptDirection: "rtl",
+    rtlQueuedDetailsDir: "auto",
+    rtlQueuedDetailsDirection: "ltr",
+    rtlQueuedDetailsOnCardSide: true,
+    rtlQueuedStatusAtStart: true,
+    rtlQueuedActionsAtEnd: true,
+    englishQueuedCardDir: "auto",
+    englishQueuedPromptDirection: "ltr",
+    englishQueuedStatusAtStart: true,
+    englishQueuedActionsAtEnd: true,
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);
