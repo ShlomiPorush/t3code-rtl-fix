@@ -26,6 +26,8 @@ need to open DevTools and paste CSS manually.
   comment while it is typed.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons.
+- Composer paragraphs that start with a file, image, or citation chip follow the
+  direction of their text instead of the chip's label.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
