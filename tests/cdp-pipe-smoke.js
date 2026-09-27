@@ -301,6 +301,11 @@ async function run() {
         </div>
       </div>
     </div>
+    <div contenteditable="true" data-lexical-editor="true">
+      <p id="composer-chip-rtl-paragraph" dir="auto"><span id="composer-chip" data-lexical-decorator="true" contenteditable="false">image.png 48 KB</span> ${rtlText}.</p>
+      <p id="composer-chip-english-paragraph" dir="auto"><span data-lexical-decorator="true" contenteditable="false">image.png</span> Please check this.</p>
+      <p id="composer-plain-rtl-paragraph" dir="auto">${rtlText}</p>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -329,6 +334,17 @@ async function run() {
         document.getElementById(shortcutId).replaceWith(check);
       }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
+      // A chip inserted after injection, as when an image is pasted into the composer.
+      const dynamicComposerParagraph = document.createElement("p");
+      dynamicComposerParagraph.id = "composer-dynamic-chip-paragraph";
+      dynamicComposerParagraph.dir = "auto";
+      dynamicComposerParagraph.append(" ", ${JSON.stringify(rtlText)});
+      document.querySelector("[data-lexical-editor]").appendChild(dynamicComposerParagraph);
+      const dynamicComposerChip = document.createElement("span");
+      dynamicComposerChip.setAttribute("data-lexical-decorator", "true");
+      dynamicComposerChip.setAttribute("contenteditable", "false");
+      dynamicComposerChip.textContent = "screenshot.png";
+      dynamicComposerParagraph.prepend(dynamicComposerChip);
       const dynamicCommentEditor = document.createElement("div");
       dynamicCommentEditor.id = "dynamic-citation-comment-editor";
       dynamicCommentEditor.setAttribute("data-citation-comment-editor", "true");
@@ -557,6 +573,12 @@ async function run() {
           englishCitationChipEditAfterLabel:
             document.getElementById("english-citation-chip-edit").getBoundingClientRect().left >=
             document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
+          composerChipDir: document.getElementById("composer-chip").dir,
+          composerChipRtlParagraphDirection: style("composer-chip-rtl-paragraph").direction,
+          composerChipEnglishParagraphDirection: style("composer-chip-english-paragraph").direction,
+          composerPlainRtlParagraphDirection: style("composer-plain-rtl-paragraph").direction,
+          composerPlainRtlParagraphDir: document.getElementById("composer-plain-rtl-paragraph").dir,
+          composerDynamicChipParagraphDirection: style("composer-dynamic-chip-paragraph").direction,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedDetailsDir: document.getElementById("rtl-queued-details").dir,
@@ -739,6 +761,12 @@ async function run() {
     englishCitationChipEditMarginLeftApplied: true,
     englishCitationChipEditMarginRight: "0px",
     englishCitationChipEditAfterLabel: true,
+    composerChipDir: "auto",
+    composerChipRtlParagraphDirection: "rtl",
+    composerChipEnglishParagraphDirection: "ltr",
+    composerPlainRtlParagraphDirection: "rtl",
+    composerPlainRtlParagraphDir: "auto",
+    composerDynamicChipParagraphDirection: "rtl",
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedDetailsDir: "auto",

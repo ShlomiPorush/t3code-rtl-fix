@@ -72,6 +72,15 @@ test("queued messages follow the direction of their prompt", () => {
   assert.doesNotMatch(css, /match-parent/);
 });
 
+test("composer chips do not decide the direction of their paragraph", () => {
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(
+    source,
+    /\[data-lexical-editor=\\"true\\"\] \[data-lexical-decorator=\\"true\\"\]/,
+  );
+});
+
 test("the injected script auto-directs messages and observes new content", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[data-message-role\] \.chat-markdown/);

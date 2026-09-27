@@ -18,6 +18,11 @@ const CITATION_CHIP_SELECTOR = '[data-assistant-citation-chip="true"]';
 const QUEUED_MESSAGE_SELECTOR = "[data-queued-message-id]";
 const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.whitespace-pre-wrap):not([data-scroll-anchor-ignore])`;
+// Lexical gives each composer paragraph dir="auto", which the browser resolves
+// from its first strong character. A chip carrying its own dir attribute is
+// skipped, so a leading file or image chip no longer turns Hebrew text LTR.
+const COMPOSER_CHIP_SELECTOR =
+  '[data-lexical-editor="true"] [data-lexical-decorator="true"]';
 const MARKDOWN_ROOT_SELECTOR =
   `:is([data-message-role], ${PLAN_CARD_SELECTOR}) .chat-markdown`;
 const PENDING_USER_INPUT_ROOT_SELECTOR =
@@ -33,6 +38,7 @@ const DIRECTION_ROOT_SELECTOR = [
   CITATION_COMMENT_EDITOR_SELECTOR,
   CITATION_CHIP_SELECTOR,
   QUEUED_MESSAGE_SELECTOR,
+  COMPOSER_CHIP_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const AUTO_DIRECTION_SELECTOR = [
@@ -119,6 +125,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${CITATION_CHIP_SELECTOR} a > span`,
   `${QUEUED_MESSAGE_SELECTOR} > div`,
   QUEUED_MESSAGE_DETAILS_SELECTOR,
+  COMPOSER_CHIP_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
