@@ -28,8 +28,9 @@ need to open DevTools and paste CSS manually.
   comment while it is typed.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons.
-- Each line typed in the composer follows the direction of its own text, even
-  when it starts with a file, image, or citation chip.
+- Each paragraph typed in the composer follows the direction of its first
+  letter, even when it starts with a file, image, or citation chip, and word
+  selection with Ctrl+Shift+Arrow moves the same way as the text.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 

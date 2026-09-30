@@ -81,12 +81,14 @@ test("queued messages follow the direction of their prompt", () => {
   assert.doesNotMatch(css, /match-parent/);
 });
 
-test("composer lines resolve their own direction without touching the editor", () => {
+test("composer paragraphs get a computed direction without editor attributes", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");
 
   assert.match(css, /\.composer-tiptap p[\s\S]*unicode-bidi: plaintext/);
-  assert.doesNotMatch(source, /composer-tiptap/);
+  assert.match(source, /t3-rtl-fix-composer/);
+  assert.match(source, /data-t3-rtl-composer/);
+  assert.match(source, /> p:nth-child\(' \+ \(index \+ 1\)/);
   assert.doesNotMatch(source, /data-lexical/);
 });
 
