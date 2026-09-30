@@ -74,6 +74,81 @@ try {
     }
 
     Write-Output "Windows PowerShell 5.1 installation and removal passed."
+
+    # The one-line install runs the script text with no directory of its own,
+    # so it has to fetch the package. Use a local ZIP laid out like GitHub's
+    # branch archive instead of the network.
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The shortcut was not restored before the bootstrap test"
+    }
+    $packageRoot = Join-Path $testRoot "package\t3code-rtl-fix-main"
+    New-Item -ItemType Directory -Path (Join-Path $packageRoot "src") -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "install.ps1"), (Join-Path $repositoryRoot "uninstall.ps1") -Destination $packageRoot
+    Copy-Item -Path (Join-Path $repositoryRoot "src\*") -Destination (Join-Path $packageRoot "src")
+    $packagePath = Join-Path $testRoot "t3code-rtl-fix-main.zip"
+    Compress-Archive -LiteralPath $packageRoot -DestinationPath $packagePath
+
+    $bootstrapInstallDirectory = Join-Path $testRoot "bootstrap-install"
+    $installerText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "install.ps1")
+    Push-Location $testRoot
+    try {
+        & ([scriptblock]::Create($installerText)) `
+            -Source $packagePath `
+            -T3CodePath $fakeAppPath `
+            -InstallDirectory $bootstrapInstallDirectory `
+            -ShortcutSearchRoots $searchRoots
+    }
+    finally {
+        Pop-Location
+    }
+
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launch-t3-rtl.vbs", "uninstall.ps1")) {
+        Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
+    }
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath (Join-Path $env:SystemRoot "System32\wscript.exe") "The one-line install did not update $shortcutPath"
+    }
+    $leftovers = @(Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Filter "t3-rtl-install-*" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) })
+    Assert-Equal $leftovers.Count 0 "The one-line install left its download directory behind"
+
+    & (Join-Path $bootstrapInstallDirectory "uninstall.ps1") -InstallDirectory $bootstrapInstallDirectory
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The uninstaller did not restore $shortcutPath after the one-line install"
+    }
+
+    Write-Output "Windows PowerShell 5.1 one-line installation and removal passed."
+
+    # Restricted is the default Windows execution policy. It allows the
+    # one-line command itself but blocks the extracted installer file unless
+    # the bootstrap allows it for the process, and it must be restored after.
+    $quote = { param($Value) "'" + $Value.Replace("'", "''") + "'" }
+    $restrictedInstallDirectory = Join-Path $testRoot "restricted-install"
+    $rootList = ($searchRoots | ForEach-Object { & $quote $_ }) -join ","
+    $restrictedCommand = "& ([scriptblock]::Create((Get-Content -Raw -LiteralPath $(& $quote (Join-Path $repositoryRoot 'install.ps1'))))) " +
+        "-Source $(& $quote $packagePath) -T3CodePath $(& $quote $fakeAppPath) " +
+        "-InstallDirectory $(& $quote $restrictedInstallDirectory) -ShortcutSearchRoots @($rootList); " +
+        "(Get-ExecutionPolicy -Scope Process).ToString()"
+    $ErrorActionPreference = "Continue"
+    $restrictedOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Restricted -Command $restrictedCommand 2>&1)
+    $restrictedExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($restrictedExitCode -ne 0) {
+        throw "The one-line install failed under the Restricted execution policy: $($restrictedOutput -join ' ')"
+    }
+    Assert-Equal ([string]$restrictedOutput[-1]) "Restricted" "The one-line install did not restore the process execution policy"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $restrictedInstallDirectory "rtl.css")) $true "The one-line install did not install under the Restricted execution policy"
+
+    & (Join-Path $restrictedInstallDirectory "uninstall.ps1") -InstallDirectory $restrictedInstallDirectory
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The uninstaller did not restore $shortcutPath after the Restricted install"
+    }
+
+    Write-Output "Windows PowerShell 5.1 one-line installation under the Restricted policy passed."
 }
 catch {
     $failure = $_

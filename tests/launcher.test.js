@@ -32,6 +32,15 @@ test("the launcher uses T3 Code's bundled Node runtime", () => {
   assert.doesNotMatch(installer, /Get-Command node/);
 });
 
+test("the installer can run as a one-line command without a local clone", () => {
+  const installer = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  assert.match(installer, /archive\/refs\/heads\/main\.zip/);
+  assert.match(installer, /-UseBasicParsing/);
+  assert.match(installer, /SecurityProtocolType\]::Tls12/);
+  assert.match(readme, /irm 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/install\.ps1' \| iex/);
+});
+
 test("the stylesheet uses content-aware alignment and logical RTL layout", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   assert.match(css, /\.chat-markdown,[\s\S]*text-align:\s*start\s*!important/);

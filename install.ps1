@@ -2,8 +2,71 @@
 param(
     [string]$T3CodePath,
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA "T3RTLFix"),
-    [string[]]$ShortcutSearchRoots
+    [string[]]$ShortcutSearchRoots,
+    [string]$Source
 )
+
+# Run through "irm ... | iex", this script has no directory of its own and no
+# src folder beside it. Download the repository and run the installer it
+# contains, keeping the error and progress preferences inside a child scope so
+# they do not change the caller's session.
+$bundledSource = if ($PSScriptRoot) { Join-Path $PSScriptRoot "src" } else { $null }
+if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathType Container)) {
+    $forwarded = @{ InstallDirectory = $InstallDirectory }
+    if ($T3CodePath) { $forwarded.T3CodePath = $T3CodePath }
+    if ($ShortcutSearchRoots) { $forwarded.ShortcutSearchRoots = $ShortcutSearchRoots }
+
+    & {
+        param([hashtable]$Arguments, [string]$Package)
+
+        $ErrorActionPreference = "Stop"
+        $ProgressPreference = "SilentlyContinue"
+        if (-not $Package) {
+            $Package = "https://github.com/ShlomiPorush/t3code-rtl-fix/archive/refs/heads/main.zip"
+        }
+
+        $workDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("t3-rtl-install-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $workDirectory | Out-Null
+        try {
+            $archive = Join-Path $workDirectory "t3code-rtl-fix.zip"
+            if ($Package -match '^https://') {
+                [Net.ServicePointManager]::SecurityProtocol =
+                    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+                Write-Output "Downloading T3 Code RTL Fix..."
+                Invoke-WebRequest -Uri $Package -OutFile $archive -UseBasicParsing
+            } elseif (Test-Path -LiteralPath $Package -PathType Leaf) {
+                Copy-Item -LiteralPath $Package -Destination $archive
+            } else {
+                throw "Source must be an https URL or an existing ZIP file: $Package"
+            }
+
+            $extracted = Join-Path $workDirectory "package"
+            Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+            $installer = Get-ChildItem -LiteralPath $extracted -Filter "install.ps1" -File -Recurse |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.DirectoryName "src\injection.js") } |
+                Select-Object -First 1
+            if (-not $installer) {
+                throw "The downloaded package does not contain the installer and its src folder."
+            }
+
+            # The command line itself runs under any execution policy, but the
+            # extracted installer is a script file, which the default Restricted
+            # policy blocks. Allow it for this process only, then restore it.
+            $previousPolicy = Get-ExecutionPolicy -Scope Process
+            Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+            try {
+                & $installer.FullName @Arguments
+            }
+            finally {
+                Set-ExecutionPolicy -Scope Process -ExecutionPolicy $previousPolicy -Force
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $workDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } -Arguments $forwarded -Package $Source
+    return
+}
 
 $ErrorActionPreference = "Stop"
 
