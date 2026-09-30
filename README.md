@@ -12,6 +12,8 @@ need to open DevTools and paste CSS manually.
 - English messages remain left to right and left aligned.
 - Hebrew and Arabic prose stays right to left even when it starts with English or a number.
 - Each paragraph and other prose block resolves its direction independently.
+- Images and other blocks without any letters follow the direction of the
+  message around them.
 - Code, commands, and file paths remain left to right.
 - Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
@@ -26,8 +28,8 @@ need to open DevTools and paste CSS manually.
   comment while it is typed.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons.
-- Composer paragraphs that start with a file, image, or citation chip follow the
-  direction of their text instead of the chip's label.
+- Each line typed in the composer follows the direction of its own text, even
+  when it starts with a file, image, or citation chip.
 - T3 Code itself is not patched or repackaged.
 - Existing Desktop and Start menu shortcuts are backed up before modification.
 
