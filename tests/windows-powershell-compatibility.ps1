@@ -121,6 +121,34 @@ try {
     }
 
     Write-Output "Windows PowerShell 5.1 one-line installation and removal passed."
+
+    # Restricted is the default Windows execution policy. It allows the
+    # one-line command itself but blocks the extracted installer file unless
+    # the bootstrap allows it for the process, and it must be restored after.
+    $quote = { param($Value) "'" + $Value.Replace("'", "''") + "'" }
+    $restrictedInstallDirectory = Join-Path $testRoot "restricted-install"
+    $rootList = ($searchRoots | ForEach-Object { & $quote $_ }) -join ","
+    $restrictedCommand = "& ([scriptblock]::Create((Get-Content -Raw -LiteralPath $(& $quote (Join-Path $repositoryRoot 'install.ps1'))))) " +
+        "-Source $(& $quote $packagePath) -T3CodePath $(& $quote $fakeAppPath) " +
+        "-InstallDirectory $(& $quote $restrictedInstallDirectory) -ShortcutSearchRoots @($rootList); " +
+        "(Get-ExecutionPolicy -Scope Process).ToString()"
+    $ErrorActionPreference = "Continue"
+    $restrictedOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Restricted -Command $restrictedCommand 2>&1)
+    $restrictedExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($restrictedExitCode -ne 0) {
+        throw "The one-line install failed under the Restricted execution policy: $($restrictedOutput -join ' ')"
+    }
+    Assert-Equal ([string]$restrictedOutput[-1]) "Restricted" "The one-line install did not restore the process execution policy"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $restrictedInstallDirectory "rtl.css")) $true "The one-line install did not install under the Restricted execution policy"
+
+    & (Join-Path $restrictedInstallDirectory "uninstall.ps1") -InstallDirectory $restrictedInstallDirectory
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The uninstaller did not restore $shortcutPath after the Restricted install"
+    }
+
+    Write-Output "Windows PowerShell 5.1 one-line installation under the Restricted policy passed."
 }
 catch {
     $failure = $_

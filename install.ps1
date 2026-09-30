@@ -49,7 +49,17 @@ if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathTyp
                 throw "The downloaded package does not contain the installer and its src folder."
             }
 
-            & $installer.FullName @Arguments
+            # The command line itself runs under any execution policy, but the
+            # extracted installer is a script file, which the default Restricted
+            # policy blocks. Allow it for this process only, then restore it.
+            $previousPolicy = Get-ExecutionPolicy -Scope Process
+            Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+            try {
+                & $installer.FullName @Arguments
+            }
+            finally {
+                Set-ExecutionPolicy -Scope Process -ExecutionPolicy $previousPolicy -Force
+            }
         }
         finally {
             Remove-Item -LiteralPath $workDirectory -Recurse -Force -ErrorAction SilentlyContinue
