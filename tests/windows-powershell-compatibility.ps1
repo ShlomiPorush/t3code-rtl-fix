@@ -74,6 +74,53 @@ try {
     }
 
     Write-Output "Windows PowerShell 5.1 installation and removal passed."
+
+    # The one-line install runs the script text with no directory of its own,
+    # so it has to fetch the package. Use a local ZIP laid out like GitHub's
+    # branch archive instead of the network.
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The shortcut was not restored before the bootstrap test"
+    }
+    $packageRoot = Join-Path $testRoot "package\t3code-rtl-fix-main"
+    New-Item -ItemType Directory -Path (Join-Path $packageRoot "src") -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "install.ps1"), (Join-Path $repositoryRoot "uninstall.ps1") -Destination $packageRoot
+    Copy-Item -Path (Join-Path $repositoryRoot "src\*") -Destination (Join-Path $packageRoot "src")
+    $packagePath = Join-Path $testRoot "t3code-rtl-fix-main.zip"
+    Compress-Archive -LiteralPath $packageRoot -DestinationPath $packagePath
+
+    $bootstrapInstallDirectory = Join-Path $testRoot "bootstrap-install"
+    $installerText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "install.ps1")
+    Push-Location $testRoot
+    try {
+        & ([scriptblock]::Create($installerText)) `
+            -Source $packagePath `
+            -T3CodePath $fakeAppPath `
+            -InstallDirectory $bootstrapInstallDirectory `
+            -ShortcutSearchRoots $searchRoots
+    }
+    finally {
+        Pop-Location
+    }
+
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launch-t3-rtl.vbs", "uninstall.ps1")) {
+        Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
+    }
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath (Join-Path $env:SystemRoot "System32\wscript.exe") "The one-line install did not update $shortcutPath"
+    }
+    $leftovers = @(Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Filter "t3-rtl-install-*" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) })
+    Assert-Equal $leftovers.Count 0 "The one-line install left its download directory behind"
+
+    & (Join-Path $bootstrapInstallDirectory "uninstall.ps1") -InstallDirectory $bootstrapInstallDirectory
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        Assert-Equal $shortcut.TargetPath $fakeAppPath "The uninstaller did not restore $shortcutPath after the one-line install"
+    }
+
+    Write-Output "Windows PowerShell 5.1 one-line installation and removal passed."
 }
 catch {
     $failure = $_

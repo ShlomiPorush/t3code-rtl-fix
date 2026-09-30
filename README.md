@@ -40,11 +40,14 @@ need to open DevTools and paste CSS manually.
 
 ## Install
 
-Clone or download this repository, then run:
+Run this in PowerShell:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/install.ps1' | iex
 ```
+
+The command downloads the current version of this repository, installs it, and
+removes the downloaded copy. Run the same command again to update the fix.
 
 Fully quit T3 Code after installation. Open it again from the Desktop shortcut
 or the Start menu shortcut updated by the installer.
@@ -58,8 +61,14 @@ The installed files are stored in:
 If T3 Code is installed in a non-default location, pass the executable path:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/install.ps1'))) `
   -T3CodePath "D:\Apps\T3 Code (Alpha).exe"
+```
+
+To install from a local clone instead, run this from the repository folder:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ## Customize the CSS
@@ -99,8 +108,8 @@ debugging port and does not send data over the network.
 ## Limitations
 
 - T3 Code must be opened from a shortcut updated by the installer.
-- A T3 Code update may recreate its shortcuts. Run `install.ps1` again if the
-  fix stops loading after an update.
+- A T3 Code update may recreate its shortcuts. Run the install command again if
+  the fix stops loading after an update.
 - T3 Code can change its internal HTML structure. The selectors in `rtl.css`
   may need an update when that happens.
 - The first installation cannot inject into an instance that is already open.
