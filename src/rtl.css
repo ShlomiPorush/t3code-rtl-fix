@@ -183,10 +183,10 @@
   margin-inline-start: auto !important;
 }
 
-/* The composer editor gives its paragraphs no direction of its own, so each
-   line resolves from its own text. Chips are inline-flex and therefore
-   neutral here, so a leading attachment does not decide the direction. The
-   editor restores any attribute it did not write, so this stays in CSS. */
+/* The injected script gives each composer paragraph the direction of its
+   first letter, which the caret and word selection follow. plaintext keeps a
+   line typed after Shift+Enter in another language in its own word order.
+   Chips are inline-flex and therefore neutral here. */
 .composer-tiptap p {
   text-align: start !important;
   unicode-bidi: plaintext;

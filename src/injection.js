@@ -19,6 +19,10 @@ const QUEUED_MESSAGE_SELECTOR = "[data-queued-message-id]";
 const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
 const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
+const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
+const COMPOSER_CHIP_SELECTOR = ".react-renderer";
+const COMPOSER_MARKER = "data-t3-rtl-composer";
+const COMPOSER_STYLE_ID = "t3-rtl-fix-composer";
 const MARKDOWN_ROOT_SELECTOR =
   `:is([data-message-role], ${PLAN_CARD_SELECTOR}) .chat-markdown`;
 const PENDING_USER_INPUT_ROOT_SELECTOR =
@@ -177,6 +181,10 @@ function buildInjectionSource(css) {
   const letterPattern = new RegExp(${JSON.stringify(LETTER_PATTERN.source)}, "u");
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
+  const composerRootSelector = ${JSON.stringify(COMPOSER_ROOT_SELECTOR)};
+  const composerChipSelector = ${JSON.stringify(COMPOSER_CHIP_SELECTOR)};
+  const composerMarker = ${JSON.stringify(COMPOSER_MARKER)};
+  const composerStyleId = ${JSON.stringify(COMPOSER_STYLE_ID)};
 
   const previousState = globalThis[stateKey];
   if (previousState?.observer) previousState.observer.disconnect();
@@ -184,7 +192,7 @@ function buildInjectionSource(css) {
     document.removeEventListener("DOMContentLoaded", previousState.onReady);
   }
 
-  const state = { observer: null, onReady: null };
+  const state = { observer: null, onReady: null, composerRules: new Map() };
   globalThis[stateKey] = state;
 
   const applyStyle = () => {
@@ -286,6 +294,77 @@ function buildInjectionSource(css) {
     setDirection(root, ltrDirectionSelector, "ltr");
   };
 
+  // The composer editor replaces any paragraph whose attributes it did not
+  // write, so a dir attribute there would loop forever. Each paragraph's
+  // direction goes into a generated stylesheet instead. The caret and
+  // Ctrl+Shift+Arrow follow the computed direction, so they match the text.
+  const firstLetterDirection = (paragraph) => {
+    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement?.closest(composerChipSelector)) continue;
+      const letter = node.data.match(letterPattern);
+      if (letter) return rtlTextPattern.test(letter[0]) ? "rtl" : "ltr";
+    }
+    return null;
+  };
+
+  const writeComposerStyle = () => {
+    for (const id of state.composerRules.keys()) {
+      if (!document.querySelector(composerRootSelector + "[" + composerMarker + '="' + id + '"]')) {
+        state.composerRules.delete(id);
+      }
+    }
+    const text = [...state.composerRules.values()].filter(Boolean).join(" ");
+    let style = document.getElementById(composerStyleId);
+    if (!style) {
+      if (!text || !document.head) return;
+      style = document.createElement("style");
+      style.id = composerStyleId;
+      document.head.appendChild(style);
+    }
+    if (style.textContent !== text) style.textContent = text;
+  };
+
+  const updateComposer = (editor) => {
+    let id = editor.getAttribute(composerMarker);
+    if (!id) {
+      let next = 0;
+      while (document.querySelector("[" + composerMarker + '="' + next + '"]')) next++;
+      id = String(next);
+      editor.setAttribute(composerMarker, id);
+    }
+    const selectors = [];
+    let previous = "ltr";
+    Array.from(editor.children).forEach((child, index) => {
+      if (child.localName !== "p") return;
+      // A paragraph without letters yet, such as a new empty line, keeps the
+      // direction of the paragraph before it.
+      const direction = firstLetterDirection(child) ?? previous;
+      previous = direction;
+      if (direction === "rtl") {
+        selectors.push(
+          composerRootSelector + "[" + composerMarker + '="' + id + '"] > p:nth-child(' + (index + 1) + ")",
+        );
+      }
+    });
+    state.composerRules.set(id, selectors.length ? selectors.join(", ") + " { direction: rtl; }" : "");
+  };
+
+  const collectComposers = (node, composers) => {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!element) return;
+    const editor = element.closest(composerRootSelector);
+    if (editor) composers.add(editor);
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    for (const nested of node.querySelectorAll(composerRootSelector)) composers.add(nested);
+  };
+
+  const updateComposers = (composers) => {
+    if (composers.size === 0) return;
+    for (const editor of composers) updateComposer(editor);
+    writeComposerStyle();
+  };
+
   const applyDirectionsAround = (node) => {
     const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     if (!element) return;
@@ -298,13 +377,18 @@ function buildInjectionSource(css) {
   const start = () => {
     if (!applyStyle() || !document.documentElement) return false;
     applyDirections(document);
+    updateComposers(new Set(document.querySelectorAll(composerRootSelector)));
     state.observer = new MutationObserver((records) => {
+      const composers = new Set();
       for (const record of records) {
         for (const node of record.addedNodes) {
           applyDirectionsAround(node);
+          collectComposers(node, composers);
         }
         if (record.type === "characterData") applyDirectionsAround(record.target);
+        collectComposers(record.target, composers);
       }
+      updateComposers(composers);
     });
     state.observer.observe(document.documentElement, {
       childList: true,

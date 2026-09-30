@@ -318,6 +318,10 @@ async function run() {
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
       <p id="composer-multiline-paragraph">${rtlText}<br><span id="composer-english-line">English line here.</span></p>
+      <p id="composer-typed-paragraph"></p>
+    </div>
+    <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
+      <p id="second-composer-paragraph">${rtlText}</p>
     </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
@@ -347,6 +351,10 @@ async function run() {
         document.getElementById(shortcutId).replaceWith(check);
       }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
+      // Typing into an empty composer paragraph after injection.
+      document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
+      const secondComposerParagraph = document.getElementById("second-composer-paragraph");
+      const composerParagraphBeforeTyping = document.getElementById("composer-chip-rtl-paragraph");
       const dynamicCommentEditor = document.createElement("div");
       dynamicCommentEditor.id = "dynamic-citation-comment-editor";
       dynamicCommentEditor.setAttribute("data-citation-comment-editor", "true");
@@ -594,6 +602,17 @@ async function run() {
             document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
           composerParagraphDirAttribute: document.getElementById("composer-chip-rtl-paragraph").getAttribute("dir"),
           composerParagraphUnicodeBidi: style("composer-chip-rtl-paragraph").unicodeBidi,
+          composerParagraphDirection: style("composer-chip-rtl-paragraph").direction,
+          composerEnglishParagraphDirection: style("composer-chip-english-paragraph").direction,
+          composerTypedParagraphDirection: style("composer-typed-paragraph").direction,
+          secondComposerParagraphDirection: style("second-composer-paragraph").direction,
+          composerEditorsMarkedSeparately:
+            document.getElementById("composer-editor").getAttribute("data-t3-rtl-composer") !==
+            document.getElementById("second-composer-editor").getAttribute("data-t3-rtl-composer"),
+          composerStyleInjected: Boolean(document.getElementById("t3-rtl-fix-composer")),
+          composerParagraphsKept:
+            composerParagraphBeforeTyping === document.getElementById("composer-chip-rtl-paragraph") &&
+            secondComposerParagraph === document.getElementById("second-composer-paragraph"),
           composerRtlChipAtStart:
             Math.abs(
               document.getElementById("composer-chip").getBoundingClientRect().right -
@@ -802,6 +821,13 @@ async function run() {
     englishCitationChipEditAfterLabel: true,
     composerParagraphDirAttribute: null,
     composerParagraphUnicodeBidi: "plaintext",
+    composerParagraphDirection: "rtl",
+    composerEnglishParagraphDirection: "ltr",
+    composerTypedParagraphDirection: "rtl",
+    secondComposerParagraphDirection: "rtl",
+    composerEditorsMarkedSeparately: true,
+    composerStyleInjected: true,
+    composerParagraphsKept: true,
     composerRtlChipAtStart: true,
     composerEnglishChipAtStart: true,
     composerEnglishLineAtStart: true,
