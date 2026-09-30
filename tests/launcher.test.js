@@ -72,13 +72,25 @@ test("queued messages follow the direction of their prompt", () => {
   assert.doesNotMatch(css, /match-parent/);
 });
 
-test("composer chips do not decide the direction of their paragraph", () => {
+test("composer lines resolve their own direction without touching the editor", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");
 
-  assert.match(
-    source,
-    /\[data-lexical-editor=\\"true\\"\] \[data-lexical-decorator=\\"true\\"\]/,
-  );
+  assert.match(css, /\.composer-tiptap p[\s\S]*unicode-bidi: plaintext/);
+  assert.doesNotMatch(source, /composer-tiptap/);
+  assert.doesNotMatch(source, /data-lexical/);
+});
+
+test("queued prompts and plan titles follow the current T3 Code markup", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(source, /\[data-queued-message-id\] \.chat-markdown p/);
+  assert.match(source, /\[data-queued-message-id\] \.chat-markdown code/);
+  assert.match(source, /> div:first-child :is\(p, h3\)/);
+  assert.match(css, /\[data-queued-message-id\]\) \.chat-markdown/);
+  assert.doesNotMatch(css, /whitespace-pre-wrap/);
+  assert.doesNotMatch(css, /\[data-pending-user-input-toggle\]\s*> svg:last-child/);
 });
 
 test("the injected script auto-directs messages and observes new content", () => {

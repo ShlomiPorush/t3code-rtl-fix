@@ -90,6 +90,17 @@ async function run() {
       #citation-comment-editor, #english-citation-comment-editor { width: 280px; }
       [data-citation-comment-editor] textarea { width: 100%; }
       [data-queued-message-id] > div { width: 300px; }
+      [data-composer-banner-row] {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        align-items: center;
+        width: 300px;
+        padding: 0;
+        border: 0;
+      }
+      .composer-tiptap { width: 320px; white-space: pre-wrap; }
+      .composer-tiptap p { margin: 0; }
+      [data-node-view-wrapper] { display: inline-flex; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
       .gap-3 { gap: 12px; }
@@ -156,10 +167,11 @@ async function run() {
     <div id="pending-card" data-slot="collapsible">
       <button
         id="pending-toggle"
-        class="flex w-full text-left"
+        class="text-start"
         data-slot="collapsible-trigger"
+        data-composer-banner-row="true"
         data-pending-user-input-toggle="expanded"
-      ><span>${rtlText}</span><span>3/3</span><svg id="pending-chevron" class="icon ml-auto"></svg></button>
+      ><span id="pending-icon" data-slot="composer-banner-icon"><svg class="icon"></svg></span><span data-slot="composer-banner-content"><span>${rtlText}</span></span><span id="pending-actions" class="flex" data-slot="composer-banner-actions"><span>3/3</span><svg class="icon"></svg></span></button>
       <div data-slot="collapsible-panel">
         <p id="pending-question">${rtlText} GitHub?</p>
         <button id="pending-option" class="flex w-full gap-3 text-left">
@@ -190,7 +202,7 @@ async function run() {
     </div>
     <div id="plan-card">
       <div class="flex">
-        <div class="flex flex-1"><span>Plan</span><p id="plan-title">${rtlText} RTL FIX</p></div>
+        <div class="flex flex-1"><span>Plan</span><h3 id="plan-title">${rtlText} RTL FIX</h3></div>
         <button aria-label="Plan actions">...</button>
       </div>
       <div>
@@ -203,7 +215,7 @@ async function run() {
     </div>
     <div id="english-plan-card">
       <div class="flex">
-        <div class="flex flex-1"><span>Plan</span><p id="english-plan-title">English plan</p></div>
+        <div class="flex flex-1"><span>Plan</span><h3 id="english-plan-title">English plan</h3></div>
         <button aria-label="Plan actions">...</button>
       </div>
       <div>
@@ -281,7 +293,7 @@ async function run() {
     <div data-timeline-row-kind="queued-message">
       <div class="flex" data-queued-message-id="rtl-queued">
         <div id="rtl-queued-card">
-          <div id="rtl-queued-prompt" class="whitespace-pre-wrap">${rtlText}?</div>
+          <div id="rtl-queued-prompt" class="chat-markdown"><p id="rtl-queued-paragraph">${rtlText}?</p><p id="rtl-queued-english-paragraph">Run this first.</p><pre><code id="rtl-queued-code">npm test</code></pre></div>
           <div id="rtl-queued-details"><span id="rtl-queued-details-text">2 attachments, 1 context item</span></div>
           <div id="rtl-queued-footer" class="flex" data-scroll-anchor-ignore="true">
             <span id="rtl-queued-status" class="flex"><svg class="icon"></svg>Queued</span>
@@ -293,7 +305,7 @@ async function run() {
     <div data-timeline-row-kind="queued-message">
       <div class="flex" data-queued-message-id="english-queued">
         <div id="english-queued-card">
-          <div id="english-queued-prompt" class="whitespace-pre-wrap">Open your browser and I will connect to it.</div>
+          <div id="english-queued-prompt" class="chat-markdown"><p>Open your browser and I will connect to it.</p></div>
           <div id="english-queued-footer" class="flex" data-scroll-anchor-ignore="true">
             <span id="english-queued-status" class="flex"><svg class="icon"></svg>Queued</span>
             <div id="english-queued-actions" class="ml-auto flex"><button aria-label="Send now"></button><button aria-label="Cancel and return to the composer"></button></div>
@@ -301,10 +313,10 @@ async function run() {
         </div>
       </div>
     </div>
-    <div contenteditable="true" data-lexical-editor="true">
-      <p id="composer-chip-rtl-paragraph" dir="auto"><span id="composer-chip" data-lexical-decorator="true" contenteditable="false">image.png 48 KB</span> ${rtlText}.</p>
-      <p id="composer-chip-english-paragraph" dir="auto"><span data-lexical-decorator="true" contenteditable="false">image.png</span> Please check this.</p>
-      <p id="composer-plain-rtl-paragraph" dir="auto">${rtlText}</p>
+    <div id="composer-editor" class="composer-tiptap" contenteditable="true">
+      <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
+      <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
+      <p id="composer-multiline-paragraph">${rtlText}<br><span id="composer-english-line">English line here.</span></p>
     </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
@@ -322,7 +334,7 @@ async function run() {
       document.body.appendChild(dynamicRow);
       const dynamicPlanCard = document.createElement("div");
       dynamicPlanCard.id = "dynamic-plan-card";
-      dynamicPlanCard.innerHTML = '<div><div><p id="dynamic-plan-title">${rtlText}</p></div><button aria-label="Plan actions">...</button></div><div><div id="dynamic-plan-markdown" class="chat-markdown" dir="auto"><p id="dynamic-plan-paragraph">${rtlText}</p></div></div>';
+      dynamicPlanCard.innerHTML = '<div><div><h3 id="dynamic-plan-title">${rtlText}</h3></div><button aria-label="Plan actions">...</button></div><div><div id="dynamic-plan-markdown" class="chat-markdown" dir="auto"><p id="dynamic-plan-paragraph">${rtlText}</p></div></div>';
       document.body.appendChild(dynamicPlanCard);
       for (const [shortcutId, checkId] of [
         ["pending-selected-shortcut", "pending-selected-check"],
@@ -334,17 +346,6 @@ async function run() {
         document.getElementById(shortcutId).replaceWith(check);
       }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
-      // A chip inserted after injection, as when an image is pasted into the composer.
-      const dynamicComposerParagraph = document.createElement("p");
-      dynamicComposerParagraph.id = "composer-dynamic-chip-paragraph";
-      dynamicComposerParagraph.dir = "auto";
-      dynamicComposerParagraph.append(" ", ${JSON.stringify(rtlText)});
-      document.querySelector("[data-lexical-editor]").appendChild(dynamicComposerParagraph);
-      const dynamicComposerChip = document.createElement("span");
-      dynamicComposerChip.setAttribute("data-lexical-decorator", "true");
-      dynamicComposerChip.setAttribute("contenteditable", "false");
-      dynamicComposerChip.textContent = "screenshot.png";
-      dynamicComposerParagraph.prepend(dynamicComposerChip);
       const dynamicCommentEditor = document.createElement("div");
       dynamicCommentEditor.id = "dynamic-citation-comment-editor";
       dynamicCommentEditor.setAttribute("data-citation-comment-editor", "true");
@@ -430,11 +431,16 @@ async function run() {
           pendingCardDirection: style("pending-card").direction,
           pendingToggleDir: document.getElementById("pending-toggle").dir,
           pendingToggleTextAlign: style("pending-toggle").textAlign,
-          pendingChevronAtFarEdge:
+          pendingIconAtStart:
             Math.abs(
-              document.getElementById("pending-chevron").getBoundingClientRect().left -
+              document.getElementById("pending-icon").getBoundingClientRect().right -
+                document.getElementById("pending-toggle").getBoundingClientRect().right,
+            ) <= 1,
+          pendingActionsAtFarEdge:
+            Math.abs(
+              document.getElementById("pending-actions").getBoundingClientRect().left -
                 document.getElementById("pending-toggle").getBoundingClientRect().left,
-            ) <= 12,
+            ) <= 1,
           pendingQuestionDir: document.getElementById("pending-question").dir,
           pendingOptionDir: document.getElementById("pending-option").dir,
           pendingOptionTextAlign: style("pending-option").textAlign,
@@ -573,14 +579,29 @@ async function run() {
           englishCitationChipEditAfterLabel:
             document.getElementById("english-citation-chip-edit").getBoundingClientRect().left >=
             document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
-          composerChipDir: document.getElementById("composer-chip").dir,
-          composerChipRtlParagraphDirection: style("composer-chip-rtl-paragraph").direction,
-          composerChipEnglishParagraphDirection: style("composer-chip-english-paragraph").direction,
-          composerPlainRtlParagraphDirection: style("composer-plain-rtl-paragraph").direction,
-          composerPlainRtlParagraphDir: document.getElementById("composer-plain-rtl-paragraph").dir,
-          composerDynamicChipParagraphDirection: style("composer-dynamic-chip-paragraph").direction,
+          composerParagraphDirAttribute: document.getElementById("composer-chip-rtl-paragraph").getAttribute("dir"),
+          composerParagraphUnicodeBidi: style("composer-chip-rtl-paragraph").unicodeBidi,
+          composerRtlChipAtStart:
+            Math.abs(
+              document.getElementById("composer-chip").getBoundingClientRect().right -
+                document.getElementById("composer-editor").getBoundingClientRect().right,
+            ) <= 1,
+          composerEnglishChipAtStart:
+            Math.abs(
+              document.getElementById("composer-english-chip").getBoundingClientRect().left -
+                document.getElementById("composer-editor").getBoundingClientRect().left,
+            ) <= 1,
+          composerEnglishLineAtStart:
+            Math.abs(
+              document.getElementById("composer-english-line").getBoundingClientRect().left -
+                document.getElementById("composer-editor").getBoundingClientRect().left,
+            ) <= 1,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
+          rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
+          rtlQueuedEnglishParagraphDir: document.getElementById("rtl-queued-english-paragraph").dir,
+          rtlQueuedCodeDir: document.getElementById("rtl-queued-code").dir,
+          rtlQueuedPromptTextAlign: style("rtl-queued-prompt").textAlign,
           rtlQueuedDetailsDir: document.getElementById("rtl-queued-details").dir,
           rtlQueuedDetailsDirection: style("rtl-queued-details").direction,
           rtlQueuedDetailsOnCardSide:
@@ -678,7 +699,8 @@ async function run() {
     pendingCardDirection: "rtl",
     pendingToggleDir: "rtl",
     pendingToggleTextAlign: "start",
-    pendingChevronAtFarEdge: true,
+    pendingIconAtStart: true,
+    pendingActionsAtFarEdge: true,
     pendingQuestionDir: "rtl",
     pendingOptionDir: "rtl",
     pendingOptionTextAlign: "start",
@@ -761,14 +783,17 @@ async function run() {
     englishCitationChipEditMarginLeftApplied: true,
     englishCitationChipEditMarginRight: "0px",
     englishCitationChipEditAfterLabel: true,
-    composerChipDir: "auto",
-    composerChipRtlParagraphDirection: "rtl",
-    composerChipEnglishParagraphDirection: "ltr",
-    composerPlainRtlParagraphDirection: "rtl",
-    composerPlainRtlParagraphDir: "auto",
-    composerDynamicChipParagraphDirection: "rtl",
+    composerParagraphDirAttribute: null,
+    composerParagraphUnicodeBidi: "plaintext",
+    composerRtlChipAtStart: true,
+    composerEnglishChipAtStart: true,
+    composerEnglishLineAtStart: true,
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
+    rtlQueuedParagraphDir: "rtl",
+    rtlQueuedEnglishParagraphDir: "auto",
+    rtlQueuedCodeDir: "ltr",
+    rtlQueuedPromptTextAlign: "start",
     rtlQueuedDetailsDir: "auto",
     rtlQueuedDetailsDirection: "ltr",
     rtlQueuedDetailsOnCardSide: true,

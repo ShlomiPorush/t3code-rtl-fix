@@ -17,12 +17,8 @@ const CITATION_COMMENT_EDITOR_SELECTOR = '[data-citation-comment-editor="true"]'
 const CITATION_CHIP_SELECTOR = '[data-assistant-citation-chip="true"]';
 const QUEUED_MESSAGE_SELECTOR = "[data-queued-message-id]";
 const QUEUED_MESSAGE_DETAILS_SELECTOR =
-  `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.whitespace-pre-wrap):not([data-scroll-anchor-ignore])`;
-// Lexical gives each composer paragraph dir="auto", which the browser resolves
-// from its first strong character. A chip carrying its own dir attribute is
-// skipped, so a leading file or image chip no longer turns Hebrew text LTR.
-const COMPOSER_CHIP_SELECTOR =
-  '[data-lexical-editor="true"] [data-lexical-decorator="true"]';
+  `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
+const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
 const MARKDOWN_ROOT_SELECTOR =
   `:is([data-message-role], ${PLAN_CARD_SELECTOR}) .chat-markdown`;
 const PENDING_USER_INPUT_ROOT_SELECTOR =
@@ -38,7 +34,7 @@ const DIRECTION_ROOT_SELECTOR = [
   CITATION_COMMENT_EDITOR_SELECTOR,
   CITATION_CHIP_SELECTOR,
   QUEUED_MESSAGE_SELECTOR,
-  COMPOSER_CHIP_SELECTOR,
+  QUEUED_MARKDOWN_ROOT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const AUTO_DIRECTION_SELECTOR = [
@@ -59,7 +55,7 @@ const AUTO_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown th',
   '[data-message-role] .chat-markdown td',
   PLAN_CARD_SELECTOR,
-  `${PLAN_CARD_SELECTOR} > div:first-child p`,
+  `${PLAN_CARD_SELECTOR} > div:first-child :is(p, h3)`,
   `${PLAN_CARD_SELECTOR} .chat-markdown`,
   `${PLAN_CARD_SELECTOR} .chat-markdown p`,
   `${PLAN_CARD_SELECTOR} .chat-markdown h1`,
@@ -125,7 +121,22 @@ const AUTO_DIRECTION_SELECTOR = [
   `${CITATION_CHIP_SELECTOR} a > span`,
   `${QUEUED_MESSAGE_SELECTOR} > div`,
   QUEUED_MESSAGE_DETAILS_SELECTOR,
-  COMPOSER_CHIP_SELECTOR,
+  QUEUED_MARKDOWN_ROOT_SELECTOR,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} p`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h1`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h2`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h3`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h4`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h5`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} h6`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} blockquote`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} li`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} strong`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} em`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} a:not(.chat-markdown-file-link)`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} th`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
@@ -145,6 +156,10 @@ const LTR_DIRECTION_SELECTOR = [
   `${FILE_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
   `${FILE_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} kbd`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} pre`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} code`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
+  `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
 ].join(", ");
 
 function buildInjectionSource(css) {
