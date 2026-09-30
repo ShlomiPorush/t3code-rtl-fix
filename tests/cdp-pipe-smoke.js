@@ -111,6 +111,7 @@ async function run() {
     <div data-message-role="assistant">
       <div id="rtl-message" class="chat-markdown">
         <p id="rtl-paragraph">${rtlText}</p>
+        <p id="rtl-image-paragraph"><span class="inline-block"><img id="rtl-image" alt="" width="40" height="20"></span></p>
         <code id="inline-code">npm test</code>
         <p id="english-paragraph">An English paragraph.</p>
         <p id="english-leading-paragraph">pstack ${rtlText}</p>
@@ -134,7 +135,7 @@ async function run() {
       <div id="code-first-message" class="chat-markdown"><code>npm</code><p id="code-first-paragraph">${rtlText}</p></div>
     </div>
     <div data-message-role="user">
-      <div id="english-message" class="chat-markdown"><p id="english-user-paragraph">English user message.</p></div>
+      <div id="english-message" class="chat-markdown"><p id="english-user-paragraph">English user message.</p><p id="english-image-paragraph"><span class="inline-block"><img id="english-image" alt="" width="40" height="20"></span></p></div>
     </div>
     <div data-message-role="user">
       <div id="rtl-user-message" class="chat-markdown"><p id="rtl-user-paragraph">${rtlText}</p></div>
@@ -372,6 +373,18 @@ async function run() {
           rtlMessageDirection: style("rtl-message").direction,
           rtlParagraphDir: document.getElementById("rtl-paragraph").dir,
           rtlParagraphDirection: style("rtl-paragraph").direction,
+          rtlImageParagraphDir: document.getElementById("rtl-image-paragraph").getAttribute("dir"),
+          rtlImageAtStart:
+            Math.abs(
+              document.getElementById("rtl-image").getBoundingClientRect().right -
+                document.getElementById("rtl-message").getBoundingClientRect().right,
+            ) <= 1,
+          englishImageParagraphDir: document.getElementById("english-image-paragraph").getAttribute("dir"),
+          englishImageAtStart:
+            Math.abs(
+              document.getElementById("english-image").getBoundingClientRect().left -
+                document.getElementById("english-message").getBoundingClientRect().left,
+            ) <= 1,
           englishParagraphDir: document.getElementById("english-paragraph").dir,
           englishParagraphDirection: style("english-paragraph").direction,
           englishLeadingParagraphDir: document.getElementById("english-leading-paragraph").dir,
@@ -644,6 +657,10 @@ async function run() {
     rtlMessageDirection: "rtl",
     rtlParagraphDir: "rtl",
     rtlParagraphDirection: "rtl",
+    rtlImageParagraphDir: null,
+    rtlImageAtStart: true,
+    englishImageParagraphDir: null,
+    englishImageAtStart: true,
     englishParagraphDir: "auto",
     englishParagraphDirection: "ltr",
     englishLeadingParagraphDir: "rtl",

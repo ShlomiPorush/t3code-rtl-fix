@@ -12,6 +12,8 @@ need to open DevTools and paste CSS manually.
 - English messages remain left to right and left aligned.
 - Hebrew and Arabic prose stays right to left even when it starts with English or a number.
 - Each paragraph and other prose block resolves its direction independently.
+- Images and other blocks without any letters follow the direction of the
+  message around them.
 - Code, commands, and file paths remain left to right.
 - Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the

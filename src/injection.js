@@ -37,6 +37,7 @@ const DIRECTION_ROOT_SELECTOR = [
   QUEUED_MARKDOWN_ROOT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
+const LETTER_PATTERN = /\p{L}/u;
 const AUTO_DIRECTION_SELECTOR = [
   MARKDOWN_ROOT_SELECTOR,
   '[data-message-role] .chat-markdown p',
@@ -173,6 +174,7 @@ function buildInjectionSource(css) {
   const composerTaskRootSelector = ${JSON.stringify(COMPOSER_TASK_ROOT_SELECTOR)};
   const directionRootSelector = ${JSON.stringify(DIRECTION_ROOT_SELECTOR)};
   const rtlTextPattern = new RegExp(${JSON.stringify(RTL_TEXT_PATTERN.source)}, "u");
+  const letterPattern = new RegExp(${JSON.stringify(LETTER_PATTERN.source)}, "u");
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
 
@@ -246,14 +248,20 @@ function buildInjectionSource(css) {
     }
   };
 
-  const hasRtlProse = (element) => {
+  // Hebrew or Arabic prose makes a block right to left, and other letters let
+  // the browser resolve it. A block with no letters at all, such as a lone
+  // image or a number, has nothing to resolve from, so it keeps the direction
+  // of the content around it.
+  const proseDirection = (element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let hasLetters = false;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const ltrAncestor = node.parentElement?.closest(ltrDirectionSelector);
       if (ltrAncestor && ltrAncestor !== element && element.contains(ltrAncestor)) continue;
-      if (rtlTextPattern.test(node.data)) return true;
+      if (rtlTextPattern.test(node.data)) return "rtl";
+      if (!hasLetters && letterPattern.test(node.data)) hasLetters = true;
     }
-    return false;
+    return hasLetters ? "auto" : null;
   };
 
   const setContentDirection = (root) => {
@@ -262,8 +270,9 @@ function buildInjectionSource(css) {
       if (ltrAncestor && ltrAncestor !== element && !element.matches("th, td")) return;
       // A text field holds its text in a value property rather than in child
       // nodes, so the browser has to resolve its direction while the user types.
-      const editable = element.matches("textarea, input");
-      element.setAttribute("dir", !editable && hasRtlProse(element) ? "rtl" : "auto");
+      const direction = element.matches("textarea, input") ? "auto" : proseDirection(element);
+      if (direction) element.setAttribute("dir", direction);
+      else element.removeAttribute("dir");
     };
     if (root.nodeType === Node.ELEMENT_NODE && root.matches(autoDirectionSelector)) apply(root);
     if (typeof root.querySelectorAll !== "function") return;

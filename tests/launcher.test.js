@@ -113,8 +113,9 @@ test("the injected script auto-directs messages and observes new content", () =>
   assert.match(source, /Plan actions/);
   assert.match(source, /markPlanCards/);
   assert.match(source, /markTurnPlans/);
-  assert.match(source, /hasRtlProse/);
-  assert.match(source, /!editable && hasRtlProse\(element\) \? "rtl" : "auto"/);
+  assert.match(source, /proseDirection/);
+  assert.match(source, /matches\("textarea, input"\) \? "auto" : proseDirection\(element\)/);
+  assert.match(source, /removeAttribute\("dir"\)/);
   assert.match(source, /setDirection\(root, ltrDirectionSelector, "ltr"\)/);
   assert.match(source, /characterData: true/);
   assert.match(source, /new MutationObserver/);
