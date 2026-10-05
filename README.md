@@ -33,54 +33,73 @@ need to open DevTools and paste CSS manually.
   an English word or an attachment chip, and word selection with
   Ctrl+Shift+Arrow moves the same way as the text.
 - T3 Code itself is not patched or repackaged.
-- Existing Desktop and Start menu shortcuts are backed up before modification.
 
 ## Requirements
 
 - Windows or macOS
 - The T3 Code desktop app
 
-## Install
+## Windows
+
+### Install or update
 
 Run this in PowerShell:
 
 ```powershell
-irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/install.ps1' | iex
+irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/install.ps1' | iex
 ```
 
 The command downloads the current version of this repository, installs it, and
-removes the downloaded copy. Run the same command again to update the fix.
+removes the downloaded copy. Run the same command again to update the fix, or
+after a T3 Code update if the fix stops loading.
 
 Fully quit T3 Code after installation. Open it again from the Desktop shortcut
-or the Start menu shortcut updated by the installer.
-
-The installed files are stored in:
-
-```text
-%LOCALAPPDATA%\T3RTLFix
-```
+or the Start menu shortcut updated by the installer. The installer backs up the
+original shortcuts first.
 
 If T3 Code is installed in a non-default location, pass the executable path:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/install.ps1'))) `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/install.ps1'))) `
   -T3CodePath "D:\Apps\T3 Code (Alpha).exe"
 ```
 
 To install from a local clone instead, run this from the repository folder:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\install.ps1
 ```
 
-## Install on macOS
+### Customize the CSS
 
-Download or clone this repository, then run this in Terminal from the
-repository folder:
+Edit the installed `rtl.css` file, then fully quit and reopen T3 Code:
+
+```text
+%LOCALAPPDATA%\T3RTLFix\rtl.css
+```
+
+### Uninstall
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "$env:LOCALAPPDATA\T3RTLFix\uninstall.ps1"
+```
+
+The uninstaller restores the original shortcuts. You can then delete the
+`%LOCALAPPDATA%\T3RTLFix` directory.
+
+## macOS
+
+### Install or update
+
+Run this in Terminal:
 
 ```bash
-bash install-mac.sh
+curl -fsSL 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh' | bash
 ```
+
+The command downloads the current version of this repository, installs it, and
+removes the downloaded copy. Run the same command again to update the fix.
 
 The installer finds T3 Code in `/Applications` or `~/Applications`, copies the
 fix to `~/Library/Application Support/T3RTLFix`, and creates a separate
@@ -94,62 +113,70 @@ loads. You can drag it to the Dock in place of the original.
 If T3 Code is installed in a non-default location, pass the app path:
 
 ```bash
-bash install-mac.sh "/path/to/T3 Code (Alpha).app"
+curl -fsSL 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh' |
+  bash -s -- "/path/to/T3 Code (Alpha).app"
 ```
 
-The launcher runs with Node.js 18 or newer when one is found on the system
-(including Homebrew). Otherwise it uses the Node.js runtime bundled in T3 Code
-through `ELECTRON_RUN_AS_NODE`, as on Windows.
-
-Edit the CSS in `~/Library/Application Support/T3RTLFix/rtl.css`. The launcher
-log is written to `launcher.log` in the same folder.
-
-To uninstall on macOS:
+To install from a local clone instead, run this from the repository folder:
 
 ```bash
-bash ~/Library/Application\ Support/T3RTLFix/uninstall-mac.sh
+bash macos/install.sh
 ```
 
-## Customize the CSS
+The launcher runs with Node.js 18 or newer when one is found on the system,
+including Homebrew. Otherwise it uses the Node.js runtime bundled in T3 Code
+through `ELECTRON_RUN_AS_NODE`, as on Windows.
 
-Edit the installed `rtl.css` file:
+### Customize the CSS
+
+Edit the installed `rtl.css` file, then quit T3 Code with Cmd+Q and open
+**T3 Code RTL** again:
 
 ```text
-%LOCALAPPDATA%\T3RTLFix\rtl.css
+~/Library/Application Support/T3RTLFix/rtl.css
 ```
 
-Fully quit and reopen T3 Code after making a change.
+The launcher log is written to `launcher.log` in the same folder.
 
-## Uninstall
+### Uninstall
 
-Run the installed uninstaller:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File "$env:LOCALAPPDATA\T3RTLFix\uninstall.ps1"
+```bash
+bash ~/Library/Application\ Support/T3RTLFix/uninstall.sh
 ```
 
-The uninstaller restores the original shortcuts. You can then delete the
-`%LOCALAPPDATA%\T3RTLFix` directory.
+The uninstaller removes the **T3 Code RTL** app and the whole
+`~/Library/Application Support/T3RTLFix` folder, including any changes made to
+`rtl.css`. Open T3 Code normally afterwards.
 
 ## How it works
 
-The shortcut uses the Node.js runtime already bundled inside T3 Code's Electron
-executable to start a small local launcher. No separate Node.js installation is
-required. The launcher then opens T3 Code normally with Chromium's
-`--remote-debugging-pipe` option and injects the fix into the T3 Code page. The
-fix applies `dir="auto"` to existing and newly rendered messages, injects
+The installer starts T3 Code through a small local launcher instead of opening
+it directly: a Desktop and Start menu shortcut on Windows, and the
+**T3 Code RTL** app on macOS. The launcher runs on the Node.js runtime already
+bundled inside T3 Code's Electron executable, or on a system Node.js on macOS,
+so no separate installation is required. It opens T3 Code normally with
+Chromium's `--remote-debugging-pipe` option and injects the fix into the T3 Code
+page. The fix sets the direction of existing and newly rendered content, injects
 `rtl.css`, and registers both parts for future page reloads.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.
 
+## Repository layout
+
+```text
+src/       The fix injected into T3 Code, shared by both platforms
+windows/   Windows installer, uninstaller, and shortcut launcher
+macos/     macOS installer and uninstaller
+tests/     Unit, browser smoke, and Windows installer tests
+```
+
 ## Limitations
 
-- T3 Code must be opened from a shortcut updated by the installer, or from the
-  T3 Code RTL app on macOS.
-- A T3 Code update may recreate its shortcuts. Run the install command again if
-  the fix stops loading after an update.
+- T3 Code must be opened from a shortcut updated by the installer on Windows,
+  or from the T3 Code RTL app on macOS.
+- A T3 Code update may recreate its Windows shortcuts. Run the install command
+  again if the fix stops loading after an update.
 - T3 Code can change its internal HTML structure. The selectors in `rtl.css`
   may need an update when that happens.
 - The first installation cannot inject into an instance that is already open.
@@ -167,6 +194,11 @@ The smoke test verifies CSS injection through a Chromium debugging pipe. A
 separate regression test performs a complete installation and removal under
 Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
 enabled and that shipped user-facing text contains no Hebrew.
+
+## Credits
+
+- macOS support was contributed by [@sagistiki](https://github.com/sagistiki)
+  in [#27](https://github.com/ShlomiPorush/t3code-rtl-fix/pull/27).
 
 ## License
 

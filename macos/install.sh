@@ -1,10 +1,38 @@
 #!/bin/bash
-# T3 Code RTL Fix - macOS installer (port of install.ps1)
-# Usage:  bash install-mac.sh ["/Applications/T3 Code (Alpha).app"]
+# T3 Code RTL Fix - macOS installer
+# Usage:  bash macos/install.sh ["/Applications/T3 Code (Alpha).app"]
+#    or:  curl -fsSL https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh | bash
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SRC="$SCRIPT_DIR/src"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
+
+# Run through "curl ... | bash", this script has no repository around it.
+# Download the repository, run the installer it contains, and remove the
+# download. T3_RTL_FIX_SOURCE can point to a local ZIP instead.
+if [ ! -f "$SCRIPT_DIR/../src/injection.js" ]; then
+  PACKAGE="${T3_RTL_FIX_SOURCE:-https://github.com/ShlomiPorush/t3code-rtl-fix/archive/refs/heads/main.zip}"
+  WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/t3-rtl-install.XXXXXX")"
+  trap 'rm -rf "$WORK_DIR"' EXIT
+  case "$PACKAGE" in
+    https://*)
+      echo "Downloading T3 Code RTL Fix..."
+      curl -fsSL "$PACKAGE" -o "$WORK_DIR/package.zip"
+      ;;
+    *)
+      cp "$PACKAGE" "$WORK_DIR/package.zip"
+      ;;
+  esac
+  unzip -q "$WORK_DIR/package.zip" -d "$WORK_DIR/package"
+  INSTALLER="$(find "$WORK_DIR/package" -path '*/macos/install.sh' -type f | head -n 1)"
+  if [ -z "$INSTALLER" ] || [ ! -f "$(dirname "$INSTALLER")/../src/injection.js" ]; then
+    echo "The downloaded package does not contain the macOS installer and its src folder."
+    exit 1
+  fi
+  bash "$INSTALLER" "$@"
+  exit 0
+fi
+
+SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
@@ -23,7 +51,7 @@ if [ -z "$APP" ]; then
 fi
 if [ -z "$APP" ] || [ ! -d "$APP" ]; then
   echo "T3 Code was not found in /Applications."
-  echo "Run again with the app path, e.g.:  bash install-mac.sh \"/Applications/T3 Code (Alpha).app\""
+  echo "Run again with the app path, e.g.:  bash macos/install.sh \"/Applications/T3 Code (Alpha).app\""
   exit 1
 fi
 
@@ -47,7 +75,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$INSTALL_DIR/"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
-cp "$SCRIPT_DIR/uninstall-mac.sh" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 
 cat > "$INSTALL_DIR/launch.sh" <<'LAUNCH'
 #!/bin/bash
@@ -55,7 +83,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_EXE="$(cat "$DIR/app-path.txt")"
 NODE_BIN="$(cat "$DIR/node-path.txt" 2>/dev/null)"
 if [ ! -x "$APP_EXE" ]; then
-  osascript -e 'display alert "T3 Code RTL Fix" message "T3 Code was not found. Run install-mac.sh again."'
+  osascript -e 'display alert "T3 Code RTL Fix" message "T3 Code was not found. Run the install command again."'
   exit 1
 fi
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then

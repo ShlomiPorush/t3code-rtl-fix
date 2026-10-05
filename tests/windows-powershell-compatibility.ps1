@@ -38,7 +38,7 @@ try {
     }
 
     $searchRoots = @($desktopRoot, $startMenuRoot)
-    & (Join-Path $repositoryRoot "install.ps1") `
+    & (Join-Path $repositoryRoot "windows\install.ps1") `
         -T3CodePath $fakeAppPath `
         -InstallDirectory $installDirectory `
         -ShortcutSearchRoots $searchRoots
@@ -83,14 +83,16 @@ try {
         Assert-Equal $shortcut.TargetPath $fakeAppPath "The shortcut was not restored before the bootstrap test"
     }
     $packageRoot = Join-Path $testRoot "package\t3code-rtl-fix-main"
-    New-Item -ItemType Directory -Path (Join-Path $packageRoot "src") -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot "install.ps1"), (Join-Path $repositoryRoot "uninstall.ps1") -Destination $packageRoot
-    Copy-Item -Path (Join-Path $repositoryRoot "src\*") -Destination (Join-Path $packageRoot "src")
+    foreach ($folder in @("src", "windows", "macos")) {
+        New-Item -ItemType Directory -Path (Join-Path $packageRoot $folder) -Force | Out-Null
+        Get-ChildItem -LiteralPath (Join-Path $repositoryRoot $folder) -File |
+            Copy-Item -Destination (Join-Path $packageRoot $folder)
+    }
     $packagePath = Join-Path $testRoot "t3code-rtl-fix-main.zip"
     Compress-Archive -LiteralPath $packageRoot -DestinationPath $packagePath
 
     $bootstrapInstallDirectory = Join-Path $testRoot "bootstrap-install"
-    $installerText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "install.ps1")
+    $installerText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "windows\install.ps1")
     Push-Location $testRoot
     try {
         & ([scriptblock]::Create($installerText)) `
@@ -128,7 +130,7 @@ try {
     $quote = { param($Value) "'" + $Value.Replace("'", "''") + "'" }
     $restrictedInstallDirectory = Join-Path $testRoot "restricted-install"
     $rootList = ($searchRoots | ForEach-Object { & $quote $_ }) -join ","
-    $restrictedCommand = "& ([scriptblock]::Create((Get-Content -Raw -LiteralPath $(& $quote (Join-Path $repositoryRoot 'install.ps1'))))) " +
+    $restrictedCommand = "& ([scriptblock]::Create((Get-Content -Raw -LiteralPath $(& $quote (Join-Path $repositoryRoot 'windows\install.ps1'))))) " +
         "-Source $(& $quote $packagePath) -T3CodePath $(& $quote $fakeAppPath) " +
         "-InstallDirectory $(& $quote $restrictedInstallDirectory) -ShortcutSearchRoots @($rootList); " +
         "(Get-ExecutionPolicy -Scope Process).ToString()"

@@ -29,7 +29,7 @@ If fileSystem.FileExists(appPath) And fileSystem.FileExists(launcherPath) Then
 ElseIf fileSystem.FileExists(appPath) Then
   shell.Run Chr(34) & appPath & Chr(34), 1, False
 Else
-  MsgBox "T3 Code was not found. Run install.ps1 again.", _
+  MsgBox "T3 Code was not found. Run the install command again.", _
     48, "T3 Code RTL Fix"
 End If
 
