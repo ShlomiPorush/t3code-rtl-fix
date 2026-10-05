@@ -72,18 +72,58 @@ rm -rf "$LAUNCHER_APP"
 osacompile -o "$LAUNCHER_APP" \
   -e "do shell script \"/bin/bash \" & quoted form of \"$INSTALL_DIR/launch.sh\" & \" > /dev/null 2>&1 &\""
 
-# Reuse T3 Code's icon
-ICON="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null || true)"
-if [ -n "$ICON" ]; then
-  case "$ICON" in *.icns) ;; *) ICON="$ICON.icns" ;; esac
-  if [ -f "$APP/Contents/Resources/$ICON" ]; then
-    cp "$APP/Contents/Resources/$ICON" "$LAUNCHER_APP/Contents/Resources/applet.icns"
-    touch "$LAUNCHER_APP"
-  fi
+# --- Use T3 Code's exact icon --------------------------------------------------
+# osacompile gives the wrapper a default script icon (applet.icns and, on newer
+# macOS, an Assets.car that takes priority over it). Replace both with the
+# exact icon assets shipped inside T3 Code.app.
+PLIST_BUDDY=/usr/libexec/PlistBuddy
+SRC_PLIST="$APP/Contents/Info.plist"
+DST_PLIST="$LAUNCHER_APP/Contents/Info.plist"
+SRC_RES="$APP/Contents/Resources"
+DST_RES="$LAUNCHER_APP/Contents/Resources"
+
+ICON_FILE="$("$PLIST_BUDDY" -c 'Print :CFBundleIconFile' "$SRC_PLIST" 2>/dev/null || true)"
+ICON_NAME="$("$PLIST_BUDDY" -c 'Print :CFBundleIconName' "$SRC_PLIST" 2>/dev/null || true)"
+SRC_ICNS=""
+if [ -n "$ICON_FILE" ]; then
+  case "$ICON_FILE" in *.icns) ;; *) ICON_FILE="$ICON_FILE.icns" ;; esac
+  [ -f "$SRC_RES/$ICON_FILE" ] && SRC_ICNS="$SRC_RES/$ICON_FILE"
 fi
+if [ -z "$SRC_ICNS" ]; then
+  for f in "$SRC_RES"/*.icns; do [ -f "$f" ] && { SRC_ICNS="$f"; break; }; done
+fi
+SRC_CAR=""
+if [ -n "$ICON_NAME" ] && [ -f "$SRC_RES/Assets.car" ]; then SRC_CAR="$SRC_RES/Assets.car"; fi
+
+if [ -n "$SRC_ICNS" ] || [ -n "$SRC_CAR" ]; then
+  rm -f "$DST_RES/applet.icns" "$DST_RES/Assets.car"
+  "$PLIST_BUDDY" -c 'Delete :CFBundleIconFile' "$DST_PLIST" 2>/dev/null || true
+  "$PLIST_BUDDY" -c 'Delete :CFBundleIconName' "$DST_PLIST" 2>/dev/null || true
+  if [ -n "$SRC_ICNS" ]; then
+    cp "$SRC_ICNS" "$DST_RES/AppIcon.icns"
+    "$PLIST_BUDDY" -c 'Add :CFBundleIconFile string AppIcon.icns' "$DST_PLIST"
+  fi
+  if [ -n "$SRC_CAR" ]; then
+    cp "$SRC_CAR" "$DST_RES/Assets.car"
+    "$PLIST_BUDDY" -c "Add :CFBundleIconName string $ICON_NAME" "$DST_PLIST"
+  fi
+  if [ -n "$SRC_ICNS" ] && cmp -s "$SRC_ICNS" "$DST_RES/AppIcon.icns"; then
+    echo "Icon: copied from $(basename "$SRC_ICNS") (identical)"
+  fi
+  [ -n "$SRC_CAR" ] && echo "Icon: copied Assets.car ($ICON_NAME)"
+else
+  echo "Warning: no icon found in T3 Code.app, keeping the default icon"
+fi
+"$PLIST_BUDDY" -c 'Set :CFBundleName T3 Code RTL' "$DST_PLIST" 2>/dev/null || true
+
+# Re-sign ad hoc because the bundle resources changed, then refresh the icon cache
+codesign --force --deep --sign - "$LAUNCHER_APP" >/dev/null 2>&1 || true
+touch "$LAUNCHER_APP"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$LAUNCHER_APP" >/dev/null 2>&1 || true
 
 echo ""
-echo "Done!"
+echo "Done."
 echo "1. Quit T3 Code completely (Cmd+Q)."
 echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
 echo "Edit the CSS here: $INSTALL_DIR/rtl.css"
