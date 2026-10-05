@@ -182,12 +182,3 @@
   margin-left: 0 !important;
   margin-inline-start: auto !important;
 }
-
-/* The injected script gives each composer paragraph the direction of its
-   first letter, which the caret and word selection follow. plaintext keeps a
-   line typed after Shift+Enter in another language in its own word order.
-   Chips are inline-flex and therefore neutral here. */
-.composer-tiptap p {
-  text-align: start !important;
-  unicode-bidi: plaintext;
-}

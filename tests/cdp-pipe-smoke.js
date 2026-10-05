@@ -318,6 +318,8 @@ async function run() {
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
       <p id="composer-multiline-paragraph">${rtlText}<br><span id="composer-english-line">English line here.</span></p>
+      <p id="composer-english-leading-paragraph">Authentik ${rtlText}</p>
+      <p id="composer-mostly-english-paragraph">Please review ${rtlText}</p>
       <p id="composer-typed-paragraph"></p>
     </div>
     <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
@@ -601,7 +603,8 @@ async function run() {
             document.getElementById("english-citation-chip-edit").getBoundingClientRect().left >=
             document.getElementById("english-citation-chip-link").getBoundingClientRect().right,
           composerParagraphDirAttribute: document.getElementById("composer-chip-rtl-paragraph").getAttribute("dir"),
-          composerParagraphUnicodeBidi: style("composer-chip-rtl-paragraph").unicodeBidi,
+          composerEnglishLeadingParagraphDirection: style("composer-english-leading-paragraph").direction,
+          composerMostlyEnglishParagraphDirection: style("composer-mostly-english-paragraph").direction,
           composerParagraphDirection: style("composer-chip-rtl-paragraph").direction,
           composerEnglishParagraphDirection: style("composer-chip-english-paragraph").direction,
           composerTypedParagraphDirection: style("composer-typed-paragraph").direction,
@@ -623,10 +626,10 @@ async function run() {
               document.getElementById("composer-english-chip").getBoundingClientRect().left -
                 document.getElementById("composer-editor").getBoundingClientRect().left,
             ) <= 1,
-          composerEnglishLineAtStart:
+          composerEnglishLineFollowsParagraph:
             Math.abs(
-              document.getElementById("composer-english-line").getBoundingClientRect().left -
-                document.getElementById("composer-editor").getBoundingClientRect().left,
+              document.getElementById("composer-english-line").getBoundingClientRect().right -
+                document.getElementById("composer-editor").getBoundingClientRect().right,
             ) <= 1,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
@@ -820,7 +823,8 @@ async function run() {
     englishCitationChipEditMarginRight: "0px",
     englishCitationChipEditAfterLabel: true,
     composerParagraphDirAttribute: null,
-    composerParagraphUnicodeBidi: "plaintext",
+    composerEnglishLeadingParagraphDirection: "rtl",
+    composerMostlyEnglishParagraphDirection: "rtl",
     composerParagraphDirection: "rtl",
     composerEnglishParagraphDirection: "ltr",
     composerTypedParagraphDirection: "rtl",
@@ -830,7 +834,7 @@ async function run() {
     composerParagraphsKept: true,
     composerRtlChipAtStart: true,
     composerEnglishChipAtStart: true,
-    composerEnglishLineAtStart: true,
+    composerEnglishLineFollowsParagraph: true,
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",

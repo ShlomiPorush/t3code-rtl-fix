@@ -85,7 +85,8 @@ test("composer paragraphs get a computed direction without editor attributes", (
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");
 
-  assert.match(css, /\.composer-tiptap p[\s\S]*unicode-bidi: plaintext/);
+  assert.doesNotMatch(css, /composer-tiptap/);
+  assert.match(source, /composerParagraphDirection/);
   assert.match(source, /t3-rtl-fix-composer/);
   assert.match(source, /data-t3-rtl-composer/);
   assert.match(source, /> p:nth-child\(' \+ \(index \+ 1\)/);
