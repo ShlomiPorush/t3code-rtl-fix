@@ -7,10 +7,10 @@ param(
 )
 
 # Run through "irm ... | iex", this script has no directory of its own and no
-# src folder beside it. Download the repository and run the installer it
+# repository around it. Download the repository and run the installer it
 # contains, keeping the error and progress preferences inside a child scope so
 # they do not change the caller's session.
-$bundledSource = if ($PSScriptRoot) { Join-Path $PSScriptRoot "src" } else { $null }
+$bundledSource = if ($PSScriptRoot) { Join-Path (Split-Path -Parent $PSScriptRoot) "src" } else { $null }
 if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathType Container)) {
     $forwarded = @{ InstallDirectory = $InstallDirectory }
     if ($T3CodePath) { $forwarded.T3CodePath = $T3CodePath }
@@ -43,7 +43,10 @@ if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathTyp
             $extracted = Join-Path $workDirectory "package"
             Expand-Archive -LiteralPath $archive -DestinationPath $extracted
             $installer = Get-ChildItem -LiteralPath $extracted -Filter "install.ps1" -File -Recurse |
-                Where-Object { Test-Path -LiteralPath (Join-Path $_.DirectoryName "src\injection.js") } |
+                Where-Object {
+                    $_.Directory.Name -eq "windows" -and
+                    (Test-Path -LiteralPath (Join-Path $_.Directory.Parent.FullName "src\injection.js"))
+                } |
                 Select-Object -First 1
             if (-not $installer) {
                 throw "The downloaded package does not contain the installer and its src folder."
@@ -106,19 +109,26 @@ if (-not $appPath -or -not (Test-Path -LiteralPath $appPath)) {
     throw "T3 Code was not found. Pass its executable path with -T3CodePath."
 }
 
-$sourceDirectory = Join-Path $PSScriptRoot "src"
-$requiredFiles = @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launch-t3-rtl.vbs")
-foreach ($fileName in $requiredFiles) {
-    if (-not (Test-Path -LiteralPath (Join-Path $sourceDirectory $fileName))) {
-        throw "Required file is missing: src\$fileName"
+# The injected fix is shared with macOS in src. The Windows launcher and
+# uninstaller live beside this script.
+$sourceDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) "src"
+$requiredFiles = @(
+    (Join-Path $sourceDirectory "rtl.css"),
+    (Join-Path $sourceDirectory "injection.js"),
+    (Join-Path $sourceDirectory "t3-rtl-launcher.js"),
+    (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
+    (Join-Path $PSScriptRoot "uninstall.ps1")
+)
+foreach ($requiredFile in $requiredFiles) {
+    if (-not (Test-Path -LiteralPath $requiredFile)) {
+        throw "Required file is missing: $requiredFile"
     }
 }
 
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
-foreach ($fileName in $requiredFiles) {
-    Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination $InstallDirectory -Force
+foreach ($requiredFile in $requiredFiles) {
+    Copy-Item -LiteralPath $requiredFile -Destination $InstallDirectory -Force
 }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall.ps1") -Destination $InstallDirectory -Force
 
 [System.IO.File]::WriteAllText(
     (Join-Path $InstallDirectory "app-path.txt"),

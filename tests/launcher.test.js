@@ -23,22 +23,35 @@ test("the launcher uses T3 Code's bundled Node runtime", () => {
     "utf8",
   );
   const vbscript = fs.readFileSync(
-    path.join(root, "src", "launch-t3-rtl.vbs"),
+    path.join(root, "windows", "launch-t3-rtl.vbs"),
     "utf8",
   );
-  const installer = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
+  const installer = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
   assert.match(vbscript, /ELECTRON_RUN_AS_NODE/);
   assert.match(launcher, /delete t3Environment\.ELECTRON_RUN_AS_NODE/);
   assert.doesNotMatch(installer, /Get-Command node/);
 });
 
-test("the installer can run as a one-line command without a local clone", () => {
-  const installer = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
+test("the installers can run as one-line commands without a local clone", () => {
+  const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
+  const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-  assert.match(installer, /archive\/refs\/heads\/main\.zip/);
-  assert.match(installer, /-UseBasicParsing/);
-  assert.match(installer, /SecurityProtocolType\]::Tls12/);
-  assert.match(readme, /irm 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/install\.ps1' \| iex/);
+  assert.match(windowsInstaller, /archive\/refs\/heads\/main\.zip/);
+  assert.match(windowsInstaller, /-UseBasicParsing/);
+  assert.match(windowsInstaller, /SecurityProtocolType\]::Tls12/);
+  assert.match(macInstaller, /archive\/refs\/heads\/main\.zip/);
+  assert.match(macInstaller, /\.\.\/src\/injection\.js/);
+  assert.match(readme, /irm 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/windows\/install\.ps1' \| iex/);
+  assert.match(readme, /curl -fsSL 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/macos\/install\.sh' \| bash/);
+});
+
+test("each platform keeps its scripts in its own folder", () => {
+  for (const file of ["install.ps1", "uninstall.ps1", "launch-t3-rtl.vbs", "install-mac.sh", "uninstall-mac.sh"]) {
+    assert.equal(fs.existsSync(path.join(root, file)), false, `${file} is still in the repository root`);
+  }
+  for (const file of ["windows/install.ps1", "windows/uninstall.ps1", "windows/launch-t3-rtl.vbs", "macos/install.sh", "macos/uninstall.sh"]) {
+    assert.equal(fs.existsSync(path.join(root, file)), true, `${file} is missing`);
+  }
 });
 
 test("the stylesheet uses content-aware alignment and logical RTL layout", () => {
@@ -161,15 +174,15 @@ test("rendered markdown files receive content-aware direction", () => {
 test("every shipped source file contains only English UI text", () => {
   const files = [
     "README.md",
-    "install.ps1",
-    "uninstall.ps1",
+    path.join("windows", "install.ps1"),
+    path.join("windows", "uninstall.ps1"),
+    path.join("windows", "launch-t3-rtl.vbs"),
+    path.join("macos", "install.sh"),
+    path.join("macos", "uninstall.sh"),
     path.join("tests", "windows-powershell-compatibility.ps1"),
-    path.join("src", "launch-t3-rtl.vbs"),
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
     path.join("src", "rtl.css"),
-    "install-mac.sh",
-    "uninstall-mac.sh",
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), "utf8");
