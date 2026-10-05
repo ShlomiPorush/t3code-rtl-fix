@@ -168,6 +168,8 @@ test("every shipped source file contains only English UI text", () => {
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
     path.join("src", "rtl.css"),
+    "install-mac.sh",
+    "uninstall-mac.sh",
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), "utf8");

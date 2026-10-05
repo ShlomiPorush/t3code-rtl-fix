@@ -37,7 +37,7 @@ need to open DevTools and paste CSS manually.
 
 ## Requirements
 
-- Windows
+- Windows or macOS
 - The T3 Code desktop app
 
 ## Install
@@ -71,6 +71,43 @@ To install from a local clone instead, run this from the repository folder:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+## Install on macOS
+
+Download or clone this repository, then run this in Terminal from the
+repository folder:
+
+```bash
+bash install-mac.sh
+```
+
+The installer finds T3 Code in `/Applications` or `~/Applications`, copies the
+fix to `~/Library/Application Support/T3RTLFix`, and creates a separate
+**T3 Code RTL** app in `~/Applications` with the T3 Code icon. T3 Code itself
+is not modified.
+
+Fully quit T3 Code with Cmd+Q, then open **T3 Code RTL** from
+`~/Applications` or Spotlight. Always open T3 Code through this app so the fix
+loads. You can drag it to the Dock in place of the original.
+
+If T3 Code is installed in a non-default location, pass the app path:
+
+```bash
+bash install-mac.sh "/path/to/T3 Code (Alpha).app"
+```
+
+The launcher runs with Node.js 18 or newer when one is found on the system
+(including Homebrew). Otherwise it uses the Node.js runtime bundled in T3 Code
+through `ELECTRON_RUN_AS_NODE`, as on Windows.
+
+Edit the CSS in `~/Library/Application Support/T3RTLFix/rtl.css`. The launcher
+log is written to `launcher.log` in the same folder.
+
+To uninstall on macOS:
+
+```bash
+bash ~/Library/Application\ Support/T3RTLFix/uninstall-mac.sh
 ```
 
 ## Customize the CSS
@@ -109,7 +146,8 @@ debugging port and does not send data over the network.
 
 ## Limitations
 
-- T3 Code must be opened from a shortcut updated by the installer.
+- T3 Code must be opened from a shortcut updated by the installer, or from the
+  T3 Code RTL app on macOS.
 - A T3 Code update may recreate its shortcuts. Run the install command again if
   the fix stops loading after an update.
 - T3 Code can change its internal HTML structure. The selectors in `rtl.css`
