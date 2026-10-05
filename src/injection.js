@@ -298,14 +298,17 @@ function buildInjectionSource(css) {
   // write, so a dir attribute there would loop forever. Each paragraph's
   // direction goes into a generated stylesheet instead. The caret and
   // Ctrl+Shift+Arrow follow the computed direction, so they match the text.
-  const firstLetterDirection = (paragraph) => {
+  // Same rule as a sent message: any Hebrew or Arabic prose makes the
+  // paragraph right to left, even when it starts with an English word.
+  const composerParagraphDirection = (paragraph) => {
     const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    let hasLetters = false;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       if (node.parentElement?.closest(composerChipSelector)) continue;
-      const letter = node.data.match(letterPattern);
-      if (letter) return rtlTextPattern.test(letter[0]) ? "rtl" : "ltr";
+      if (rtlTextPattern.test(node.data)) return "rtl";
+      if (!hasLetters && letterPattern.test(node.data)) hasLetters = true;
     }
-    return null;
+    return hasLetters ? "ltr" : null;
   };
 
   const writeComposerStyle = () => {
@@ -339,7 +342,7 @@ function buildInjectionSource(css) {
       if (child.localName !== "p") return;
       // A paragraph without letters yet, such as a new empty line, keeps the
       // direction of the paragraph before it.
-      const direction = firstLetterDirection(child) ?? previous;
+      const direction = composerParagraphDirection(child) ?? previous;
       previous = direction;
       if (direction === "rtl") {
         selectors.push(
