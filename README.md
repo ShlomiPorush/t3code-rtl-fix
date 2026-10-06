@@ -32,6 +32,8 @@ need to open DevTools and paste CSS manually.
   message: Hebrew or Arabic anywhere in it makes it right to left, even after
   an English word or an attachment chip, and word selection with
   Ctrl+Shift+Arrow moves the same way as the text.
+- Thread titles in the sidebar and the open thread header follow the direction
+  of their text, including while a thread is renamed.
 - T3 Code itself is not patched or repackaged.
 
 ## Requirements

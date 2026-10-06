@@ -325,6 +325,20 @@ async function run() {
     <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="second-composer-paragraph">${rtlText}</p>
     </div>
+    <ul>
+      <li data-thread-item="true">
+        <div role="button"><span>agent-config</span></div>
+        <div class="mt-1 flex min-w-0"><span id="rtl-thread-title" aria-hidden="true" class="min-w-0 flex-1 text-sm truncate">${rtlText} PR ${rtlText}</span></div>
+      </li>
+      <li data-thread-item="true">
+        <div class="mt-1 flex min-w-0"><span id="english-thread-title" aria-hidden="true" class="min-w-0 flex-1 text-sm truncate">Fix DNS Lookup Failure Reporting</span></div>
+      </li>
+      <li data-thread-item="true">
+        <div class="mt-1 flex min-w-0"><input id="thread-title-input" aria-label="Thread title" value=""></div>
+      </li>
+    </ul>
+    <div data-thread-item="true" data-slot="sidebar-menu-sub-button"><span id="sub-thread-title" data-testid="thread-title-1" class="min-w-0 flex-1 truncate text-sm">${rtlText} PR</span></div>
+    <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -631,6 +645,12 @@ async function run() {
               document.getElementById("composer-english-line").getBoundingClientRect().right -
                 document.getElementById("composer-editor").getBoundingClientRect().right,
             ) <= 1,
+          rtlThreadTitleDir: document.getElementById("rtl-thread-title").dir,
+          englishThreadTitleDir: document.getElementById("english-thread-title").dir,
+          threadTitleInputDir: document.getElementById("thread-title-input").dir,
+          subThreadTitleDir: document.getElementById("sub-thread-title").dir,
+          threadHeaderTitleDir: document.getElementById("thread-header-title").dir,
+          threadHeaderDir: document.getElementById("thread-header").dir,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
@@ -835,6 +855,12 @@ async function run() {
     composerRtlChipAtStart: true,
     composerEnglishChipAtStart: true,
     composerEnglishLineFollowsParagraph: true,
+    rtlThreadTitleDir: "rtl",
+    englishThreadTitleDir: "auto",
+    threadTitleInputDir: "auto",
+    subThreadTitleDir: "rtl",
+    threadHeaderTitleDir: "rtl",
+    threadHeaderDir: "",
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",
