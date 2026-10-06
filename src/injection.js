@@ -19,6 +19,14 @@ const QUEUED_MESSAGE_SELECTOR = "[data-queued-message-id]";
 const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
 const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
+// Thread titles in the sidebar rows, the open thread header, and the rename
+// field shared by both.
+const THREAD_TITLE_SELECTOR = [
+  'li[data-thread-item] span[aria-hidden="true"].text-sm.flex-1',
+  '[data-thread-item] [data-testid^="thread-title-"]',
+  ":has(> [data-thread-title-chevron]) > h2",
+  'input[aria-label="Thread title"]',
+].join(", ");
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
 const COMPOSER_CHIP_SELECTOR = ".react-renderer";
 const COMPOSER_MARKER = "data-t3-rtl-composer";
@@ -39,6 +47,7 @@ const DIRECTION_ROOT_SELECTOR = [
   CITATION_CHIP_SELECTOR,
   QUEUED_MESSAGE_SELECTOR,
   QUEUED_MARKDOWN_ROOT_SELECTOR,
+  THREAD_TITLE_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
@@ -142,6 +151,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} th`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
+  THREAD_TITLE_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

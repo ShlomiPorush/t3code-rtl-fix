@@ -118,6 +118,14 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.doesNotMatch(css, /\[data-pending-user-input-toggle\]\s*> svg:last-child/);
 });
 
+test("thread titles follow the direction of their text", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  assert.match(source, /li\[data-thread-item\] span\[aria-hidden=\\"true\\"\]\.text-sm\.flex-1/);
+  assert.match(source, /\[data-testid\^=\\"thread-title-\\"\]/);
+  assert.match(source, /:has\(> \[data-thread-title-chevron\]\) > h2/);
+  assert.match(source, /input\[aria-label=\\"Thread title\\"\]/);
+});
+
 test("the injected script auto-directs messages and observes new content", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[data-message-role\] \.chat-markdown/);
