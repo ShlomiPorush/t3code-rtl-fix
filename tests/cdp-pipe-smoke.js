@@ -317,6 +317,8 @@ async function run() {
     <div id="composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
+      <p id="composer-quote-chip-paragraph"><span class="react-renderer"><span id="composer-quote-chip" data-node-view-wrapper="">${rtlText}</span></span></p>
+      <p id="composer-file-chip-paragraph"><span class="react-renderer"><span data-node-view-wrapper="">notes.md</span></span></p>
       <p id="composer-multiline-paragraph">${rtlText}<br><span id="composer-english-line">English line here.</span></p>
       <p id="composer-english-leading-paragraph">Authentik ${rtlText}</p>
       <p id="composer-mostly-english-paragraph">Please review ${rtlText}</p>
@@ -621,6 +623,13 @@ async function run() {
           composerMostlyEnglishParagraphDirection: style("composer-mostly-english-paragraph").direction,
           composerParagraphDirection: style("composer-chip-rtl-paragraph").direction,
           composerEnglishParagraphDirection: style("composer-chip-english-paragraph").direction,
+          composerQuoteChipParagraphDirection: style("composer-quote-chip-paragraph").direction,
+          composerQuoteChipAtStart:
+            Math.abs(
+              document.getElementById("composer-quote-chip").getBoundingClientRect().right -
+                document.getElementById("composer-editor").getBoundingClientRect().right,
+            ) <= 1,
+          composerFileChipParagraphDirection: style("composer-file-chip-paragraph").direction,
           composerTypedParagraphDirection: style("composer-typed-paragraph").direction,
           secondComposerParagraphDirection: style("second-composer-paragraph").direction,
           composerEditorsMarkedSeparately:
@@ -847,6 +856,9 @@ async function run() {
     composerMostlyEnglishParagraphDirection: "rtl",
     composerParagraphDirection: "rtl",
     composerEnglishParagraphDirection: "ltr",
+    composerQuoteChipParagraphDirection: "rtl",
+    composerQuoteChipAtStart: true,
+    composerFileChipParagraphDirection: "rtl",
     composerTypedParagraphDirection: "rtl",
     secondComposerParagraphDirection: "rtl",
     composerEditorsMarkedSeparately: true,
