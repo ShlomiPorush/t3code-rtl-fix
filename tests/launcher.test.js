@@ -118,6 +118,13 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.doesNotMatch(css, /\[data-pending-user-input-toggle\]\s*> svg:last-child/);
 });
 
+test("work log summaries follow their first letter and answers follow the message rule", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  assert.match(source, /\[class~=\\"group\/timeline-row\\"\] p\.items-baseline > span/);
+  assert.match(source, /\[class~=\\"group\/timeline-row\\"\] \.space-y-1 > p/);
+  assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
+});
+
 test("thread titles follow the direction of their text", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /li\[data-thread-item\] span\[aria-hidden=\\"true\\"\]\.text-sm\.flex-1/);

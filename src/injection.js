@@ -27,6 +27,13 @@ const THREAD_TITLE_SELECTOR = [
   ":has(> [data-thread-title-chevron]) > h2",
   'input[aria-label="Thread title"]',
 ].join(", ");
+// The agent's work log. Row summaries also describe shell commands, so they
+// take dir="auto" and follow their first letter: a command that starts in
+// English stays left to right even with a Hebrew argument. The questions and
+// answers shown when an asked question is expanded are prose and follow the
+// message rule.
+const WORK_LOG_SUMMARY_SELECTOR = '[class~="group/timeline-row"] p.items-baseline > span';
+const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
 const COMPOSER_CHIP_SELECTOR = ".react-renderer";
 const COMPOSER_MARKER = "data-t3-rtl-composer";
@@ -152,6 +159,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} th`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
   THREAD_TITLE_SELECTOR,
+  WORK_LOG_ANSWER_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
@@ -192,6 +200,7 @@ function buildInjectionSource(css) {
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
   const composerRootSelector = ${JSON.stringify(COMPOSER_ROOT_SELECTOR)};
+  const workLogSummarySelector = ${JSON.stringify(WORK_LOG_SUMMARY_SELECTOR)};
   const composerChipSelector = ${JSON.stringify(COMPOSER_CHIP_SELECTOR)};
   const composerMarker = ${JSON.stringify(COMPOSER_MARKER)};
   const composerStyleId = ${JSON.stringify(COMPOSER_STYLE_ID)};
@@ -302,6 +311,7 @@ function buildInjectionSource(css) {
     markTurnPlans(root);
     setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
+    setDirection(root, workLogSummarySelector, "auto");
   };
 
   // The composer editor replaces any paragraph whose attributes it did not
