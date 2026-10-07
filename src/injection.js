@@ -310,15 +310,24 @@ function buildInjectionSource(css) {
   // Ctrl+Shift+Arrow follow the computed direction, so they match the text.
   // Same rule as a sent message: any Hebrew or Arabic prose makes the
   // paragraph right to left, even when it starts with an English word.
+  // Typed text decides first. A paragraph that holds only chips follows a
+  // Hebrew or Arabic chip, such as a quoted comment. A chip without such text,
+  // such as a file name, decides nothing and the previous paragraph's
+  // direction applies.
   const composerParagraphDirection = (paragraph) => {
     const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
     let hasLetters = false;
+    let chipHasRtlText = false;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (node.parentElement?.closest(composerChipSelector)) continue;
+      if (node.parentElement?.closest(composerChipSelector)) {
+        if (rtlTextPattern.test(node.data)) chipHasRtlText = true;
+        continue;
+      }
       if (rtlTextPattern.test(node.data)) return "rtl";
       if (!hasLetters && letterPattern.test(node.data)) hasLetters = true;
     }
-    return hasLetters ? "ltr" : null;
+    if (hasLetters) return "ltr";
+    return chipHasRtlText ? "rtl" : null;
   };
 
   const writeComposerStyle = () => {
