@@ -341,6 +341,20 @@ async function run() {
     </ul>
     <div data-thread-item="true" data-slot="sidebar-menu-sub-button"><span id="sub-thread-title" data-testid="thread-title-1" class="min-w-0 flex-1 truncate text-sm">${rtlText} PR</span></div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
+    <div class="group/timeline-row relative flex flex-col" role="button" aria-expanded="true">
+      <div class="flex items-center">
+        <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div>
+      </div>
+      <div class="ms-7 mt-2 space-y-2"><div class="space-y-1">
+        <p id="work-log-question" class="whitespace-pre-wrap text-sm">${rtlText} PR?</p>
+        <p id="work-log-answer" class="ms-3 whitespace-pre-wrap text-sm">3 PRs ${rtlText} (Recommended)</p>
+      </div></div>
+    </div>
+    <div class="group/timeline-row relative flex flex-col">
+      <div class="flex items-center">
+        <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-command" class="min-w-0 truncate">git commit -m "${rtlText}"</span></p></div>
+      </div>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -660,6 +674,12 @@ async function run() {
           subThreadTitleDir: document.getElementById("sub-thread-title").dir,
           threadHeaderTitleDir: document.getElementById("thread-header-title").dir,
           threadHeaderDir: document.getElementById("thread-header").dir,
+          workLogAnswerSummaryDir: document.getElementById("work-log-answer-summary").dir,
+          workLogAnswerSummaryDirection: style("work-log-answer-summary").direction,
+          workLogQuestionDirection: style("work-log-question").direction,
+          workLogAnswerDirection: style("work-log-answer").direction,
+          workLogAnswerDir: document.getElementById("work-log-answer").dir,
+          workLogCommandDirection: style("work-log-command").direction,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
@@ -873,6 +893,12 @@ async function run() {
     subThreadTitleDir: "rtl",
     threadHeaderTitleDir: "rtl",
     threadHeaderDir: "",
+    workLogAnswerSummaryDir: "auto",
+    workLogAnswerSummaryDirection: "rtl",
+    workLogQuestionDirection: "rtl",
+    workLogAnswerDirection: "rtl",
+    workLogAnswerDir: "rtl",
+    workLogCommandDirection: "ltr",
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",

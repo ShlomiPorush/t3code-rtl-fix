@@ -33,6 +33,9 @@ need to open DevTools and paste CSS manually.
   an English word or an attachment chip, and word selection with
   Ctrl+Shift+Arrow moves the same way as the text. A line that holds only a
   quote with a Hebrew or Arabic comment is right to left as well.
+- The agent's work log follows the direction of its text. Asked questions and
+  their answers follow the message rule, and row summaries follow their first
+  letter so commands that start in English stay left to right.
 - Thread titles in the sidebar and the open thread header follow the direction
   of their text, including while a thread is renamed.
 - T3 Code itself is not patched or repackaged.
