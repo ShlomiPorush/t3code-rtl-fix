@@ -4,6 +4,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { buildInjectionSource } = require("./injection");
+const {
+  ANNOTATION_BINDING,
+  applyAnnotationDirection,
+  watchAnnotations,
+} = require("./annotation-direction");
 
 const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
@@ -105,10 +110,17 @@ function isT3Page(targetInfo) {
   );
 }
 
+// T3 Code's browser preview runs in a <webview>, where T3 draws its element
+// annotation window.
+function isT3Preview(targetInfo) {
+  return targetInfo?.type === "webview";
+}
+
 async function attachAndInject(targetInfo) {
-  const targetId = targetInfo.targetId;
+  const targetId = targetInfo?.targetId;
+  const isPage = isT3Page(targetInfo);
   if (
-    !isT3Page(targetInfo) ||
+    (!isPage && !isT3Preview(targetInfo)) ||
     sessionsByTarget.has(targetId) ||
     attachingTargets.has(targetId)
   ) {
@@ -123,6 +135,12 @@ async function attachAndInject(targetInfo) {
     });
     const sessionId = attached.sessionId;
     sessionsByTarget.set(targetId, sessionId);
+
+    if (!isPage) {
+      await watchAnnotations(send, sessionId);
+      log("Annotation direction watcher added to a browser preview");
+      return;
+    }
 
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
@@ -144,6 +162,16 @@ async function attachAndInject(targetInfo) {
 }
 
 function handleMessage(message) {
+  if (
+    message.method === "Runtime.bindingCalled" &&
+    message.params?.name === ANNOTATION_BINDING
+  ) {
+    applyAnnotationDirection(send, message.sessionId).catch((error) => {
+      log(`Could not set the annotation comment direction: ${error.message}`);
+    });
+    return;
+  }
+
   if (message.id) {
     const request = pending.get(message.id);
     if (!request) return;
