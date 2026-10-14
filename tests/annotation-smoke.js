@@ -97,6 +97,11 @@ async function run() {
   // T3 Code creates the window on demand, after the page has loaded.
   await send("Runtime.evaluate", {
     expression: `(() => {
+      // A highlight host without a comment field comes first in the page.
+      const highlight = document.createElement("div");
+      highlight.setAttribute("data-t3code-annotation-ui", "");
+      document.documentElement.appendChild(highlight);
+      highlight.attachShadow({ mode: "closed" }).appendChild(document.createElement("div"));
       const host = document.createElement("div");
       host.setAttribute("data-t3code-annotation-ui", "");
       document.documentElement.appendChild(host);
@@ -123,7 +128,7 @@ async function run() {
         hebrewDirection: getComputedStyle(comment).direction,
         englishDirection: english.direction,
         siteFieldDir: document.getElementById("site-field").getAttribute("dir"),
-        pageCannotReachRoot: document.querySelector("[data-t3code-annotation-ui]").shadowRoot === null,
+        pageCannotReachRoot: [...document.querySelectorAll("[data-t3code-annotation-ui]")].every((host) => host.shadowRoot === null),
       });
     })()`,
     returnByValue: true,
@@ -135,9 +140,9 @@ async function run() {
     ...JSON.parse(result.result.value),
   };
   const expected = {
-    updatedWithoutWindow: 0,
+    updatedWithoutWindow: { hosts: 0, fields: 0 },
     callsAfterFirstFocus: 1,
-    updatedCounts: [1],
+    updatedCounts: [{ hosts: 2, fields: 1 }],
     commentDir: "auto",
     hebrewDirection: "rtl",
     englishDirection: "ltr",

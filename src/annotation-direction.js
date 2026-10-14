@@ -42,44 +42,55 @@ async function watchAnnotations(send, sessionId) {
   await send("Runtime.evaluate", { expression: source }, sessionId);
 }
 
+// T3 Code can keep more than one annotation host in the page, for example one
+// for the element highlight and one for the comment window, so every host is
+// searched. Returns how many hosts and comment fields were found.
 async function applyAnnotationDirection(send, sessionId) {
-  const host = await send(
+  const selector = JSON.stringify(ANNOTATION_HOST_SELECTOR);
+  const count = await send(
     "Runtime.evaluate",
-    { expression: `document.querySelector(${JSON.stringify(ANNOTATION_HOST_SELECTOR)})` },
+    { expression: `document.querySelectorAll(${selector}).length`, returnByValue: true },
     sessionId,
   );
-  const hostObjectId = host?.result?.objectId;
-  if (!hostObjectId) return 0;
-
-  let updated = 0;
-  try {
-    const { node } = await send(
-      "DOM.describeNode",
-      { objectId: hostObjectId, depth: -1, pierce: true },
+  const hosts = Number(count?.result?.value) || 0;
+  let fields = 0;
+  for (let index = 0; index < hosts; index += 1) {
+    const host = await send(
+      "Runtime.evaluate",
+      { expression: `document.querySelectorAll(${selector})[${index}]` },
       sessionId,
     );
-    for (const backendNodeId of collectTextareas(node)) {
-      const { object } = await send("DOM.resolveNode", { backendNodeId }, sessionId);
-      if (!object?.objectId) continue;
-      try {
-        await send(
-          "Runtime.callFunctionOn",
-          {
-            objectId: object.objectId,
-            functionDeclaration:
-              'function () { if (this.getAttribute("dir") !== "auto") this.setAttribute("dir", "auto"); }',
-          },
-          sessionId,
-        );
-        updated += 1;
-      } finally {
-        await send("Runtime.releaseObject", { objectId: object.objectId }, sessionId);
+    const hostObjectId = host?.result?.objectId;
+    if (!hostObjectId) continue;
+    try {
+      const { node } = await send(
+        "DOM.describeNode",
+        { objectId: hostObjectId, depth: -1, pierce: true },
+        sessionId,
+      );
+      for (const backendNodeId of collectTextareas(node)) {
+        const { object } = await send("DOM.resolveNode", { backendNodeId }, sessionId);
+        if (!object?.objectId) continue;
+        try {
+          await send(
+            "Runtime.callFunctionOn",
+            {
+              objectId: object.objectId,
+              functionDeclaration:
+                'function () { if (this.getAttribute("dir") !== "auto") this.setAttribute("dir", "auto"); }',
+            },
+            sessionId,
+          );
+          fields += 1;
+        } finally {
+          await send("Runtime.releaseObject", { objectId: object.objectId }, sessionId);
+        }
       }
+    } finally {
+      await send("Runtime.releaseObject", { objectId: hostObjectId }, sessionId);
     }
-  } finally {
-    await send("Runtime.releaseObject", { objectId: hostObjectId }, sessionId);
   }
-  return updated;
+  return { hosts, fields };
 }
 
 module.exports = {

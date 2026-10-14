@@ -166,9 +166,18 @@ function handleMessage(message) {
     message.method === "Runtime.bindingCalled" &&
     message.params?.name === ANNOTATION_BINDING
   ) {
-    applyAnnotationDirection(send, message.sessionId).catch((error) => {
-      log(`Could not set the annotation comment direction: ${error.message}`);
-    });
+    applyAnnotationDirection(send, message.sessionId).then(
+      ({ hosts, fields }) => {
+        // Only a miss is worth recording; a log line per focus would grow the
+        // log with every comment typed.
+        if (fields === 0) {
+          log(`Annotation window focused, but no comment field was found in ${hosts} annotation hosts`);
+        }
+      },
+      (error) => {
+        log(`Could not set the annotation comment direction: ${error.message}`);
+      },
+    );
     return;
   }
 
