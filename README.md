@@ -38,6 +38,8 @@ need to open DevTools and paste CSS manually.
   letter so commands that start in English stay left to right.
 - Thread titles in the sidebar and the open thread header follow the direction
   of their text, including while a thread is renamed.
+- The comment field of the element annotation window in the browser preview
+  follows the direction of the comment while it is typed.
 - T3 Code itself is not patched or repackaged.
 
 ## Requirements
@@ -164,6 +166,11 @@ so no separate installation is required. It opens T3 Code normally with
 Chromium's `--remote-debugging-pipe` option and injects the fix into the T3 Code
 page. The fix sets the direction of existing and newly rendered content, injects
 `rtl.css`, and registers both parts for future page reloads.
+
+T3 Code draws its element annotation window inside the browser preview, in a
+closed shadow root. In the preview, the launcher only listens for that window
+to take focus and then sets the direction of its comment field. The content of
+the previewed page is not changed.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.

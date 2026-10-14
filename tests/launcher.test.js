@@ -118,6 +118,20 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.doesNotMatch(css, /\[data-pending-user-input-toggle\]\s*> svg:last-child/);
 });
 
+test("the launcher fixes the annotation comment in browser previews", () => {
+  const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
+  const annotation = fs.readFileSync(path.join(root, "src", "annotation-direction.js"), "utf8");
+  const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
+  const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
+  assert.match(launcher, /targetInfo\?\.type === "webview"/);
+  assert.match(launcher, /Runtime\.bindingCalled/);
+  assert.match(annotation, /\[data-t3code-annotation-ui\]/);
+  assert.match(annotation, /pierce: true/);
+  assert.doesNotMatch(annotation, /Runtime\.enable/);
+  assert.match(windowsInstaller, /annotation-direction\.js/);
+  assert.match(macInstaller, /annotation-direction\.js/);
+});
+
 test("work log summaries follow their first letter and answers follow the message rule", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] p\.items-baseline > span/);
@@ -197,6 +211,7 @@ test("every shipped source file contains only English UI text", () => {
     path.join("tests", "windows-powershell-compatibility.ps1"),
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
+    path.join("src", "annotation-direction.js"),
     path.join("src", "rtl.css"),
   ];
   for (const file of files) {
