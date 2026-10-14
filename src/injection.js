@@ -34,6 +34,13 @@ const THREAD_TITLE_SELECTOR = [
 // message rule.
 const WORK_LOG_SUMMARY_SELECTOR = '[class~="group/timeline-row"] p.items-baseline > span';
 const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
+// The card that opens from a preview annotation chip in a message or the
+// composer: the page title and the comment written on the element. Both class
+// combinations are unique to this card in T3 Code's markup.
+const PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR = [
+  "div.mt-1.whitespace-pre-wrap.wrap-break-word.text-sm",
+  ".min-w-0.px-3.py-2\\.5 > .text-message-foreground.text-xs.font-medium",
+].join(", ");
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
 const COMPOSER_CHIP_SELECTOR = ".react-renderer";
 const COMPOSER_MARKER = "data-t3-rtl-composer";
@@ -160,6 +167,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
+  PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

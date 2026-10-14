@@ -39,7 +39,8 @@ need to open DevTools and paste CSS manually.
 - Thread titles in the sidebar and the open thread header follow the direction
   of their text, including while a thread is renamed.
 - The comment field of the element annotation window in the browser preview
-  follows the direction of the comment while it is typed.
+  follows the direction of the comment while it is typed, and so do the comment
+  and page title in the card that opens from an annotation chip.
 - T3 Code itself is not patched or repackaged.
 
 ## Requirements

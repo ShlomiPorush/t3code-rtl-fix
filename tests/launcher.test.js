@@ -139,6 +139,14 @@ test("work log summaries follow their first letter and answers follow the messag
   assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
 });
 
+test("preview annotation cards follow the direction of their comment", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  assert.match(source, /div\.mt-1\.whitespace-pre-wrap\.wrap-break-word\.text-sm/);
+  // The injected source holds the selector JSON-encoded, so its escaped dot
+  // appears there as two backslashes.
+  assert.ok(source.includes(".min-w-0.px-3.py-2\\\\.5 > .text-message-foreground.text-xs.font-medium"));
+});
+
 test("thread titles follow the direction of their text", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /li\[data-thread-item\] span\[aria-hidden=\\"true\\"\]\.text-sm\.flex-1/);

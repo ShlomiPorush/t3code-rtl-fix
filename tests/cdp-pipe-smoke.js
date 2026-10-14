@@ -355,6 +355,15 @@ async function run() {
         <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-command" class="min-w-0 truncate">git commit -m "${rtlText}"</span></p></div>
       </div>
     </div>
+    <div class="max-w-full overflow-hidden rounded-lg border">
+      <div class="border-b px-3 py-2 text-xs">Screenshot unavailable</div>
+      <div class="min-w-0 px-3 py-2.5">
+        <div id="annotation-card-title" class="text-message-foreground text-xs font-medium">mailcow Logs Viewer DEV</div>
+        <div id="annotation-card-comment" class="mt-1 whitespace-pre-wrap wrap-break-word text-sm">${rtlText} PR ${rtlText}</div>
+        <div class="mt-1 flex items-center gap-2 text-xs"><span id="annotation-card-summary" class="truncate">1 selected element</span></div>
+      </div>
+    </div>
+    <div class="min-w-0 px-3 py-2.5"><div id="annotation-card-hebrew-title" class="text-message-foreground text-xs font-medium">${rtlText}</div></div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -680,6 +689,11 @@ async function run() {
           workLogAnswerDirection: style("work-log-answer").direction,
           workLogAnswerDir: document.getElementById("work-log-answer").dir,
           workLogCommandDirection: style("work-log-command").direction,
+          annotationCardCommentDir: document.getElementById("annotation-card-comment").dir,
+          annotationCardCommentDirection: style("annotation-card-comment").direction,
+          annotationCardTitleDir: document.getElementById("annotation-card-title").dir,
+          annotationCardHebrewTitleDir: document.getElementById("annotation-card-hebrew-title").dir,
+          annotationCardSummaryDir: document.getElementById("annotation-card-summary").dir,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
@@ -899,6 +913,11 @@ async function run() {
     workLogAnswerDirection: "rtl",
     workLogAnswerDir: "rtl",
     workLogCommandDirection: "ltr",
+    annotationCardCommentDir: "rtl",
+    annotationCardCommentDirection: "rtl",
+    annotationCardTitleDir: "auto",
+    annotationCardHebrewTitleDir: "rtl",
+    annotationCardSummaryDir: "",
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",
