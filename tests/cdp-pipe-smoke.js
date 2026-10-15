@@ -364,6 +364,11 @@ async function run() {
       </div>
     </div>
     <div class="min-w-0 px-3 py-2.5"><div id="annotation-card-hebrew-title" class="text-message-foreground text-xs font-medium">${rtlText}</div></div>
+    <div id="composer-annotation-card" class="whitespace-pre-wrap wrap-break-word px-3 py-2.5 text-sm text-foreground" style="width: 300px; padding: 0; white-space: pre-wrap">Google
+
+${rtlText}
+
+1 element</div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -694,6 +699,25 @@ async function run() {
           annotationCardTitleDir: document.getElementById("annotation-card-title").dir,
           annotationCardHebrewTitleDir: document.getElementById("annotation-card-hebrew-title").dir,
           annotationCardSummaryDir: document.getElementById("annotation-card-summary").dir,
+          ...(() => {
+            const card = document.getElementById("composer-annotation-card");
+            const text = card.firstChild;
+            const cardBox = card.getBoundingClientRect();
+            const lineBox = (part) => {
+              const start = text.data.indexOf(part);
+              const range = document.createRange();
+              range.setStart(text, start);
+              range.setEnd(text, start + part.length);
+              return range.getBoundingClientRect();
+            };
+            return {
+              composerAnnotationCardUnicodeBidi: style("composer-annotation-card").unicodeBidi,
+              composerAnnotationCardTitleAtLeft: Math.abs(lineBox("Google").left - cardBox.left) <= 1,
+              composerAnnotationCardCommentAtRight:
+                Math.abs(lineBox(${JSON.stringify(rtlText)}).right - cardBox.right) <= 1,
+              composerAnnotationCardCountAtLeft: Math.abs(lineBox("1 element").left - cardBox.left) <= 1,
+            };
+          })(),
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
@@ -918,6 +942,10 @@ async function run() {
     annotationCardTitleDir: "auto",
     annotationCardHebrewTitleDir: "rtl",
     annotationCardSummaryDir: "",
+    composerAnnotationCardUnicodeBidi: "plaintext",
+    composerAnnotationCardTitleAtLeft: true,
+    composerAnnotationCardCommentAtRight: true,
+    composerAnnotationCardCountAtLeft: true,
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",
