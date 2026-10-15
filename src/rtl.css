@@ -182,3 +182,13 @@
   margin-left: 0 !important;
   margin-inline-start: auto !important;
 }
+
+/* The card that opens from a preview annotation chip in the composer holds
+   the page title, the comment, and the element count as lines of one text
+   block. plaintext gives each line its own direction, so a Hebrew comment
+   reads right to left between English lines. The class combination is unique
+   to this card. */
+.whitespace-pre-wrap.wrap-break-word.px-3.py-2\.5.text-sm.text-foreground {
+  text-align: start !important;
+  unicode-bidi: plaintext;
+}

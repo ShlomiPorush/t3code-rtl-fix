@@ -2,27 +2,42 @@
 
 // T3 Code draws its element annotation window inside the preview <webview>,
 // in a closed shadow root that scripts in the page cannot reach. A small
-// listener in the preview reports when that window takes focus, and the
-// launcher then gives its comment field dir="auto" through the DevTools
-// protocol, which can see into closed shadow roots. The previewed page's own
-// content is never changed.
+// listener in the preview reports when that window takes focus or receives
+// typing, and the launcher then gives its comment field dir="auto" through the
+// DevTools protocol, which can see into closed shadow roots. The previewed
+// page's own content is never changed.
 const ANNOTATION_HOST_SELECTOR = "[data-t3code-annotation-ui]";
 const ANNOTATION_BINDING = "__t3RtlFixAnnotationFocus";
 const WATCHER_FLAG = "__t3RtlFixAnnotationWatcher";
+// Typing reports at most this often, so a comment does not trigger a DevTools
+// round trip per keystroke.
+const INPUT_REPORT_INTERVAL_MS = 500;
 
 function buildAnnotationWatcherSource() {
   return `(() => {
   const binding = ${JSON.stringify(ANNOTATION_BINDING)};
   const hostSelector = ${JSON.stringify(ANNOTATION_HOST_SELECTOR)};
   const flag = ${JSON.stringify(WATCHER_FLAG)};
+  const inputInterval = ${INPUT_REPORT_INTERVAL_MS};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
-  document.addEventListener("focusin", (event) => {
+  let lastInputReport = 0;
+  // Focus and input events from inside the closed shadow root reach the
+  // document retargeted to the annotation host. Typing is a second trigger in
+  // case the field gained focus before the window joined the document.
+  const report = (event) => {
     const target = event.target;
     if (!(target instanceof Element) || !target.matches(hostSelector)) return;
-    const report = window[binding];
-    if (typeof report === "function") report("focus");
-  }, true);
+    if (event.type === "input") {
+      const now = Date.now();
+      if (now - lastInputReport < inputInterval) return;
+      lastInputReport = now;
+    }
+    const notify = window[binding];
+    if (typeof notify === "function") notify(event.type);
+  };
+  document.addEventListener("focusin", report, true);
+  document.addEventListener("input", report, true);
 })();`;
 }
 

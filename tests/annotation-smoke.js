@@ -118,12 +118,34 @@ async function run() {
   const callsAfterFirstFocus = bindingCalls.length;
   const updatedCounts = await Promise.all(bindingCalls);
 
+  // A window whose field never takes focus is fixed by the first typing, and
+  // rapid typing reports only once.
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const host = document.createElement("div");
+      host.setAttribute("data-t3code-annotation-ui", "");
+      document.documentElement.appendChild(host);
+      const comment = document.createElement("textarea");
+      host.attachShadow({ mode: "closed" }).appendChild(comment);
+      window.__unfocusedComment = comment;
+      for (let typed = 0; typed < 3; typed += 1) {
+        comment.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true }));
+      }
+      return 1;
+    })()`,
+  }, sessionId);
+  await wait(300);
+  const callsAfterTyping = bindingCalls.length;
+  const typingCounts = (await Promise.all(bindingCalls)).slice(updatedCounts.length);
+
   const result = await send("Runtime.evaluate", {
     expression: `(() => {
       const comment = window.__testComment;
+      const unfocusedDir = window.__unfocusedComment.dir;
       const english = { dir: comment.dir, direction: (comment.value = "Make it smaller", getComputedStyle(comment).direction) };
       comment.value = ${JSON.stringify(rtlText)};
       return JSON.stringify({
+        unfocusedDir,
         commentDir: comment.dir,
         hebrewDirection: getComputedStyle(comment).direction,
         englishDirection: english.direction,
@@ -137,12 +159,17 @@ async function run() {
     updatedWithoutWindow,
     callsAfterFirstFocus,
     updatedCounts,
+    callsAfterTyping,
+    typingCounts,
     ...JSON.parse(result.result.value),
   };
   const expected = {
     updatedWithoutWindow: { hosts: 0, fields: 0 },
     callsAfterFirstFocus: 1,
     updatedCounts: [{ hosts: 2, fields: 1 }],
+    callsAfterTyping: 2,
+    typingCounts: [{ hosts: 3, fields: 2 }],
+    unfocusedDir: "auto",
     commentDir: "auto",
     hebrewDirection: "rtl",
     englishDirection: "ltr",

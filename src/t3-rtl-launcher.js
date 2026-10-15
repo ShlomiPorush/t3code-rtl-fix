@@ -86,6 +86,7 @@ let incoming = Buffer.alloc(0);
 const pending = new Map();
 const sessionsByTarget = new Map();
 const attachingTargets = new Set();
+const annotationSessionsLogged = new Set();
 
 function send(method, params = {}, sessionId) {
   const id = nextMessageId++;
@@ -166,12 +167,17 @@ function handleMessage(message) {
     message.method === "Runtime.bindingCalled" &&
     message.params?.name === ANNOTATION_BINDING
   ) {
-    applyAnnotationDirection(send, message.sessionId).then(
+    const sessionId = message.sessionId;
+    const trigger = message.params?.payload ?? "focus";
+    applyAnnotationDirection(send, sessionId).then(
       ({ hosts, fields }) => {
-        // Only a miss is worth recording; a log line per focus would grow the
-        // log with every comment typed.
+        // Record every miss, but a success only once per preview session, so
+        // the log does not grow with every comment typed.
         if (fields === 0) {
-          log(`Annotation window focused, but no comment field was found in ${hosts} annotation hosts`);
+          log(`Annotation ${trigger}: no comment field was found in ${hosts} annotation hosts`);
+        } else if (!annotationSessionsLogged.has(sessionId)) {
+          annotationSessionsLogged.add(sessionId);
+          log(`Annotation ${trigger}: ${fields} comment fields set to dir="auto"`);
         }
       },
       (error) => {
@@ -204,6 +210,7 @@ function handleMessage(message) {
   }
 
   if (message.method === "Target.targetDestroyed") {
+    annotationSessionsLogged.delete(sessionsByTarget.get(message.params?.targetId));
     sessionsByTarget.delete(message.params?.targetId);
   }
 }
