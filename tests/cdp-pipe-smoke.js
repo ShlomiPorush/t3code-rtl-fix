@@ -367,6 +367,8 @@ async function run() {
       <li class="group relative flex h-8 items-center"><div class="flex w-full items-center"><button type="button" class="relative inline-flex items-center"><span class="min-w-0 flex-1"><span id="english-related-thread-title" class="block truncate text-left text-sm font-medium">Fix the installer</span></span></button></div></li>
     </ul>
     <div role="listbox" data-slot="command-list">
+      <div data-slot="tooltip-positioner"><div id="rtl-tooltip" data-slot="tooltip-popup" style="width: 200px"><div data-slot="tooltip-viewport"><span id="rtl-tooltip-text">${rtlText} v3</span></div></div></div>
+      <div data-slot="tooltip-positioner"><div id="english-tooltip" data-slot="tooltip-popup" style="width: 200px"><div data-slot="tooltip-viewport">Read ${rtlText}.md</div></div></div>
       <nav aria-label="Thread breadcrumb"><ol class="flex">
         <li><button type="button" aria-label="Open parent thread: ${rtlText} v3"><span id="parent-breadcrumb-title" data-slot="workspace-breadcrumb-text" aria-hidden="true">${rtlText} v3</span></button></li>
         <li aria-hidden="true"><span id="breadcrumb-separator" data-slot="workspace-breadcrumb-text">/</span></li>
@@ -469,6 +471,10 @@ ${rtlText}
         document.getElementById(shortcutId).replaceWith(check);
       }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
+      const dynamicTooltip = document.createElement("div");
+      dynamicTooltip.setAttribute("data-slot", "tooltip-positioner");
+      dynamicTooltip.innerHTML = '<div id="dynamic-tooltip" data-slot="tooltip-popup"><div data-slot="tooltip-viewport">' + ${JSON.stringify(rtlText)} + "</div></div>";
+      document.body.appendChild(dynamicTooltip);
       // Typing into an empty composer paragraph after injection.
       document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
       const secondComposerParagraph = document.getElementById("second-composer-paragraph");
@@ -765,6 +771,14 @@ ${rtlText}
           englishRelatedThreadTitleDir: document.getElementById("english-related-thread-title").dir,
           mentionThreadTitleDir: document.getElementById("mention-thread-title").dir,
           parentBreadcrumbTitleDir: document.getElementById("parent-breadcrumb-title").dir,
+          rtlTooltipDir: document.getElementById("rtl-tooltip").dir,
+          rtlTooltipTextAtRight:
+            Math.abs(
+              document.getElementById("rtl-tooltip-text").getBoundingClientRect().right -
+                document.getElementById("rtl-tooltip").getBoundingClientRect().right,
+            ) <= 1,
+          englishTooltipDirection: style("english-tooltip").direction,
+          dynamicTooltipDir: document.getElementById("dynamic-tooltip").dir,
           breadcrumbSeparatorDir: document.getElementById("breadcrumb-separator").dir,
           currentBreadcrumbTitleDir: document.getElementById("current-breadcrumb-title").dir,
           toastTitleDir: document.getElementById("toast-title").dir,
@@ -1068,6 +1082,10 @@ ${rtlText}
     englishRelatedThreadTitleDir: "auto",
     mentionThreadTitleDir: "rtl",
     parentBreadcrumbTitleDir: "rtl",
+    rtlTooltipDir: "auto",
+    rtlTooltipTextAtRight: true,
+    englishTooltipDirection: "ltr",
+    dynamicTooltipDir: "auto",
     breadcrumbSeparatorDir: "",
     currentBreadcrumbTitleDir: "auto",
     toastTitleDir: "auto",

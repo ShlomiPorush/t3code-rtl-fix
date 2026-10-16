@@ -181,6 +181,7 @@ test("related thread and @ suggestion titles follow the direction of their text"
   assert.match(source, /ul\[aria-label=\\"Related threads\\"\] span\.block\.truncate/);
   assert.match(source, /\[data-composer-item-id\^=\\"thread:\\"\] span\.truncate/);
   assert.match(source, /nav\[aria-label=\\"Thread breadcrumb\\"\] \[data-slot=\\"workspace-breadcrumb-text\\"\]/);
+  assert.match(source, /setDirection\(root, tooltipSelector, "auto"\)/);
   assert.match(source, /\[data-slot=\\"toast-description\\"\]/);
   assert.match(css, /ul\[aria-label="Related threads"\] span\.block\.truncate \{\s*text-align: start !important;/);
 });

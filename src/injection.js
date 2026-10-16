@@ -51,6 +51,10 @@ const WORK_LOG_SUMMARY_SELECTOR = [
   '[class~="group/timeline-row"] p.items-baseline > span',
   '[class~="group/live-work"] .line-clamp-4',
 ].join(", ");
+// Every tooltip shares one component, whether it shows a thread title, a
+// queued prompt, tool output, or a shortcut, so each follows its first letter
+// and an English tooltip with a Hebrew word stays left to right.
+const TOOLTIP_SELECTOR = '[data-slot="tooltip-popup"]';
 const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
 // An expanded thought in the work log is Markdown, like a message.
 const REASONING_MARKDOWN_ROOT_SELECTOR = '[data-v2-item-type="reasoning"] .chat-markdown';
@@ -273,6 +277,7 @@ function buildInjectionSource(css) {
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
   const composerRootSelector = ${JSON.stringify(COMPOSER_ROOT_SELECTOR)};
   const workLogSummarySelector = ${JSON.stringify(WORK_LOG_SUMMARY_SELECTOR)};
+  const tooltipSelector = ${JSON.stringify(TOOLTIP_SELECTOR)};
   const composerChipSelector = ${JSON.stringify(COMPOSER_CHIP_SELECTOR)};
   const composerMarker = ${JSON.stringify(COMPOSER_MARKER)};
   const composerStyleId = ${JSON.stringify(COMPOSER_STYLE_ID)};
@@ -384,6 +389,7 @@ function buildInjectionSource(css) {
     setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
     setDirection(root, workLogSummarySelector, "auto");
+    setDirection(root, tooltipSelector, "auto");
   };
 
   // The composer editor replaces any paragraph whose attributes it did not
