@@ -72,7 +72,7 @@ async function run() {
   });
   const fixtureHtml = `
     <style>
-      :root { --border: rgb(10, 20, 30); }
+      :root { --border: rgb(10, 20, 30); --contrast-border: rgb(10, 20, 30); }
       .chat-markdown ul { --list-gutter: 20px; padding-left: 20px; }
       .chat-markdown li.task-list-item input { margin: 0 5px 2px -20px; }
       .chat-markdown blockquote { border-left: 2px solid var(--border); padding-left: 12px; }
@@ -100,6 +100,13 @@ async function run() {
       }
       .composer-tiptap { width: 320px; white-space: pre-wrap; }
       .composer-tiptap p { margin: 0; }
+      .composer-tiptap ul, .composer-tiptap ol { margin: 0; }
+      .composer-tiptap ul { --list-gutter: 1.25rem; padding-left: 1.25rem; }
+      .composer-tiptap ol { --list-gutter: 1.25rem; padding-left: var(--list-gutter, 1.25rem); }
+      .composer-tiptap blockquote { margin: 0; border-left: 2px solid var(--contrast-border); padding-left: 0.8rem; }
+      .composer-tiptap ul[data-type=taskList] { margin: 0; padding: 0; list-style: none; }
+      .composer-tiptap li[data-checked] { display: flex; gap: 0.5rem; margin: 0; padding: 0; }
+      .composer-tiptap li[data-checked] > div { flex: auto; min-width: 0; }
       [data-node-view-wrapper] { display: inline-flex; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
@@ -314,6 +321,13 @@ async function run() {
         </div>
       </div>
     </div>
+    <div role="region" aria-label="2 queued messages" data-chat-composer-collapsed-controls="true">
+      <button id="queue-header" data-composer-banner-row="true" aria-label="Collapse queued messages" aria-expanded="true"><span data-slot="composer-banner-content">Queued</span></button>
+      <ol>
+        <li id="rtl-queue-row" data-composer-banner-row="true"><span data-slot="composer-banner-icon"><button aria-label="Reorder queued message (drag, or press the arrow keys)"></button></span><span data-slot="composer-banner-content"><span id="rtl-queue-prompt" class="min-w-0 flex-1 truncate">${rtlText} RTL</span></span><span id="rtl-queue-actions" data-slot="composer-banner-actions"><button aria-label="Edit queued message"></button></span></li>
+        <li data-composer-banner-row="true"><span data-slot="composer-banner-content"><span id="english-queue-prompt" class="min-w-0 flex-1 truncate">Run the tests first</span></span></li>
+      </ol>
+    </div>
     <div id="composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
@@ -323,6 +337,14 @@ async function run() {
       <p id="composer-english-leading-paragraph">Authentik ${rtlText}</p>
       <p id="composer-mostly-english-paragraph">Please review ${rtlText}</p>
       <p id="composer-typed-paragraph"></p>
+    </div>
+    <div id="rich-composer-editor" class="composer-tiptap" contenteditable="true" data-composer-rich-text="true">
+      <h2 id="composer-heading">${rtlText}</h2>
+      <ol id="composer-rtl-list"><li id="composer-rtl-item"><p>${rtlText}</p></li><li id="composer-empty-item"><p></p></li><li id="composer-english-item-in-rtl-list"><p>Run npm test</p></li></ol>
+      <ol id="composer-english-list"><li id="composer-english-item"><p>Open the queue</p></li><li id="composer-rtl-item-in-english-list"><p>${rtlText}</p></li></ol>
+      <ul id="composer-task-list" data-type="taskList"><li id="composer-task-item" data-checked="false"><label id="composer-task-checkbox"><input type="checkbox"></label><div><p>${rtlText}</p></div></li></ul>
+      <blockquote id="composer-quote"><p>${rtlText}</p><p id="composer-quote-english-paragraph">English line.</p></blockquote>
+      <div id="composer-code-block" class="react-renderer node-codeBlock" data-node-view-wrapper=""><pre><code>${rtlText} npm test</code></pre></div>
     </div>
     <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="second-composer-paragraph">${rtlText}</p>
@@ -787,6 +809,39 @@ ${rtlText}
               composerAnnotationCardCountAtLeft: Math.abs(lineBox("1 element").left - cardBox.left) <= 1,
             };
           })(),
+          rtlQueuePromptDir: document.getElementById("rtl-queue-prompt").dir,
+          rtlQueuePromptTextAlign: style("rtl-queue-prompt").textAlign,
+          englishQueuePromptDir: document.getElementById("english-queue-prompt").dir,
+          rtlQueueRowDirection: style("rtl-queue-row").direction,
+          rtlQueueActionsDirection: style("rtl-queue-actions").direction,
+          queueHeaderDirection: style("queue-header").direction,
+          composerHeadingDirection: style("composer-heading").direction,
+          composerRtlListDirection: style("composer-rtl-list").direction,
+          composerRtlListGutterAtRight:
+            style("composer-rtl-list").paddingLeft === "0px" &&
+            style("composer-rtl-list").paddingRight === "20px",
+          composerRtlItemDirection: style("composer-rtl-item").direction,
+          composerEmptyItemDirection: style("composer-empty-item").direction,
+          composerEnglishItemInRtlListDirection: style("composer-english-item-in-rtl-list").direction,
+          composerEnglishListDirection: style("composer-english-list").direction,
+          composerEnglishListGutterAtLeft:
+            style("composer-english-list").paddingLeft === "20px" &&
+            style("composer-english-list").paddingRight === "0px",
+          composerRtlItemInEnglishListDirection: style("composer-rtl-item-in-english-list").direction,
+          composerTaskListPadding: [
+            style("composer-task-list").paddingLeft,
+            style("composer-task-list").paddingRight,
+          ].join(" "),
+          composerTaskItemDirection: style("composer-task-item").direction,
+          composerTaskCheckboxAtRight:
+            Math.abs(
+              document.getElementById("composer-task-checkbox").getBoundingClientRect().right -
+                document.getElementById("composer-task-item").getBoundingClientRect().right,
+            ) <= 1,
+          composerQuoteDirection: style("composer-quote").direction,
+          composerQuoteBorder: [style("composer-quote").borderLeftWidth, style("composer-quote").borderRightWidth].join(" "),
+          composerQuoteEnglishParagraphDirection: style("composer-quote-english-paragraph").direction,
+          composerCodeBlockDirection: style("composer-code-block").direction,
           rtlQueuedCardDir: document.getElementById("rtl-queued-card").dir,
           rtlQueuedPromptDirection: style("rtl-queued-prompt").direction,
           rtlQueuedParagraphDir: document.getElementById("rtl-queued-paragraph").dir,
@@ -1035,6 +1090,28 @@ ${rtlText}
     composerAnnotationCardTitleAtLeft: true,
     composerAnnotationCardCommentAtRight: true,
     composerAnnotationCardCountAtLeft: true,
+    rtlQueuePromptDir: "rtl",
+    rtlQueuePromptTextAlign: "start",
+    englishQueuePromptDir: "auto",
+    rtlQueueRowDirection: "ltr",
+    rtlQueueActionsDirection: "ltr",
+    queueHeaderDirection: "ltr",
+    composerHeadingDirection: "rtl",
+    composerRtlListDirection: "rtl",
+    composerRtlListGutterAtRight: true,
+    composerRtlItemDirection: "rtl",
+    composerEmptyItemDirection: "rtl",
+    composerEnglishItemInRtlListDirection: "ltr",
+    composerEnglishListDirection: "ltr",
+    composerEnglishListGutterAtLeft: true,
+    composerRtlItemInEnglishListDirection: "rtl",
+    composerTaskListPadding: "0px 0px",
+    composerTaskItemDirection: "rtl",
+    composerTaskCheckboxAtRight: true,
+    composerQuoteDirection: "rtl",
+    composerQuoteBorder: "0px 2px",
+    composerQuoteEnglishParagraphDirection: "ltr",
+    composerCodeBlockDirection: "ltr",
     rtlQueuedCardDir: "rtl",
     rtlQueuedPromptDirection: "rtl",
     rtlQueuedParagraphDir: "rtl",

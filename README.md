@@ -27,12 +27,16 @@ need to open DevTools and paste CSS manually.
 - Comments on quoted text and their citation chips follow the direction of the
   comment while it is typed.
 - Queued messages follow the direction of their prompt, including their status
-  and action buttons.
+  and action buttons. In the queue above the composer, each prompt follows the
+  direction of its text.
 - Each paragraph typed in the composer follows the same rule as a sent
   message: Hebrew or Arabic anywhere in it makes it right to left, even after
   an English word or an attachment chip, and word selection with
   Ctrl+Shift+Arrow moves the same way as the text. A line that holds only a
-  quote with a Hebrew or Arabic comment is right to left as well.
+  quote with a Hebrew or Arabic comment is right to left as well. Headings,
+  list items, task list items, and quotes typed in the composer follow the
+  same rule, and a list or quote moves its markers or border to the side where
+  its first item starts.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
   letter so commands that start in English stay left to right. The agent's

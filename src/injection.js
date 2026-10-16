@@ -19,6 +19,10 @@ const QUEUED_MESSAGE_SELECTOR = "[data-queued-message-id]";
 const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
 const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
+// The queue above the composer shows each queued prompt on one truncated
+// line. The row with its reorder handle and actions keeps T3 Code's layout.
+const QUEUED_PROMPT_SELECTOR =
+  '[role="region"][aria-label*=" queued message"] [data-slot="composer-banner-content"] > span.min-w-0.flex-1.truncate';
 // Thread titles in the sidebar rows, the open thread header, and the rename
 // field shared by both, in the related threads list of the thread details
 // panel, and in the threads suggested after typing @ in the composer.
@@ -89,6 +93,7 @@ const DIRECTION_ROOT_SELECTOR = [
   CITATION_CHIP_SELECTOR,
   QUEUED_MESSAGE_SELECTOR,
   QUEUED_MARKDOWN_ROOT_SELECTOR,
+  QUEUED_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
@@ -197,6 +202,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} th`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
+  QUEUED_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
   PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR,
@@ -378,7 +384,7 @@ function buildInjectionSource(css) {
   };
 
   // The composer editor replaces any paragraph whose attributes it did not
-  // write, so a dir attribute there would loop forever. Each paragraph's
+  // write, so a dir attribute there would loop forever. Each block's
   // direction goes into a generated stylesheet instead. The caret and
   // Ctrl+Shift+Arrow follow the computed direction, so they match the text.
   // Same rule as a sent message: any Hebrew or Arabic prose makes the
@@ -428,21 +434,43 @@ function buildInjectionSource(css) {
       id = String(next);
       editor.setAttribute(composerMarker, id);
     }
-    const selectors = [];
+    const selectors = { rtl: [], ltr: [] };
     let previous = "ltr";
-    Array.from(editor.children).forEach((child, index) => {
-      if (child.localName !== "p") return;
-      // A paragraph without letters yet, such as a new empty line, keeps the
-      // direction of the paragraph before it.
-      const direction = composerParagraphDirection(child) ?? previous;
-      previous = direction;
-      if (direction === "rtl") {
-        selectors.push(
-          composerRootSelector + "[" + composerMarker + '="' + id + '"] > p:nth-child(' + (index + 1) + ")",
-        );
-      }
-    });
-    state.composerRules.set(id, selectors.length ? selectors.join(", ") + " { direction: rtl; }" : "");
+    // Walks the blocks in document order. A list, list item or quote takes the
+    // direction of its first paragraph, which puts its marker, gutter or
+    // border on the side where that paragraph starts. A block gets a rule only
+    // where its direction differs from the block around it.
+    const visit = (container, path, containerDirection) => {
+      let first = null;
+      Array.from(container.children).forEach((child, index) => {
+        // Chips and code blocks are React node views with their own layout.
+        if (child.matches(composerChipSelector)) return;
+        const name = child.localName;
+        const selector = path + " > " + name + ":nth-child(" + (index + 1) + ")";
+        let direction;
+        if (/^(p|h[1-6])$/.test(name)) {
+          // A paragraph without letters yet, such as a new empty line, keeps
+          // the direction of the paragraph before it.
+          direction = composerParagraphDirection(child) ?? previous;
+          previous = direction;
+        } else if (/^(blockquote|ul|ol|li)$/.test(name) || (name === "div" && container.localName === "li")) {
+          // The div holds the text of a task list item next to its checkbox.
+          direction = visit(child, selector, null);
+        }
+        if (!direction) return;
+        first ??= direction;
+        if (direction !== (containerDirection ?? first)) selectors[direction].push(selector);
+      });
+      return first;
+    };
+    visit(editor, composerRootSelector + "[" + composerMarker + '="' + id + '"]', "ltr");
+    state.composerRules.set(
+      id,
+      ["rtl", "ltr"]
+        .filter((direction) => selectors[direction].length)
+        .map((direction) => selectors[direction].join(", ") + " { direction: " + direction + "; }")
+        .join(" "),
+    );
   };
 
   const collectComposers = (node, composers) => {
