@@ -340,6 +340,17 @@ async function run() {
       </li>
     </ul>
     <div data-thread-item="true" data-slot="sidebar-menu-sub-button"><span id="sub-thread-title" data-testid="thread-title-1" class="min-w-0 flex-1 truncate text-sm">${rtlText} PR</span></div>
+    <ul aria-label="Related threads" style="width: 240px">
+      <li class="group relative flex h-8 items-center"><div class="flex w-full items-center"><button type="button" class="relative inline-flex items-center" style="display: flex; width: 100%"><span class="min-w-0 flex-1" style="flex: 1"><span id="related-thread-title" class="block truncate text-left text-sm font-medium" style="display: block; text-align: left">${rtlText}</span></span></button></div></li>
+      <li class="group relative flex h-8 items-center"><div class="flex w-full items-center"><button type="button" class="relative inline-flex items-center"><span class="min-w-0 flex-1"><span id="english-related-thread-title" class="block truncate text-left text-sm font-medium">Fix the installer</span></span></button></div></li>
+    </ul>
+    <div role="listbox" data-slot="command-list">
+      <div role="option" data-slot="command-item" data-composer-item-id="thread:env:1"><span class="flex min-w-0 flex-1 items-center"><span id="mention-thread-title" class="min-w-0 max-w-[45%] shrink-0 truncate">${rtlText} RTL</span></span></div>
+    </div>
+    <div data-slot="toast-popup" data-type="success">
+      <div class="flex min-w-0 gap-2"><div id="toast-title" class="min-w-0 wrap-break-word font-medium" data-slot="toast-title">Thread completed</div></div>
+      <div id="toast-description" class="min-w-0 select-text wrap-break-word" data-slot="toast-description">${rtlText} T3</div>
+    </div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
     <div class="group/timeline-row relative flex flex-col" role="button" aria-expanded="true">
       <div class="flex items-center">
@@ -722,6 +733,12 @@ ${rtlText}
           subThreadTitleDir: document.getElementById("sub-thread-title").dir,
           threadHeaderTitleDir: document.getElementById("thread-header-title").dir,
           threadHeaderDir: document.getElementById("thread-header").dir,
+          relatedThreadTitleDir: document.getElementById("related-thread-title").dir,
+          relatedThreadTitleTextAlign: style("related-thread-title").textAlign,
+          englishRelatedThreadTitleDir: document.getElementById("english-related-thread-title").dir,
+          mentionThreadTitleDir: document.getElementById("mention-thread-title").dir,
+          toastTitleDir: document.getElementById("toast-title").dir,
+          toastDescriptionDir: document.getElementById("toast-description").dir,
           workLogAnswerSummaryDir: document.getElementById("work-log-answer-summary").dir,
           workLogAnswerSummaryDirection: style("work-log-answer-summary").direction,
           workLogQuestionDirection: style("work-log-question").direction,
@@ -983,6 +1000,12 @@ ${rtlText}
     subThreadTitleDir: "rtl",
     threadHeaderTitleDir: "rtl",
     threadHeaderDir: "",
+    relatedThreadTitleDir: "rtl",
+    relatedThreadTitleTextAlign: "start",
+    englishRelatedThreadTitleDir: "auto",
+    mentionThreadTitleDir: "rtl",
+    toastTitleDir: "auto",
+    toastDescriptionDir: "rtl",
     workLogAnswerSummaryDir: "auto",
     workLogAnswerSummaryDirection: "rtl",
     workLogQuestionDirection: "rtl",

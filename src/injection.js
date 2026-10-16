@@ -20,13 +20,19 @@ const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
 const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
 // Thread titles in the sidebar rows, the open thread header, and the rename
-// field shared by both.
+// field shared by both, in the related threads list of the thread details
+// panel, and in the threads suggested after typing @ in the composer.
 const THREAD_TITLE_SELECTOR = [
   'li[data-thread-item] span[aria-hidden="true"].text-sm.flex-1',
   '[data-thread-item] [data-testid^="thread-title-"]',
   ":has(> [data-thread-title-chevron]) > h2",
   'input[aria-label="Thread title"]',
+  'ul[aria-label="Related threads"] span.block.truncate',
+  '[data-composer-item-id^="thread:"] span.truncate',
 ].join(", ");
+// Notifications such as "Thread completed" name the thread in their
+// description, so the title and description follow the same rule.
+const TOAST_TEXT_SELECTOR = '[data-slot="toast-title"], [data-slot="toast-description"]';
 // The agent's work log. Row summaries also describe shell commands, so they
 // take dir="auto" and follow their first letter: a command that starts in
 // English stays left to right even with a Hebrew argument. The questions and
@@ -87,6 +93,7 @@ const DIRECTION_ROOT_SELECTOR = [
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
+  TOAST_TEXT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
@@ -211,6 +218,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${REASONING_MARKDOWN_ROOT_SELECTOR} td`,
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
+  TOAST_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

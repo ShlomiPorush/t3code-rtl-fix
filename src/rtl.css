@@ -192,3 +192,9 @@
   text-align: start !important;
   unicode-bidi: plaintext;
 }
+
+/* A related thread's title in the thread details panel is left aligned in
+   T3 Code's markup, so a right-to-left title would sit on the wrong side. */
+ul[aria-label="Related threads"] span.block.truncate {
+  text-align: start !important;
+}
