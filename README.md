@@ -45,7 +45,8 @@ need to open DevTools and paste CSS manually.
 - Subagent and delegated task cards show their title and result summary in the
   direction of their text.
 - Thread titles in the sidebar and the open thread header follow the direction
-  of their text, including while a thread is renamed.
+  of their text, including while a thread is renamed. So do the parent thread
+  and project names shown above a subagent's thread.
 - The comment field of the element annotation window in the browser preview
   follows the direction of the comment while it is typed, and so do the comment
   and page title in the card that opens from an annotation chip.

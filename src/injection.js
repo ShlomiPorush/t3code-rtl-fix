@@ -25,7 +25,9 @@ const QUEUED_PROMPT_SELECTOR =
   '[role="region"][aria-label*=" queued message"] [data-slot="composer-banner-content"] > span.min-w-0.flex-1.truncate';
 // Thread titles in the sidebar rows, the open thread header, and the rename
 // field shared by both, in the related threads list of the thread details
-// panel, and in the threads suggested after typing @ in the composer.
+// panel, in the threads suggested after typing @ in the composer, and in the
+// breadcrumb above a subagent's thread, which names its parent thread and
+// project.
 const THREAD_TITLE_SELECTOR = [
   'li[data-thread-item] span[aria-hidden="true"].text-sm.flex-1',
   '[data-thread-item] [data-testid^="thread-title-"]',
@@ -33,6 +35,7 @@ const THREAD_TITLE_SELECTOR = [
   'input[aria-label="Thread title"]',
   'ul[aria-label="Related threads"] span.block.truncate',
   '[data-composer-item-id^="thread:"] span.truncate',
+  'nav[aria-label="Thread breadcrumb"] [data-slot="workspace-breadcrumb-text"]',
 ].join(", ");
 // Notifications such as "Thread completed" name the thread in their
 // description, so the title and description follow the same rule.

@@ -180,6 +180,7 @@ test("related thread and @ suggestion titles follow the direction of their text"
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   assert.match(source, /ul\[aria-label=\\"Related threads\\"\] span\.block\.truncate/);
   assert.match(source, /\[data-composer-item-id\^=\\"thread:\\"\] span\.truncate/);
+  assert.match(source, /nav\[aria-label=\\"Thread breadcrumb\\"\] \[data-slot=\\"workspace-breadcrumb-text\\"\]/);
   assert.match(source, /\[data-slot=\\"toast-description\\"\]/);
   assert.match(css, /ul\[aria-label="Related threads"\] span\.block\.truncate \{\s*text-align: start !important;/);
 });
