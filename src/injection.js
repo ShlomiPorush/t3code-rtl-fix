@@ -30,6 +30,9 @@ const THREAD_TITLE_SELECTOR = [
   'ul[aria-label="Related threads"] span.block.truncate',
   '[data-composer-item-id^="thread:"] span.truncate',
 ].join(", ");
+// Notifications such as "Thread completed" name the thread in their
+// description, so the title and description follow the same rule.
+const TOAST_TEXT_SELECTOR = '[data-slot="toast-title"], [data-slot="toast-description"]';
 // The agent's work log. Row summaries also describe shell commands, so they
 // take dir="auto" and follow their first letter: a command that starts in
 // English stays left to right even with a Hebrew argument. The questions and
@@ -90,6 +93,7 @@ const DIRECTION_ROOT_SELECTOR = [
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
+  TOAST_TEXT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
@@ -214,6 +218,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${REASONING_MARKDOWN_ROOT_SELECTOR} td`,
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
+  TOAST_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
