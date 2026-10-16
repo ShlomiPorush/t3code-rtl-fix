@@ -161,6 +161,14 @@ test("preview annotation cards follow the direction of their comment", () => {
   assert.ok(source.includes(".min-w-0.px-3.py-2\\\\.5 > .text-message-foreground.text-xs.font-medium"));
 });
 
+test("related thread and @ suggestion titles follow the direction of their text", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  assert.match(source, /ul\[aria-label=\\"Related threads\\"\] span\.block\.truncate/);
+  assert.match(source, /\[data-composer-item-id\^=\\"thread:\\"\] span\.truncate/);
+  assert.match(css, /ul\[aria-label="Related threads"\] span\.block\.truncate \{\s*text-align: start !important;/);
+});
+
 test("thread titles follow the direction of their text", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /li\[data-thread-item\] span\[aria-hidden=\\"true\\"\]\.text-sm\.flex-1/);

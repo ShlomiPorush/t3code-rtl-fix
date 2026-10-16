@@ -20,12 +20,15 @@ const QUEUED_MESSAGE_DETAILS_SELECTOR =
   `${QUEUED_MESSAGE_SELECTOR} > div > div:not(.chat-markdown):not([data-scroll-anchor-ignore])`;
 const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown`;
 // Thread titles in the sidebar rows, the open thread header, and the rename
-// field shared by both.
+// field shared by both, in the related threads list of the thread details
+// panel, and in the threads suggested after typing @ in the composer.
 const THREAD_TITLE_SELECTOR = [
   'li[data-thread-item] span[aria-hidden="true"].text-sm.flex-1',
   '[data-thread-item] [data-testid^="thread-title-"]',
   ":has(> [data-thread-title-chevron]) > h2",
   'input[aria-label="Thread title"]',
+  'ul[aria-label="Related threads"] span.block.truncate',
+  '[data-composer-item-id^="thread:"] span.truncate',
 ].join(", ");
 // The agent's work log. Row summaries also describe shell commands, so they
 // take dir="auto" and follow their first letter: a command that starts in
