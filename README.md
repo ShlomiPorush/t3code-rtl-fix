@@ -35,7 +35,11 @@ need to open DevTools and paste CSS manually.
   quote with a Hebrew or Arabic comment is right to left as well.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
-  letter so commands that start in English stay left to right.
+  letter so commands that start in English stay left to right. The agent's
+  latest thought, shown while it works, follows its first letter too, and an
+  expanded thought follows the message rule.
+- Subagent and delegated task cards show their title and result summary in the
+  direction of their text.
 - Thread titles in the sidebar and the open thread header follow the direction
   of their text, including while a thread is renamed.
 - The comment field of the element annotation window in the browser preview
