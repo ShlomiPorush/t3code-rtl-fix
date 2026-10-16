@@ -47,6 +47,15 @@ const SUBAGENT_TEXT_SELECTOR = [
   '[data-v2-item-type="subagent"] span.truncate.font-medium',
   '[data-v2-item-type="subagent"] .text-2xs > span.truncate',
 ].join(", ");
+// The hover card that opens over a subagent card has a title and, in a row
+// with a terminal icon, the result. T3 Code shows the result with its path
+// component, a flex row of a truncated head and the last few characters, so
+// a right-to-left direction also puts the two parts in reading order.
+const HOVER_CARD_SELECTOR = ".flex-col.max-w-80.px-1.py-2";
+const HOVER_CARD_TEXT_SELECTOR = [
+  `${HOVER_CARD_SELECTOR} > .truncate.leading-tight.font-medium:first-child`,
+  `${HOVER_CARD_SELECTOR} .grid > div:has(> svg.lucide-terminal) > span.whitespace-nowrap`,
+].join(", ");
 // The card that opens from a preview annotation chip in a message or the
 // composer: the page title and the comment written on the element. Both class
 // combinations are unique to this card in T3 Code's markup.
@@ -77,6 +86,7 @@ const DIRECTION_ROOT_SELECTOR = [
   THREAD_TITLE_SELECTOR,
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
+  HOVER_CARD_TEXT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
@@ -200,6 +210,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${REASONING_MARKDOWN_ROOT_SELECTOR} th`,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} td`,
   SUBAGENT_TEXT_SELECTOR,
+  HOVER_CARD_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

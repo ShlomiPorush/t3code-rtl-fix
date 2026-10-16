@@ -149,6 +149,7 @@ test("expanded thoughts and subagent cards follow the message rule", () => {
   assert.match(source, /\[data-v2-item-type=\\"reasoning\\"\] \.chat-markdown p/);
   assert.match(source, /\[data-v2-item-type=\\"reasoning\\"\] \.chat-markdown code/);
   assert.match(source, /\[data-v2-item-type=\\"subagent\\"\] \.text-2xs > span\.truncate/);
+  assert.match(source, /div:has\(> svg\.lucide-terminal\) > span\.whitespace-nowrap/);
   assert.match(css, /\[data-v2-item-type="reasoning"\]\) \.chat-markdown pre/);
 });
 
