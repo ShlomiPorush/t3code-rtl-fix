@@ -31,9 +31,31 @@ const THREAD_TITLE_SELECTOR = [
 // take dir="auto" and follow their first letter: a command that starts in
 // English stays left to right even with a Hebrew argument. The questions and
 // answers shown when an asked question is expanded are prose and follow the
-// message rule.
-const WORK_LOG_SUMMARY_SELECTOR = '[class~="group/timeline-row"] p.items-baseline > span';
+// message rule. While the agent works, its latest thought is shown in a
+// separate live row. It follows its first letter too, so it keeps its
+// direction when the turn ends and it becomes an ordinary row.
+const WORK_LOG_SUMMARY_SELECTOR = [
+  '[class~="group/timeline-row"] p.items-baseline > span',
+  '[class~="group/live-work"] .line-clamp-4',
+].join(", ");
 const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
+// An expanded thought in the work log is Markdown, like a message.
+const REASONING_MARKDOWN_ROOT_SELECTOR = '[data-v2-item-type="reasoning"] .chat-markdown';
+// The card of a subagent or delegated task: its title and the one-line
+// summary of its result, both written by the agent.
+const SUBAGENT_TEXT_SELECTOR = [
+  '[data-v2-item-type="subagent"] span.truncate.font-medium',
+  '[data-v2-item-type="subagent"] .text-2xs > span.truncate',
+].join(", ");
+// The hover card that opens over a subagent card has a title and, in a row
+// with a terminal icon, the result. T3 Code shows the result with its path
+// component, a flex row of a truncated head and the last few characters, so
+// a right-to-left direction also puts the two parts in reading order.
+const HOVER_CARD_SELECTOR = ".flex-col.max-w-80.px-1.py-2";
+const HOVER_CARD_TEXT_SELECTOR = [
+  `${HOVER_CARD_SELECTOR} > .truncate.leading-tight.font-medium:first-child`,
+  `${HOVER_CARD_SELECTOR} .grid > div:has(> svg.lucide-terminal) > span.whitespace-nowrap`,
+].join(", ");
 // The card that opens from a preview annotation chip in a message or the
 // composer: the page title and the comment written on the element. Both class
 // combinations are unique to this card in T3 Code's markup.
@@ -62,6 +84,9 @@ const DIRECTION_ROOT_SELECTOR = [
   QUEUED_MESSAGE_SELECTOR,
   QUEUED_MARKDOWN_ROOT_SELECTOR,
   THREAD_TITLE_SELECTOR,
+  REASONING_MARKDOWN_ROOT_SELECTOR,
+  SUBAGENT_TEXT_SELECTOR,
+  HOVER_CARD_TEXT_SELECTOR,
 ].join(", ");
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
@@ -168,6 +193,24 @@ const AUTO_DIRECTION_SELECTOR = [
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
   PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR,
+  REASONING_MARKDOWN_ROOT_SELECTOR,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} p`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h1`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h2`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h3`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h4`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h5`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} h6`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} blockquote`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} li`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} strong`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} em`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} a:not(.chat-markdown-file-link)`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} th`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} td`,
+  SUBAGENT_TEXT_SELECTOR,
+  HOVER_CARD_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
@@ -191,6 +234,10 @@ const LTR_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} code`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} pre`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} code`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
+  `${REASONING_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
 ].join(", ");
 
 function buildInjectionSource(css) {

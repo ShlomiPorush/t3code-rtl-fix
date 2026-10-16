@@ -355,6 +355,40 @@ async function run() {
         <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-command" class="min-w-0 truncate">git commit -m "${rtlText}"</span></p></div>
       </div>
     </div>
+    <button type="button" class="group/live-work flex w-full text-left">
+      <div class="group/timeline-row relative w-full min-w-0 text-left"><div class="flex min-w-0 flex-1 items-baseline">
+        <div class="min-w-0 flex-1"><span id="live-thought" class="line-clamp-4">${rtlText}: Codex ${rtlText}</span></div>
+      </div></div>
+    </button>
+    <button type="button" class="group/live-work flex w-full text-left">
+      <div class="group/timeline-row relative w-full min-w-0 text-left"><div class="flex min-w-0 flex-1 items-baseline">
+        <div class="min-w-0 flex-1"><span id="english-live-thought" class="line-clamp-4">Checking "${rtlText}" in the queue</span></div>
+      </div></div>
+    </button>
+    <div data-v2-item-type="reasoning" role="button" aria-expanded="true" class="group/timeline-row relative w-full text-left">
+      <div class="chat-markdown">
+        <p id="reasoning-paragraph">Codex ${rtlText} <code id="reasoning-code">data-slot</code></p>
+        <p id="english-reasoning-paragraph">Checking the queue markup.</p>
+      </div>
+    </div>
+    <button type="button" data-v2-item-type="subagent" class="group/subagent flex w-full min-w-0 items-center text-left">
+      <span class="min-w-0 flex-1">
+        <span class="flex items-baseline gap-2"><span id="subagent-title" class="min-w-0 truncate text-xs font-medium">Find the queue hook</span><span class="shrink-0 text-3xs">Finished</span></span>
+        <span class="block text-2xs leading-relaxed"><span id="subagent-summary" class="block truncate">1. **Codex** ${rtlText}</span></span>
+      </span>
+    </button>
+    <div class="flex min-w-0 max-w-80 flex-col gap-2 px-1 py-2">
+      <div id="hover-card-title" class="min-w-0 truncate text-xs leading-tight font-medium">${rtlText} hook</div>
+      <div class="grid gap-1.5 pl-0.5 text-xs">
+        <div class="flex min-w-0 items-center gap-2"><svg class="lucide lucide-terminal size-3 shrink-0"></svg><span id="hover-card-result" class="inline-flex min-w-0 max-w-full overflow-hidden whitespace-nowrap flex" style="display: inline-flex; max-width: 200px; overflow: hidden; white-space: nowrap"><span id="hover-card-result-head" class="min-w-0 truncate" style="min-width: 0; overflow: hidden; text-overflow: ellipsis">1. **Codex** ${rtlText} ${rtlText} ${rtlText} ${rtlText} ${rtlText}</span><span id="hover-card-result-tail" class="shrink-0" style="flex-shrink: 0">${rtlText}</span></span></div>
+        <div class="flex min-w-0 items-center gap-2"><svg class="lucide lucide-folder size-3 shrink-0"></svg><span id="hover-card-path" class="inline-flex min-w-0 whitespace-nowrap flex"><span class="min-w-0 truncate">C:/repo/${rtlText}</span></span></div>
+      </div>
+    </div>
+    <div class="flex min-w-0 max-w-80 flex-col gap-2 px-1 py-2">
+      <div class="grid gap-1.5 pl-0.5 text-xs">
+        <div class="flex min-w-0 items-center gap-2"><svg class="lucide lucide-terminal size-3 shrink-0"></svg><span id="english-hover-card-result" class="inline-flex min-w-0 max-w-full overflow-hidden whitespace-nowrap flex" style="display: inline-flex; max-width: 200px; overflow: hidden; white-space: nowrap"><span id="english-hover-card-result-head" class="min-w-0 truncate" style="min-width: 0; overflow: hidden; text-overflow: ellipsis">Found the queue hook in the bundle and checked the markup</span><span id="english-hover-card-result-tail" class="shrink-0" style="flex-shrink: 0">the markup</span></span></div>
+      </div>
+    </div>
     <div class="max-w-full overflow-hidden rounded-lg border">
       <div class="border-b px-3 py-2 text-xs">Screenshot unavailable</div>
       <div class="min-w-0 px-3 py-2.5">
@@ -694,6 +728,24 @@ ${rtlText}
           workLogAnswerDirection: style("work-log-answer").direction,
           workLogAnswerDir: document.getElementById("work-log-answer").dir,
           workLogCommandDirection: style("work-log-command").direction,
+          liveThoughtDir: document.getElementById("live-thought").dir,
+          liveThoughtDirection: style("live-thought").direction,
+          englishLiveThoughtDirection: style("english-live-thought").direction,
+          reasoningParagraphDir: document.getElementById("reasoning-paragraph").dir,
+          reasoningCodeDirection: style("reasoning-code").direction,
+          englishReasoningParagraphDir: document.getElementById("english-reasoning-paragraph").dir,
+          subagentTitleDir: document.getElementById("subagent-title").dir,
+          subagentSummaryDir: document.getElementById("subagent-summary").dir,
+          hoverCardTitleDir: document.getElementById("hover-card-title").dir,
+          hoverCardResultDir: document.getElementById("hover-card-result").dir,
+          hoverCardPathDir: document.getElementById("hover-card-path").dir,
+          hoverCardResultHeadAtRight:
+            document.getElementById("hover-card-result-head").getBoundingClientRect().left >
+            document.getElementById("hover-card-result-tail").getBoundingClientRect().left,
+          englishHoverCardResultDir: document.getElementById("english-hover-card-result").dir,
+          englishHoverCardResultHeadAtLeft:
+            document.getElementById("english-hover-card-result-head").getBoundingClientRect().left <
+            document.getElementById("english-hover-card-result-tail").getBoundingClientRect().left,
           annotationCardCommentDir: document.getElementById("annotation-card-comment").dir,
           annotationCardCommentDirection: style("annotation-card-comment").direction,
           annotationCardTitleDir: document.getElementById("annotation-card-title").dir,
@@ -937,6 +989,20 @@ ${rtlText}
     workLogAnswerDirection: "rtl",
     workLogAnswerDir: "rtl",
     workLogCommandDirection: "ltr",
+    liveThoughtDir: "auto",
+    liveThoughtDirection: "rtl",
+    englishLiveThoughtDirection: "ltr",
+    reasoningParagraphDir: "rtl",
+    reasoningCodeDirection: "ltr",
+    englishReasoningParagraphDir: "auto",
+    subagentTitleDir: "auto",
+    subagentSummaryDir: "rtl",
+    hoverCardTitleDir: "rtl",
+    hoverCardResultDir: "rtl",
+    hoverCardPathDir: "",
+    hoverCardResultHeadAtRight: true,
+    englishHoverCardResultDir: "auto",
+    englishHoverCardResultHeadAtLeft: true,
     annotationCardCommentDir: "rtl",
     annotationCardCommentDirection: "rtl",
     annotationCardTitleDir: "auto",

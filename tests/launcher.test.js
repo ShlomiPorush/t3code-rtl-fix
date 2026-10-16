@@ -113,7 +113,7 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown p/);
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown code/);
   assert.match(source, /> div:first-child :is\(p, h3\)/);
-  assert.match(css, /\[data-queued-message-id\]\) \.chat-markdown/);
+  assert.match(css, /\[data-queued-message-id\][^)]*\) \.chat-markdown/);
   // The queued prompt is no longer a pre-wrap div, so no rule may still tell
   // it apart from the attachment summary that way.
   assert.doesNotMatch(css, /:not\(\.whitespace-pre-wrap\)/);
@@ -140,6 +140,17 @@ test("work log summaries follow their first letter and answers follow the messag
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] p\.items-baseline > span/);
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] \.space-y-1 > p/);
   assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
+  assert.match(source, /\[class~=\\"group\/live-work\\"\] \.line-clamp-4/);
+});
+
+test("expanded thoughts and subagent cards follow the message rule", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  const css = fs.readFileSync(path.join(__dirname, "..", "src", "rtl.css"), "utf8");
+  assert.match(source, /\[data-v2-item-type=\\"reasoning\\"\] \.chat-markdown p/);
+  assert.match(source, /\[data-v2-item-type=\\"reasoning\\"\] \.chat-markdown code/);
+  assert.match(source, /\[data-v2-item-type=\\"subagent\\"\] \.text-2xs > span\.truncate/);
+  assert.match(source, /div:has\(> svg\.lucide-terminal\) > span\.whitespace-nowrap/);
+  assert.match(css, /\[data-v2-item-type="reasoning"\]\) \.chat-markdown pre/);
 });
 
 test("preview annotation cards follow the direction of their comment", () => {
