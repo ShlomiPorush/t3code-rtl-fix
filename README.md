@@ -60,7 +60,9 @@ irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/
 
 The command downloads the current version of this repository, installs it, and
 removes the downloaded copy. Run the same command again to update the fix, or
-after a T3 Code update if the fix stops loading.
+after a T3 Code update if the fix stops loading. An update that renames the
+app, such as T3 Code 0.1.0 renaming "T3 Code (Alpha)" to "T3 Code (Beta)",
+replaces its shortcuts with ones that open T3 Code without the fix.
 
 Fully quit T3 Code after installation. Open it again from the Desktop shortcut
 or the Start menu shortcut updated by the installer. The installer backs up the
@@ -70,7 +72,7 @@ If T3 Code is installed in a non-default location, pass the executable path:
 
 ```powershell
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/install.ps1'))) `
-  -T3CodePath "D:\Apps\T3 Code (Alpha).exe"
+  -T3CodePath "D:\Apps\T3 Code (Beta).exe"
 ```
 
 To install from a local clone instead, run this from the repository folder:

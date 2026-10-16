@@ -80,13 +80,12 @@ function Find-T3CodePath {
         return [System.IO.Path]::GetFullPath($RequestedPath)
     }
 
-    $defaultPath = Join-Path $env:LOCALAPPDATA "Programs\t3code\T3 Code (Alpha).exe"
-    if (Test-Path -LiteralPath $defaultPath) {
-        return $defaultPath
-    }
-
+    # The executable is named for the release channel, such as
+    # "T3 Code (Alpha).exe" or "T3 Code (Beta).exe", and an update to a new
+    # channel removes the old one. Take the most recently installed.
     $programDirectory = Join-Path $env:LOCALAPPDATA "Programs\t3code"
     $candidate = Get-ChildItem -LiteralPath $programDirectory -Filter "T3 Code*.exe" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
         Select-Object -First 1 -ExpandProperty FullName
     return $candidate
 }
@@ -145,6 +144,11 @@ if (Test-Path -LiteralPath $legacyNodePathFile) {
 $manifestPath = Join-Path $InstallDirectory "shortcuts.json"
 $manifest = [System.Collections.Generic.List[object]]::new()
 foreach ($saved in (Read-ShortcutManifest -Path $manifestPath)) {
+    # A T3 Code update that renames the app deletes its old shortcuts. Forget
+    # them, so uninstalling does not bring back shortcuts to a missing app.
+    if (-not (Test-Path -LiteralPath ([string]$saved.Path))) {
+        continue
+    }
     $manifest.Add($saved)
 }
 
@@ -177,17 +181,20 @@ foreach ($shortcutPath in $shortcutPaths) {
         continue
     }
 
-    if (-not ($manifest | Where-Object { $_.Path -eq $shortcutPath })) {
-        $manifest.Add([pscustomobject]@{
-            Path = $shortcutPath
-            Created = $false
-            TargetPath = $shortcut.TargetPath
-            Arguments = $shortcut.Arguments
-            WorkingDirectory = $shortcut.WorkingDirectory
-            IconLocation = $shortcut.IconLocation
-            WindowStyle = $shortcut.WindowStyle
-        })
+    # The shortcut opens T3 Code directly again, so any saved original for it
+    # is out of date. Save what it points to now.
+    foreach ($outdated in @($manifest | Where-Object { $_.Path -eq $shortcutPath })) {
+        [void]$manifest.Remove($outdated)
     }
+    $manifest.Add([pscustomobject]@{
+        Path = $shortcutPath
+        Created = $false
+        TargetPath = $shortcut.TargetPath
+        Arguments = $shortcut.Arguments
+        WorkingDirectory = $shortcut.WorkingDirectory
+        IconLocation = $shortcut.IconLocation
+        WindowStyle = $shortcut.WindowStyle
+    })
 
     $shortcut.TargetPath = $wscriptPath
     $shortcut.Arguments = '"' + $launcherPath + '"'

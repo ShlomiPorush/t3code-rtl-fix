@@ -151,6 +151,67 @@ try {
     }
 
     Write-Output "Windows PowerShell 5.1 one-line installation under the Restricted policy passed."
+
+    # T3 Code 0.1.0 renamed "T3 Code (Alpha).exe" to "T3 Code (Beta).exe". The
+    # update deleted the old executable and its shortcuts and created new
+    # shortcuts that open the app directly.
+    $previousLocalAppData = $env:LOCALAPPDATA
+    $env:LOCALAPPDATA = Join-Path $testRoot "local-app-data"
+    try {
+        $programDirectory = Join-Path $env:LOCALAPPDATA "Programs\t3code"
+        $renameRoot = Join-Path $testRoot "rename-shortcuts"
+        $renameInstallDirectory = Join-Path $testRoot "rename-install"
+        $alphaAppPath = Join-Path $programDirectory "T3 Code (Alpha).exe"
+        $betaAppPath = Join-Path $programDirectory "T3 Code (Beta).exe"
+        $alphaShortcutPath = Join-Path $renameRoot "T3 Code (Alpha).lnk"
+        $betaShortcutPath = Join-Path $renameRoot "T3 Code (Beta).lnk"
+        New-Item -ItemType Directory -Path $programDirectory, $renameRoot -Force | Out-Null
+        [System.IO.File]::WriteAllBytes($alphaAppPath, [byte[]]@())
+        $shortcut = $shell.CreateShortcut($alphaShortcutPath)
+        $shortcut.TargetPath = $alphaAppPath
+        $shortcut.Save()
+
+        & (Join-Path $repositoryRoot "windows\install.ps1") `
+            -InstallDirectory $renameInstallDirectory `
+            -ShortcutSearchRoots @($renameRoot)
+        $savedAppPath = [System.IO.File]::ReadAllText((Join-Path $renameInstallDirectory "app-path.txt"), [System.Text.Encoding]::Unicode)
+        Assert-Equal $savedAppPath $alphaAppPath "The installer did not find the Alpha executable"
+
+        Remove-Item -LiteralPath $alphaAppPath, $alphaShortcutPath -Force
+        [System.IO.File]::WriteAllBytes($betaAppPath, [byte[]]@())
+        [System.IO.File]::WriteAllBytes((Join-Path $programDirectory "Uninstall T3 Code (Beta).exe"), [byte[]]@())
+        $shortcut = $shell.CreateShortcut($betaShortcutPath)
+        $shortcut.TargetPath = $betaAppPath
+        $shortcut.Save()
+
+        # Uninstalling after the rename must not bring back the deleted shortcut.
+        & (Join-Path $renameInstallDirectory "uninstall.ps1") -InstallDirectory $renameInstallDirectory
+        Assert-Equal (Test-Path -LiteralPath $alphaShortcutPath) $false "The uninstaller recreated a shortcut that T3 Code deleted"
+        Assert-Equal $shell.CreateShortcut($betaShortcutPath).TargetPath $betaAppPath "The uninstaller changed a shortcut it did not install"
+
+        # Installing again finds the renamed app and forgets the deleted shortcut.
+        & (Join-Path $repositoryRoot "windows\install.ps1") `
+            -InstallDirectory $renameInstallDirectory `
+            -ShortcutSearchRoots @($renameRoot)
+        $savedAppPath = [System.IO.File]::ReadAllText((Join-Path $renameInstallDirectory "app-path.txt"), [System.Text.Encoding]::Unicode)
+        Assert-Equal $savedAppPath $betaAppPath "The installer did not find the renamed executable"
+        Assert-Equal $shell.CreateShortcut($betaShortcutPath).TargetPath (Join-Path $env:SystemRoot "System32\wscript.exe") "The installer did not update the renamed shortcut"
+        $manifestItems = @()
+        foreach ($item in (Get-Content -Raw -LiteralPath (Join-Path $renameInstallDirectory "shortcuts.json") | ConvertFrom-Json)) {
+            $manifestItems += $item
+        }
+        Assert-Equal $manifestItems.Count 1 "The shortcut manifest kept a shortcut that T3 Code deleted"
+        Assert-Equal $manifestItems[0].Path $betaShortcutPath "The shortcut manifest did not save the renamed shortcut"
+
+        & (Join-Path $renameInstallDirectory "uninstall.ps1") -InstallDirectory $renameInstallDirectory
+        Assert-Equal $shell.CreateShortcut($betaShortcutPath).TargetPath $betaAppPath "The uninstaller did not restore the renamed shortcut"
+        Assert-Equal (Test-Path -LiteralPath $alphaShortcutPath) $false "The uninstaller recreated a shortcut that T3 Code deleted"
+    }
+    finally {
+        $env:LOCALAPPDATA = $previousLocalAppData
+    }
+
+    Write-Output "Windows PowerShell 5.1 installation after a T3 Code rename passed."
 }
 catch {
     $failure = $_

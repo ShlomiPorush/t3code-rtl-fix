@@ -32,6 +32,12 @@ foreach ($saved in $manifest) {
         continue
     }
 
+    # A T3 Code update that renames the app deletes its old shortcuts and
+    # creates new ones. Restoring a deleted one would point to a missing app.
+    if (-not (Test-Path -LiteralPath $shortcutPath)) {
+        continue
+    }
+
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = [string]$saved.TargetPath
     $shortcut.Arguments = [string]$saved.Arguments
