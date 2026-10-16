@@ -25,7 +25,9 @@ const QUEUED_PROMPT_SELECTOR =
   '[role="region"][aria-label*=" queued message"] [data-slot="composer-banner-content"] > span.min-w-0.flex-1.truncate';
 // Thread titles in the sidebar rows, the open thread header, and the rename
 // field shared by both, in the related threads list of the thread details
-// panel, and in the threads suggested after typing @ in the composer.
+// panel, in the threads suggested after typing @ in the composer, and in the
+// breadcrumb above a subagent's thread, which names its parent thread and
+// project.
 const THREAD_TITLE_SELECTOR = [
   'li[data-thread-item] span[aria-hidden="true"].text-sm.flex-1',
   '[data-thread-item] [data-testid^="thread-title-"]',
@@ -33,6 +35,7 @@ const THREAD_TITLE_SELECTOR = [
   'input[aria-label="Thread title"]',
   'ul[aria-label="Related threads"] span.block.truncate',
   '[data-composer-item-id^="thread:"] span.truncate',
+  'nav[aria-label="Thread breadcrumb"] [data-slot="workspace-breadcrumb-text"]',
 ].join(", ");
 // Notifications such as "Thread completed" name the thread in their
 // description, so the title and description follow the same rule.
@@ -48,6 +51,10 @@ const WORK_LOG_SUMMARY_SELECTOR = [
   '[class~="group/timeline-row"] p.items-baseline > span',
   '[class~="group/live-work"] .line-clamp-4',
 ].join(", ");
+// Every tooltip shares one component, whether it shows a thread title, a
+// queued prompt, tool output, or a shortcut, so each follows its first letter
+// and an English tooltip with a Hebrew word stays left to right.
+const TOOLTIP_SELECTOR = '[data-slot="tooltip-popup"]';
 const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
 // An expanded thought in the work log is Markdown, like a message.
 const REASONING_MARKDOWN_ROOT_SELECTOR = '[data-v2-item-type="reasoning"] .chat-markdown';
@@ -270,6 +277,7 @@ function buildInjectionSource(css) {
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
   const composerRootSelector = ${JSON.stringify(COMPOSER_ROOT_SELECTOR)};
   const workLogSummarySelector = ${JSON.stringify(WORK_LOG_SUMMARY_SELECTOR)};
+  const tooltipSelector = ${JSON.stringify(TOOLTIP_SELECTOR)};
   const composerChipSelector = ${JSON.stringify(COMPOSER_CHIP_SELECTOR)};
   const composerMarker = ${JSON.stringify(COMPOSER_MARKER)};
   const composerStyleId = ${JSON.stringify(COMPOSER_STYLE_ID)};
@@ -381,6 +389,7 @@ function buildInjectionSource(css) {
     setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
     setDirection(root, workLogSummarySelector, "auto");
+    setDirection(root, tooltipSelector, "auto");
   };
 
   // The composer editor replaces any paragraph whose attributes it did not
