@@ -198,3 +198,22 @@
 ul[aria-label="Related threads"] span.block.truncate {
   text-align: start !important;
 }
+
+/* A list or quote typed in the composer takes the direction of its first
+   paragraph, so its gutter and border move to the side where it starts. */
+.composer-tiptap :is(ul, ol):not([data-type="taskList"]) {
+  padding-left: 0 !important;
+  padding-inline-start: var(--list-gutter, 1.25rem) !important;
+}
+
+.composer-tiptap ul[data-type="taskList"] ul[data-type="taskList"] {
+  padding-left: 0 !important;
+  padding-inline-start: 1.375rem !important;
+}
+
+.composer-tiptap blockquote {
+  border-left: 0 !important;
+  border-inline-start: 2px solid var(--contrast-border) !important;
+  padding-left: 0 !important;
+  padding-inline-start: 0.8rem !important;
+}

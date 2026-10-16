@@ -98,12 +98,24 @@ test("composer paragraphs get a computed direction without editor attributes", (
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");
 
-  assert.doesNotMatch(css, /composer-tiptap/);
+  // The caret follows each paragraph's generated direction, so no static rule
+  // may resolve composer paragraphs on its own.
+  assert.doesNotMatch(css, /\.composer-tiptap p\b/);
+  assert.doesNotMatch(css, /\.composer-tiptap[^{]*\{[^}]*plaintext/);
   assert.match(source, /composerParagraphDirection/);
   assert.match(source, /t3-rtl-fix-composer/);
   assert.match(source, /data-t3-rtl-composer/);
-  assert.match(source, /> p:nth-child\(' \+ \(index \+ 1\)/);
+  assert.match(source, /":nth-child\(" \+ \(index \+ 1\)/);
   assert.doesNotMatch(source, /data-lexical/);
+});
+
+test("composer lists, task lists and quotes follow the direction of their text", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(source, /\^\(blockquote\|ul\|ol\|li\)\$/);
+  assert.match(css, /\.composer-tiptap :is\(ul, ol\):not\(\[data-type="taskList"\]\)\s*\{[^}]*padding-inline-start/);
+  assert.match(css, /\.composer-tiptap blockquote\s*\{[^}]*border-inline-start/);
 });
 
 test("queued prompts and plan titles follow the current T3 Code markup", () => {
@@ -112,6 +124,8 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
 
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown p/);
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown code/);
+  // The queue that replaced the queued message cards in T3 Code 0.1.0.
+  assert.match(source, /queued message\\"\] \[data-slot=\\"composer-banner-content\\"\] > span\.min-w-0\.flex-1\.truncate/);
   assert.match(source, /> div:first-child :is\(p, h3\)/);
   assert.match(css, /\[data-queued-message-id\][^)]*\) \.chat-markdown/);
   // The queued prompt is no longer a pre-wrap div, so no rule may still tell
