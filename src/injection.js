@@ -107,6 +107,19 @@ const DIRECTION_ROOT_SELECTOR = [
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
 ].join(", ");
+// T3 Code 0.1.2 gives every top-level Markdown block its own dir from a
+// majority vote of its words, so these blocks need the fix's rule too, or an
+// English sentence with one Hebrew word puts a list gutter, alert border, or
+// table columns on the left.
+const MARKDOWN_BLOCK_SELECTORS = [
+  "ul",
+  "ol",
+  "table",
+  'div[role="note"]',
+  "details",
+  "section[data-footnotes]",
+];
+const markdownBlocks = (root) => MARKDOWN_BLOCK_SELECTORS.map((block) => `${root} ${block}`);
 const RTL_TEXT_PATTERN = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u;
 const LETTER_PATTERN = /\p{L}/u;
 const AUTO_DIRECTION_SELECTOR = [
@@ -126,6 +139,7 @@ const AUTO_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown .chat-markdown-table-container',
   '[data-message-role] .chat-markdown th',
   '[data-message-role] .chat-markdown td',
+  ...markdownBlocks('[data-message-role] .chat-markdown'),
   PLAN_CARD_SELECTOR,
   `${PLAN_CARD_SELECTOR} > div:first-child :is(p, h3)`,
   `${PLAN_CARD_SELECTOR} .chat-markdown`,
@@ -144,6 +158,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${PLAN_CARD_SELECTOR} .chat-markdown .chat-markdown-table-container`,
   `${PLAN_CARD_SELECTOR} .chat-markdown th`,
   `${PLAN_CARD_SELECTOR} .chat-markdown td`,
+  ...markdownBlocks(`${PLAN_CARD_SELECTOR} .chat-markdown`),
   PULL_REQUEST_MARKDOWN_ROOT_SELECTOR,
   `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} p`,
   `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} h1`,
@@ -160,6 +175,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} th`,
   `${PULL_REQUEST_MARKDOWN_ROOT_SELECTOR} td`,
+  ...markdownBlocks(PULL_REQUEST_MARKDOWN_ROOT_SELECTOR),
   FILE_MARKDOWN_ROOT_SELECTOR,
   `${FILE_MARKDOWN_ROOT_SELECTOR} p`,
   `${FILE_MARKDOWN_ROOT_SELECTOR} h1`,
@@ -176,6 +192,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${FILE_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${FILE_MARKDOWN_ROOT_SELECTOR} th`,
   `${FILE_MARKDOWN_ROOT_SELECTOR} td`,
+  ...markdownBlocks(FILE_MARKDOWN_ROOT_SELECTOR),
   PENDING_USER_INPUT_ROOT_SELECTOR,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-pending-user-input-toggle]`,
   `${PENDING_USER_INPUT_ROOT_SELECTOR} [data-slot="collapsible-panel"] p`,
@@ -209,6 +226,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} th`,
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
+  ...markdownBlocks(QUEUED_MARKDOWN_ROOT_SELECTOR),
   QUEUED_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
@@ -229,6 +247,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${REASONING_MARKDOWN_ROOT_SELECTOR} .chat-markdown-table-container`,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} th`,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} td`,
+  ...markdownBlocks(REASONING_MARKDOWN_ROOT_SELECTOR),
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
@@ -303,13 +322,27 @@ function buildInjectionSource(css) {
     return true;
   };
 
+  // T3 Code renders its own dir on some of the elements the fix directs, so
+  // the observer also watches dir changes. Each element remembers the value
+  // the fix wrote last, which tells the fix's own writes apart from T3
+  // Code's, and a write happens only when the value changes.
+  const writtenDirections = new WeakMap();
+  const writeDirection = (element, direction) => {
+    writtenDirections.set(element, direction);
+    if (direction === null) {
+      if (element.hasAttribute("dir")) element.removeAttribute("dir");
+    } else if (element.getAttribute("dir") !== direction) {
+      element.setAttribute("dir", direction);
+    }
+  };
+
   const setDirection = (root, selector, direction) => {
     if (root.nodeType === Node.ELEMENT_NODE && root.matches(selector)) {
-      root.setAttribute("dir", direction);
+      writeDirection(root, direction);
     }
     if (typeof root.querySelectorAll !== "function") return;
     for (const element of root.querySelectorAll(selector)) {
-      element.setAttribute("dir", direction);
+      writeDirection(element, direction);
     }
   };
 
@@ -375,8 +408,7 @@ function buildInjectionSource(css) {
       // A text field holds its text in a value property rather than in child
       // nodes, so the browser has to resolve its direction while the user types.
       const direction = element.matches("textarea, input") ? "auto" : proseDirection(element);
-      if (direction) element.setAttribute("dir", direction);
-      else element.removeAttribute("dir");
+      writeDirection(element, direction);
     };
     if (root.nodeType === Node.ELEMENT_NODE && root.matches(autoDirectionSelector)) apply(root);
     if (typeof root.querySelectorAll !== "function") return;
@@ -447,9 +479,10 @@ function buildInjectionSource(css) {
     let previous = "ltr";
     // Walks the blocks in document order. A list, list item or quote takes the
     // direction of its first paragraph, which puts its marker, gutter or
-    // border on the side where that paragraph starts. A block gets a rule only
-    // where its direction differs from the block around it.
-    const visit = (container, path, containerDirection) => {
+    // border on the side where that paragraph starts. Every block gets a rule,
+    // because T3 Code puts its own dir attribute on the top-level blocks and a
+    // block without a rule would follow that attribute instead.
+    const visit = (container, path) => {
       let first = null;
       Array.from(container.children).forEach((child, index) => {
         // Chips and code blocks are React node views with their own layout.
@@ -464,15 +497,15 @@ function buildInjectionSource(css) {
           previous = direction;
         } else if (/^(blockquote|ul|ol|li)$/.test(name) || (name === "div" && container.localName === "li")) {
           // The div holds the text of a task list item next to its checkbox.
-          direction = visit(child, selector, null);
+          direction = visit(child, selector);
         }
         if (!direction) return;
         first ??= direction;
-        if (direction !== (containerDirection ?? first)) selectors[direction].push(selector);
+        selectors[direction].push(selector);
       });
       return first;
     };
-    visit(editor, composerRootSelector + "[" + composerMarker + '="' + id + '"]', "ltr");
+    visit(editor, composerRootSelector + "[" + composerMarker + '="' + id + '"]');
     state.composerRules.set(
       id,
       ["rtl", "ltr"]
@@ -513,11 +546,24 @@ function buildInjectionSource(css) {
     state.observer = new MutationObserver((records) => {
       const composers = new Set();
       for (const record of records) {
+        if (record.type === "attributes") {
+          // The composer directs its blocks through a stylesheet, so T3 Code's
+          // dir attributes there change nothing.
+          const target = record.target;
+          if (target.closest(composerRootSelector)) continue;
+          if (writtenDirections.get(target) === target.getAttribute("dir")) continue;
+          applyDirectionsAround(target);
+          continue;
+        }
         for (const node of record.addedNodes) {
           applyDirectionsAround(node);
           collectComposers(node, composers);
         }
-        if (record.type === "characterData") applyDirectionsAround(record.target);
+        // Removed text, such as the last Hebrew word of a block, can change
+        // the direction of what remains.
+        if (record.type === "characterData" || record.removedNodes.length > 0) {
+          applyDirectionsAround(record.target);
+        }
         collectComposers(record.target, composers);
       }
       updateComposers(composers);
@@ -525,6 +571,8 @@ function buildInjectionSource(css) {
     state.observer.observe(document.documentElement, {
       childList: true,
       characterData: true,
+      attributes: true,
+      attributeFilter: ["dir"],
       subtree: true,
     });
     return true;

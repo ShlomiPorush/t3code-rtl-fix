@@ -1161,6 +1161,119 @@ ${rtlText}
     throw new Error(`Unexpected injected layout: ${JSON.stringify(actual)}`);
   }
   process.stdout.write("CDP pipe direction injection passed\n");
+  await runNativeDirectionChecks(sessionId);
+}
+
+// T3 Code 0.1.2 sets its own dir attribute on every top-level Markdown block
+// and composer block from a majority vote of their words, so an English
+// sentence with one Hebrew word reads left to right there. The fix's rule
+// makes it right to left and must win on every block it sets.
+async function runNativeDirectionChecks(sessionId) {
+  const mixedText = `Please run the tests and check ${rtlText}`;
+  const nativeFixtureHtml = `
+    <style>
+      .chat-markdown ul, .chat-markdown ol { padding-left: 20px; }
+      .chat-markdown div[role="note"] { border-left: 2px solid blue; padding-left: 12px; }
+      .chat-markdown table { width: 100%; border-collapse: collapse; }
+      .composer-tiptap { width: 320px; }
+      .composer-tiptap p { margin: 0; }
+      .composer-tiptap ul { margin: 0; padding-left: 1.25rem; }
+    </style>
+    <div data-message-role="assistant" style="width: 400px">
+      <div id="native-message" class="chat-markdown">
+        <p id="native-paragraph" dir="ltr">${mixedText}</p>
+        <ul id="native-list" dir="ltr"><li id="native-list-item">${mixedText}</li></ul>
+        <ol id="native-ordered-list" dir="ltr"><li>${mixedText}</li></ol>
+        <div id="native-alert" role="note" dir="ltr"><p>${mixedText}</p></div>
+        <div class="chat-markdown-table-container">
+          <div>
+            <table id="native-table" dir="ltr">
+              <thead><tr><th id="native-first-header">Name</th><th>Status</th><th>Owner</th></tr></thead>
+              <tbody><tr><td>Build</td><td>Done</td><td>${rtlText}</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <details id="native-details" dir="ltr"><summary>${mixedText}</summary></details>
+        <section id="native-footnotes" data-footnotes="" dir="ltr"><ol><li><p>${mixedText}</p></li></ol></section>
+        <p id="native-attribute-paragraph" dir="ltr">${mixedText}</p>
+        <p id="native-removal-paragraph">English words <span id="native-removed-span">${rtlText}</span></p>
+      </div>
+    </div>
+    <div id="native-composer" class="composer-tiptap" contenteditable="true">
+      <ul id="native-composer-list" dir="rtl"><li id="native-composer-first-item"><p>Run the tests</p></li><li><p>${rtlText} ${rtlText}</p></li></ul>
+    </div>`;
+  await send("Runtime.evaluate", {
+    expression: `document.body.innerHTML = ${JSON.stringify(nativeFixtureHtml)}`,
+  }, sessionId);
+  await send("Runtime.evaluate", { expression: injectionSource }, sessionId);
+  const result = await send("Runtime.evaluate", {
+    expression: `new Promise((resolve) => {
+      // A React render that changes only the attribute, and one that removes
+      // the last Hebrew text from a block.
+      document.getElementById("native-attribute-paragraph").setAttribute("dir", "ltr");
+      document.getElementById("native-removed-span").remove();
+      setTimeout(() => {
+        // The fix's own dir writes must not wake it again and again.
+        let laterDirectionChanges = 0;
+        const quietObserver = new MutationObserver((records) => {
+          laterDirectionChanges += records.length;
+        });
+        quietObserver.observe(document.body, { attributes: true, attributeFilter: ["dir"], subtree: true });
+        setTimeout(() => {
+          quietObserver.disconnect();
+          const element = (id) => document.getElementById(id);
+          const style = (id) => getComputedStyle(element(id));
+          const tableBox = element("native-table").getBoundingClientRect();
+          resolve({
+            laterDirectionChanges,
+            paragraphDir: element("native-paragraph").dir,
+            listDir: element("native-list").dir,
+            listGutter: [style("native-list").paddingLeft, style("native-list").paddingRight].join(" "),
+            listItemDir: element("native-list-item").dir,
+            orderedListDir: element("native-ordered-list").dir,
+            alertDir: element("native-alert").dir,
+            alertBorder: [style("native-alert").borderLeftWidth, style("native-alert").borderRightWidth].join(" "),
+            tableDir: element("native-table").dir,
+            tableFirstColumnAtRight:
+              Math.abs(element("native-first-header").getBoundingClientRect().right - tableBox.right) <= 1,
+            detailsDir: element("native-details").dir,
+            footnotesDir: element("native-footnotes").dir,
+            attributeParagraphDir: element("native-attribute-paragraph").dir,
+            removalParagraphDir: element("native-removal-paragraph").dir,
+            composerListDirection: style("native-composer-list").direction,
+            composerListGutter: [style("native-composer-list").paddingLeft, style("native-composer-list").paddingRight].join(" "),
+            composerFirstItemDirection: style("native-composer-first-item").direction,
+          });
+        }, 200);
+      }, 100);
+    })`,
+    awaitPromise: true,
+    returnByValue: true,
+  }, sessionId);
+  const actual = result.result.value;
+  const expected = {
+    laterDirectionChanges: 0,
+    paragraphDir: "rtl",
+    listDir: "rtl",
+    listGutter: "0px 20px",
+    listItemDir: "rtl",
+    orderedListDir: "rtl",
+    alertDir: "rtl",
+    alertBorder: "0px 2px",
+    tableDir: "rtl",
+    tableFirstColumnAtRight: true,
+    detailsDir: "rtl",
+    footnotesDir: "rtl",
+    attributeParagraphDir: "rtl",
+    removalParagraphDir: "auto",
+    composerListDirection: "ltr",
+    composerListGutter: "20px 0px",
+    composerFirstItemDirection: "ltr",
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`Unexpected layout with T3 Code direction attributes: ${JSON.stringify(actual)}`);
+  }
+  process.stdout.write("CDP pipe direction over T3 Code direction attributes passed\n");
 }
 
 const timeout = setTimeout(() => {
