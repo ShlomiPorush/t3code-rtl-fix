@@ -116,6 +116,7 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "injection.js"),
     (Join-Path $sourceDirectory "t3-rtl-launcher.js"),
     (Join-Path $sourceDirectory "annotation-direction.js"),
+    (Join-Path $sourceDirectory "update-watch.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )
@@ -231,6 +232,16 @@ $manifestJson = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText(
     $manifestPath,
     $manifestJson,
+    [System.Text.Encoding]::Unicode
+)
+
+# A T3 Code update points these shortcuts at the app again, and the launcher
+# repairs them from this list. It holds only the shortcuts the uninstaller
+# restores, so a repair never leaves a shortcut the uninstaller misses.
+$repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object { [string]$_.Path })
+[System.IO.File]::WriteAllText(
+    (Join-Path $InstallDirectory "repair-shortcuts.txt"),
+    ($repairPaths -join "`r`n"),
     [System.Text.Encoding]::Unicode
 )
 

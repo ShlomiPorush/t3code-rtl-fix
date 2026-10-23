@@ -16,6 +16,13 @@ foreach ($item in $manifestDocument) {
     $manifest += $item
 }
 
+# Without this list, a launcher still waiting for a T3 Code update cannot
+# point the restored shortcuts at the fix again.
+$repairListPath = Join-Path $InstallDirectory "repair-shortcuts.txt"
+if (Test-Path -LiteralPath $repairListPath) {
+    Remove-Item -LiteralPath $repairListPath -Force
+}
+
 $shell = New-Object -ComObject WScript.Shell
 $restored = 0
 $removed = 0

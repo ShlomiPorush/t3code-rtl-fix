@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildInjectionSource } = require("../src/injection");
+const { readExecutableSignature, watchForReplacement } = require("../src/update-watch");
 
 const root = path.resolve(__dirname, "..");
 
@@ -149,6 +150,71 @@ test("the launcher fixes the annotation comment in browser previews", () => {
   assert.match(macInstaller, /annotation-direction\.js/);
 });
 
+// Runs the watch with a clock that advances by each requested delay, and
+// returns whether it saw a replacement and how many times it looked.
+async function watchSignatures(signatures, timeoutMs = 10000) {
+  let clock = 0;
+  let reads = 0;
+  const replaced = await watchForReplacement({
+    readSignature: () => signatures[Math.min(reads++, signatures.length - 1)],
+    initialSignature: "100:1",
+    intervalMs: 2000,
+    timeoutMs,
+    setTimer: (callback, delay) => {
+      clock += delay;
+      queueMicrotask(callback);
+    },
+    now: () => clock,
+  });
+  return { replaced, reads };
+}
+
+test("the update watch notices a replaced or missing executable", async () => {
+  assert.deepEqual(await watchSignatures(["100:1", "100:1", "200:7"]), { replaced: true, reads: 3 });
+  // An update removes the old executable before it writes the new one.
+  assert.deepEqual(await watchSignatures(["100:1", null]), { replaced: true, reads: 2 });
+  // The installer keeps build times, so an older time is a change as well.
+  assert.deepEqual(await watchSignatures(["100:0"]), { replaced: true, reads: 1 });
+});
+
+test("the update watch gives up when the executable stays the same", async () => {
+  assert.deepEqual(await watchSignatures(["100:1"], 6000), { replaced: false, reads: 4 });
+});
+
+test("an executable signature changes with the file and is null when it is missing", () => {
+  const directory = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "t3-rtl-signature-"));
+  try {
+    const file = path.join(directory, "app.exe");
+    assert.equal(readExecutableSignature(file), null);
+    fs.writeFileSync(file, "a");
+    fs.utimesSync(file, 1000, 1000);
+    const first = readExecutableSignature(file);
+    fs.writeFileSync(file, "ab");
+    fs.utimesSync(file, 1000, 1000);
+    assert.notEqual(readExecutableSignature(file), first);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the launcher ends after T3 Code exits and hands an update to the Windows helper", () => {
+  const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
+  const vbscript = fs.readFileSync(path.join(root, "windows", "launch-t3-rtl.vbs"), "utf8");
+  const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
+  const uninstaller = fs.readFileSync(path.join(root, "windows", "uninstall.ps1"), "utf8");
+  const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
+  assert.match(launcher, /watchAfterExit\(\)\.finally\(\(\) => process\.exit\(0\)\)/);
+  assert.match(launcher, /process\.platform !== "win32"/);
+  assert.match(launcher, /\[windowsLauncherPath, "\/updated"\]/);
+  assert.match(vbscript, /Named\.Exists\("updated"\)/);
+  assert.match(vbscript, / --updated/);
+  assert.match(vbscript, /vbInformation \+ vbSystemModal/);
+  assert.match(windowsInstaller, /update-watch\.js/);
+  assert.match(windowsInstaller, /repair-shortcuts\.txt/);
+  assert.match(uninstaller, /repair-shortcuts\.txt/);
+  assert.match(macInstaller, /update-watch\.js/);
+});
+
 test("work log summaries follow their first letter and answers follow the message rule", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] p\.items-baseline > span/);
@@ -259,6 +325,7 @@ test("every shipped source file contains only English UI text", () => {
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
     path.join("src", "annotation-direction.js"),
+    path.join("src", "update-watch.js"),
     path.join("src", "rtl.css"),
   ];
   for (const file of files) {
