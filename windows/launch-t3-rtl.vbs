@@ -141,9 +141,10 @@ Sub WaitForUpdate()
   End If
 End Sub
 
-' Returns "<process id>|<executable>" for a T3 Code main process in the
-' installed app's folder that an update reopened, or "" when there is none.
-' Electron's own child processes carry --type= and are skipped.
+' Returns "<process id> <creation time>|<executable>" for a T3 Code main
+' process in the installed app's folder that an update reopened, or "" when
+' there is none. The creation time tells a later process with a reused id
+' apart. Electron's own child processes carry --type= and are skipped.
 Function FindUpdatedApp()
   Dim service, processes, process, appFolder, commandLine, executable
   FindUpdatedApp = ""
@@ -152,7 +153,7 @@ Function FindUpdatedApp()
   Set service = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
   If Err.Number <> 0 Then Exit Function
   Set processes = service.ExecQuery( _
-    "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'T3 Code%'")
+    "SELECT ProcessId, CreationDate, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'T3 Code%'")
   If Err.Number <> 0 Then Exit Function
   For Each process In processes
     commandLine = "" & process.CommandLine
@@ -160,7 +161,7 @@ Function FindUpdatedApp()
     If executable <> "" And LCase(fileSystem.GetParentFolderName(executable)) = appFolder Then
       If InStr(1, commandLine, " --updated", vbTextCompare) > 0 And _
         InStr(1, commandLine, "--type=", vbTextCompare) = 0 Then
-        FindUpdatedApp = process.ProcessId & "|" & executable
+        FindUpdatedApp = process.ProcessId & " " & process.CreationDate & "|" & executable
         Exit Function
       End If
     End If
@@ -174,11 +175,14 @@ Sub NotifyOnce(key, message)
   Dim lockPath, markerPath, attempt, stream, claimed
   lockPath = baseDir & "\update-notice.lock"
   markerPath = baseDir & "\update-notice.txt"
-  For attempt = 1 To 10
+  ' Another helper holds the lock only for a moment. Wait past the time after
+  ' which a lock left by a stopped helper is ignored, so the message is never
+  ' lost to it.
+  For attempt = 1 To 150
     If TakeLock(lockPath) Then Exit For
     WScript.Sleep 500
   Next
-  If attempt > 10 Then Exit Sub
+  If attempt > 150 Then Exit Sub
 
   claimed = False
   If ReadTrimmedFile(markerPath) <> key And fileSystem.FileExists(repairListPath) Then

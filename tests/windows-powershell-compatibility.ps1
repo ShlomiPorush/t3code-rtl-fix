@@ -110,6 +110,21 @@ try {
         & taskkill.exe /PID $reopenedApp.Id /T /F | Out-Null
     }
 
+    # A helper stopped while it held the lock leaves it behind. The next update
+    # is still reported once the lock is old enough to be ignored.
+    $nextReopenedApp = Start-Process -FilePath $fakeAppPath -ArgumentList '/d /c "ping -n 60 127.0.0.1 >nul & rem --updated"' -WindowStyle Hidden -PassThru
+    try {
+        $staleLockPath = Join-Path $installDirectory "update-notice.lock"
+        [System.IO.File]::WriteAllText($staleLockPath, "")
+        (Get-Item -LiteralPath $staleLockPath).LastWriteTime = (Get-Date).AddMinutes(-2)
+        $staleNoticePath = Join-Path $testRoot "stale-lock-notice.txt"
+        & cscript.exe //nologo $launcherScriptPath /updated /wait:30 "/notice:$staleNoticePath"
+        Assert-Equal (Test-Path -LiteralPath $staleNoticePath) $true "A lock left behind by a stopped helper hid the next update"
+    }
+    finally {
+        & taskkill.exe /PID $nextReopenedApp.Id /T /F | Out-Null
+    }
+
     # An update installed on quit does not reopen T3 Code. The helper only
     # repairs the shortcuts.
     $shortcut = $shell.CreateShortcut($updatedShortcutPath)
