@@ -13,6 +13,8 @@ const {
 const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
 const logPath = path.join(__dirname, "launcher.log");
+const windowsLauncherPath = path.join(__dirname, "launch-t3-rtl.vbs");
+
 
 function log(message) {
   const stamp = new Date().toISOString();
@@ -240,7 +242,30 @@ child.on("exit", (code, signal) => {
   }
   pending.clear();
   log(`T3 Code exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
+  // T3 Code exits before an update is installed, and the update's installer
+  // reopens it directly, without the fix. The Windows helper waits a few
+  // minutes for that, then repairs the shortcuts and tells the user. It runs
+  // in its own process, outside the T3 Code executable that the installer
+  // replaces.
+  if (process.platform === "win32") startUpdateHelper();
+  // T3 Code's own processes, including one reopened by an update, can keep
+  // the debugging pipe open, so the launcher has to end on its own.
+  process.exit(0);
 });
+
+function startUpdateHelper() {
+  try {
+    const helper = spawn(
+      path.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe"),
+      [windowsLauncherPath, "/updated"],
+      { detached: true, stdio: "ignore", windowsHide: true },
+    );
+    helper.on("error", () => {});
+    helper.unref();
+  } catch (error) {
+    log(`Could not start the update helper: ${error.message}`);
+  }
+}
 
 async function initialize() {
   try {

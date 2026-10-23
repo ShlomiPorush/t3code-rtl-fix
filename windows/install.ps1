@@ -234,6 +234,16 @@ $manifestJson = $manifest | ConvertTo-Json -Depth 4
     [System.Text.Encoding]::Unicode
 )
 
+# A T3 Code update points these shortcuts at the app again, and the launcher
+# repairs them from this list. It holds only the shortcuts the uninstaller
+# restores, so a repair never leaves a shortcut the uninstaller misses.
+$repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object { [string]$_.Path })
+[System.IO.File]::WriteAllText(
+    (Join-Path $InstallDirectory "repair-shortcuts.txt"),
+    ($repairPaths -join "`r`n"),
+    [System.Text.Encoding]::Unicode
+)
+
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"
 Write-Output "Fully quit T3 Code, then open it from an updated shortcut."

@@ -11,6 +11,10 @@ need to open DevTools and paste CSS manually.
 - Hebrew and Arabic messages use right-to-left direction and right alignment.
 - English messages remain left to right and left aligned.
 - Hebrew and Arabic prose stays right to left even when it starts with English or a number.
+- T3 Code 0.1.2 and later set a direction of their own from the majority of
+  the words in each block. The fix's rule replaces it, so a mostly English
+  sentence with a Hebrew word stays right to left, in lists, tables, and
+  alerts as well, and so does each block typed in the composer.
 - Each paragraph and other prose block resolves its direction independently.
 - Images and other blocks without any letters follow the direction of the
   message around them.
@@ -75,6 +79,13 @@ after a T3 Code update if the fix stops loading. An update that renames the
 app, such as T3 Code 0.1.0 renaming "T3 Code (Alpha)" to "T3 Code (Beta)",
 replaces its shortcuts with ones that open T3 Code without the fix.
 
+When T3 Code installs an update, it reopens itself without the fix and points
+its Start Menu shortcut at the app again. The fix notices the update, points
+the shortcut back at the fix, and shows a message asking you to quit T3 Code
+and open it again from its shortcut. If the update renamed the app, the message
+asks you to run the install command again. Opening T3 Code from a shortcut
+also repairs any shortcut that an update changed.
+
 Fully quit T3 Code after installation. Open it again from the Desktop shortcut
 or the Start menu shortcut updated by the installer. The installer backs up the
 original shortcuts first.
@@ -130,7 +141,9 @@ is not modified.
 
 Fully quit T3 Code with Cmd+Q, then open **T3 Code RTL** from
 `~/Applications` or Spotlight. Always open T3 Code through this app so the fix
-loads. You can drag it to the Dock in place of the original.
+loads. You can drag it to the Dock in place of the original. When T3 Code
+reopens itself after an update, it opens without the fix. Quit it with Cmd+Q
+and open **T3 Code RTL** again.
 
 If T3 Code is installed in a non-default location, pass the app path:
 
@@ -185,6 +198,12 @@ T3 Code draws its element annotation window inside the browser preview, in a
 closed shadow root. In the preview, the launcher only listens for that window
 to take focus and then sets the direction of its comment field. The content of
 the previewed page is not changed.
+
+On Windows, each time T3 Code exits, the launcher ends and a small helper
+waits a few minutes for an update to reopen T3 Code. When one does, the helper
+repairs the shortcuts and shows the message once. It only touches shortcuts
+that the installer of the fix changed, so the uninstaller still restores all
+of them.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.

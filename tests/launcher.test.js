@@ -149,6 +149,22 @@ test("the launcher fixes the annotation comment in browser previews", () => {
   assert.match(macInstaller, /annotation-direction\.js/);
 });
 
+test("the launcher ends after T3 Code exits and hands a possible update to the Windows helper", () => {
+  const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
+  const vbscript = fs.readFileSync(path.join(root, "windows", "launch-t3-rtl.vbs"), "utf8");
+  const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
+  const uninstaller = fs.readFileSync(path.join(root, "windows", "uninstall.ps1"), "utf8");
+  const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
+  assert.match(launcher, /process\.platform === "win32"\) startUpdateHelper\(\);\s+(\/\/.*\s+)*process\.exit\(0\);/);
+  assert.match(launcher, /\[windowsLauncherPath, "\/updated"\]/);
+  assert.match(vbscript, /Named\.Exists\("updated"\)/);
+  assert.match(vbscript, / --updated/);
+  assert.match(vbscript, /vbInformation \+ vbSystemModal/);
+  assert.match(windowsInstaller, /repair-shortcuts\.txt/);
+  assert.match(uninstaller, /repair-shortcuts\.txt/);
+  assert.match(uninstaller, /Stop-Process/);
+});
+
 test("work log summaries follow their first letter and answers follow the message rule", () => {
   const source = buildInjectionSource("body { color: red; }");
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] p\.items-baseline > span/);
