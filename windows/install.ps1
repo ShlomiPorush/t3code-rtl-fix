@@ -116,7 +116,6 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "injection.js"),
     (Join-Path $sourceDirectory "t3-rtl-launcher.js"),
     (Join-Path $sourceDirectory "annotation-direction.js"),
-    (Join-Path $sourceDirectory "update-watch.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )

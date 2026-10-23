@@ -9,23 +9,12 @@ const {
   applyAnnotationDirection,
   watchAnnotations,
 } = require("./annotation-direction");
-const { readExecutableSignature, watchForReplacement } = require("./update-watch");
 
 const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
 const logPath = path.join(__dirname, "launcher.log");
 const windowsLauncherPath = path.join(__dirname, "launch-t3-rtl.vbs");
 
-// After T3 Code exits, an update may be installing. Its installer reopens
-// T3 Code directly, without the fix, and points the Start Menu shortcut at
-// it again. The launcher watches the executable for a few minutes and, when
-// it changes, hands over to the Windows helper, which waits for the reopened
-// app, repairs the shortcuts and tells the user to reopen T3 Code.
-const UPDATE_POLL_MS = 2000;
-const UPDATE_WINDOW_MS = 3 * 60 * 1000;
-// A second launch while T3 Code is already open exits at once and hands its
-// window to the running app. Such a short run is never an update.
-const MIN_RUN_BEFORE_UPDATE_MS = 15 * 1000;
 
 function log(message) {
   const stamp = new Date().toISOString();
@@ -81,8 +70,6 @@ try {
 }
 
 const injectionSource = buildInjectionSource(css);
-const launchSignature = readExecutableSignature(appPath);
-const launchedAt = Date.now();
 
 const child = spawn(appPath, ["--remote-debugging-pipe"], {
   env: t3Environment,
@@ -255,29 +242,25 @@ child.on("exit", (code, signal) => {
   }
   pending.clear();
   log(`T3 Code exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
+  // T3 Code exits before an update is installed, and the update's installer
+  // reopens it directly, without the fix. The Windows helper waits a few
+  // minutes for that, then repairs the shortcuts and tells the user. It runs
+  // in its own process, outside the T3 Code executable that the installer
+  // replaces.
+  if (process.platform === "win32") startUpdateHelper();
   // T3 Code's own processes, including one reopened by an update, can keep
   // the debugging pipe open, so the launcher has to end on its own.
-  void watchAfterExit().finally(() => process.exit(0));
+  process.exit(0);
 });
 
-async function watchAfterExit() {
-  if (process.platform !== "win32" || launchSignature === null) return;
-  if (Date.now() - launchedAt < MIN_RUN_BEFORE_UPDATE_MS) return;
-  const replaced = await watchForReplacement({
-    readSignature: () => readExecutableSignature(appPath),
-    initialSignature: launchSignature,
-    intervalMs: UPDATE_POLL_MS,
-    timeoutMs: UPDATE_WINDOW_MS,
-  });
-  if (!replaced) return;
-  log("T3 Code is being updated, waiting for it to reopen");
+function startUpdateHelper() {
   try {
     const helper = spawn(
       path.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe"),
       [windowsLauncherPath, "/updated"],
       { detached: true, stdio: "ignore", windowsHide: true },
     );
-    helper.on("error", (error) => log(`Could not start the update helper: ${error.message}`));
+    helper.on("error", () => {});
     helper.unref();
   } catch (error) {
     log(`Could not start the update helper: ${error.message}`);

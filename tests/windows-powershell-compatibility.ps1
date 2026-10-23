@@ -95,21 +95,20 @@ try {
     try {
         $noticePath = Join-Path $testRoot "update-notice.txt"
         & cscript.exe //nologo $launcherScriptPath /updated /wait:30 "/notice:$noticePath"
+        Assert-Equal (Test-Path -LiteralPath $noticePath) $true "The helper did not tell the user that T3 Code was reopened without the fix"
+        Assert-Equal (([System.IO.File]::ReadAllText($noticePath)) -like "*reopened without the RTL fix*") $true "The helper showed the wrong message after an update"
+        Assert-Equal $shell.CreateShortcut($updatedShortcutPath).TargetPath $wscriptPath "The helper did not repair the shortcut after an update"
+        Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "update-notice.lock")) $false "The helper left its lock behind"
+
+        # Each exit of T3 Code starts a helper, so another one can find the same
+        # reopened app. It must not show the message again.
+        $secondNoticePath = Join-Path $testRoot "second-notice.txt"
+        & cscript.exe //nologo $launcherScriptPath /updated /wait:30 "/notice:$secondNoticePath"
+        Assert-Equal (Test-Path -LiteralPath $secondNoticePath) $false "A second helper showed the update message again"
     }
     finally {
         & taskkill.exe /PID $reopenedApp.Id /T /F | Out-Null
     }
-    Assert-Equal (Test-Path -LiteralPath $noticePath) $true "The helper did not tell the user that T3 Code was reopened without the fix"
-    Assert-Equal (([System.IO.File]::ReadAllText($noticePath)) -like "*reopened without the RTL fix*") $true "The helper showed the wrong message after an update"
-    Assert-Equal $shell.CreateShortcut($updatedShortcutPath).TargetPath $wscriptPath "The helper did not repair the shortcut after an update"
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "update-notice.lock")) $false "The helper left its lock behind"
-
-    # Another launcher's helper is already waiting, so this one shows nothing.
-    $lockedNoticePath = Join-Path $testRoot "locked-notice.txt"
-    [System.IO.File]::WriteAllText((Join-Path $installDirectory "update-notice.lock"), "")
-    & cscript.exe //nologo $launcherScriptPath /updated /wait:2 "/notice:$lockedNoticePath"
-    Remove-Item -LiteralPath (Join-Path $installDirectory "update-notice.lock") -Force
-    Assert-Equal (Test-Path -LiteralPath $lockedNoticePath) $false "A second helper showed the update message again"
 
     # An update installed on quit does not reopen T3 Code. The helper only
     # repairs the shortcuts.
@@ -128,7 +127,7 @@ try {
     ) -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 1
     & (Join-Path $installDirectory "uninstall.ps1") -InstallDirectory $installDirectory
-    Assert-Equal $waitingHelper.WaitForExit(15000) $true "The waiting helper did not stop after the uninstall"
+    Assert-Equal $waitingHelper.WaitForExit(5000) $true "The waiting helper did not stop after the uninstall"
     Assert-Equal (Test-Path -LiteralPath $waitingNoticePath) $false "The waiting helper showed a message after the uninstall"
 
     foreach ($shortcutPath in $shortcutPaths) {
@@ -168,7 +167,7 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "update-watch.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {
@@ -247,10 +246,18 @@ try {
         $shortcut.TargetPath = $betaAppPath
         $shortcut.Save()
 
-        # After an update that renamed the app, the launcher can no longer find
-        # it, so the helper asks the user to install the fix again.
-        $renameNoticePath = Join-Path $testRoot "rename-notice.txt"
-        & cscript.exe //nologo (Join-Path $renameInstallDirectory "launch-t3-rtl.vbs") /updated /wait:2 "/notice:$renameNoticePath"
+        # An update that renamed the app reopens it under the new name, which
+        # the launcher cannot find, so the helper asks the user to install the
+        # fix again.
+        Copy-Item -LiteralPath (Join-Path $env:SystemRoot "System32\cmd.exe") -Destination $betaAppPath -Force
+        $renamedApp = Start-Process -FilePath $betaAppPath -ArgumentList '/d /c "ping -n 60 127.0.0.1 >nul & rem --updated"' -WindowStyle Hidden -PassThru
+        try {
+            $renameNoticePath = Join-Path $testRoot "rename-notice.txt"
+            & cscript.exe //nologo (Join-Path $renameInstallDirectory "launch-t3-rtl.vbs") /updated /wait:30 "/notice:$renameNoticePath"
+        }
+        finally {
+            & taskkill.exe /PID $renamedApp.Id /T /F | Out-Null
+        }
         Assert-Equal (Test-Path -LiteralPath $renameNoticePath) $true "The helper did not report the renamed app"
         Assert-Equal (([System.IO.File]::ReadAllText($renameNoticePath)) -like "*Run the install command again*") $true "The helper showed the wrong message after a rename"
 

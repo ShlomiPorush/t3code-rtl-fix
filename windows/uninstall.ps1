@@ -16,12 +16,21 @@ foreach ($item in $manifestDocument) {
     $manifest += $item
 }
 
-# Without this list, a launcher still waiting for a T3 Code update cannot
-# point the restored shortcuts at the fix again.
+# Without this list, a helper still waiting for a T3 Code update cannot point
+# the restored shortcuts at the fix again. Stop any such helper as well, in
+# case one is repairing a shortcut at this moment.
 $repairListPath = Join-Path $InstallDirectory "repair-shortcuts.txt"
 if (Test-Path -LiteralPath $repairListPath) {
     Remove-Item -LiteralPath $repairListPath -Force
 }
+$launcherScriptPath = Join-Path $InstallDirectory "launch-t3-rtl.vbs"
+Get-CimInstance -ClassName Win32_Process -Filter "Name = 'wscript.exe' OR Name = 'cscript.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine.IndexOf($launcherScriptPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        $_.CommandLine.IndexOf("/updated", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 $shell = New-Object -ComObject WScript.Shell
 $restored = 0

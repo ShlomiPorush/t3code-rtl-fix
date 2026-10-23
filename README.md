@@ -199,11 +199,11 @@ closed shadow root. In the preview, the launcher only listens for that window
 to take focus and then sets the direction of its comment field. The content of
 the previewed page is not changed.
 
-On Windows, the launcher keeps watching the T3 Code executable for a few
-minutes after T3 Code exits. When an update replaces it, a small helper waits
-for the updated app to reopen, repairs the shortcuts the installer changed,
-and shows the message. It only touches shortcuts that the installer of the fix
-changed, so the uninstaller still restores all of them.
+On Windows, each time T3 Code exits, the launcher ends and a small helper
+waits a few minutes for an update to reopen T3 Code. When one does, the helper
+repairs the shortcuts and shows the message once. It only touches shortcuts
+that the installer of the fix changed, so the uninstaller still restores all
+of them.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port and does not send data over the network.

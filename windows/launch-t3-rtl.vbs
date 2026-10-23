@@ -103,47 +103,47 @@ Function RepairShortcuts()
   RepairShortcuts = failures
 End Function
 
-' Started by the launcher when the T3 Code executable changed after T3 Code
-' exited. The installer of the update reopens T3 Code with --updated, without
-' the fix. Waits for that, repairs the shortcuts, and tells the user to reopen
-' T3 Code. An update installed on quit, without reopening, only repairs.
+' Started by the launcher every time T3 Code exits. When T3 Code exited for
+' an update, the update's installer reopens it with --updated, without the
+' fix. Waits a few minutes for that, repairs the shortcuts, and tells the user
+' to reopen T3 Code. An update installed on quit, without reopening, only
+' repairs.
 Sub WaitForUpdate()
-  Dim lockPath, waitSeconds, deadline, reopened
-  lockPath = baseDir & "\update-notice.lock"
-  ' Every launcher that was open when the update started hands over, but only
-  ' one helper waits and shows the message.
-  If Not TakeLock(lockPath) Then Exit Sub
-
+  Dim waitSeconds, deadline, reopened, parts
   waitSeconds = 300
   If WScript.Arguments.Named.Exists("wait") Then waitSeconds = CLng(WScript.Arguments.Named("wait"))
   deadline = DateAdd("s", waitSeconds, Now)
   reopened = ""
   Do
-    If Not fileSystem.FileExists(repairListPath) Then Exit Do
+    If Not fileSystem.FileExists(repairListPath) Then Exit Sub
     reopened = FindUpdatedApp()
     If reopened <> "" Or Now >= deadline Then Exit Do
     WScript.Sleep 2000
   Loop
 
-  If fileSystem.FileExists(repairListPath) Then
-    ' The installer writes its shortcuts before it reopens the app. Give it a
-    ' moment to finish before repairing them.
-    If reopened <> "" Then WScript.Sleep 3000
+  If reopened = "" Then
     RepairShortcuts
-    If reopened <> "" And LCase(reopened) = LCase(appPath) Then
-      Notify "T3 Code was updated and reopened without the RTL fix. " & _
-        "Quit T3 Code fully, then open it again from its shortcut."
-    ElseIf reopened <> "" Or Not fileSystem.FileExists(appPath) Then
-      Notify "T3 Code was updated and renamed, so the RTL fix no longer starts with it. " & _
-        "Run the install command again, then open T3 Code from its shortcut."
-    End If
+    Exit Sub
   End If
-  ReleaseLock lockPath
+
+  ' The installer writes its shortcuts before it reopens the app. Give it a
+  ' moment to finish before repairing them.
+  WScript.Sleep 3000
+  If Not fileSystem.FileExists(repairListPath) Then Exit Sub
+  RepairShortcuts
+  parts = Split(reopened, "|", 2)
+  If LCase(parts(1)) = LCase(appPath) Then
+    NotifyOnce "reopened " & parts(0), "T3 Code was updated and reopened without the RTL fix. " & _
+      "Quit T3 Code fully, then open it again from its shortcut."
+  Else
+    NotifyOnce "renamed " & parts(0), "T3 Code was updated and renamed, so the RTL fix no longer starts with it. " & _
+      "Run the install command again, then open T3 Code from its shortcut."
+  End If
 End Sub
 
-' Returns the executable of a T3 Code main process in the installed app's
-' folder that an update reopened, or "" when there is none. Electron's own
-' child processes carry --type= and are skipped.
+' Returns "<process id>|<executable>" for a T3 Code main process in the
+' installed app's folder that an update reopened, or "" when there is none.
+' Electron's own child processes carry --type= and are skipped.
 Function FindUpdatedApp()
   Dim service, processes, process, appFolder, commandLine, executable
   FindUpdatedApp = ""
@@ -152,7 +152,7 @@ Function FindUpdatedApp()
   Set service = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
   If Err.Number <> 0 Then Exit Function
   Set processes = service.ExecQuery( _
-    "SELECT ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'T3 Code%'")
+    "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'T3 Code%'")
   If Err.Number <> 0 Then Exit Function
   For Each process In processes
     commandLine = "" & process.CommandLine
@@ -160,21 +160,47 @@ Function FindUpdatedApp()
     If executable <> "" And LCase(fileSystem.GetParentFolderName(executable)) = appFolder Then
       If InStr(1, commandLine, " --updated", vbTextCompare) > 0 And _
         InStr(1, commandLine, "--type=", vbTextCompare) = 0 Then
-        FindUpdatedApp = executable
+        FindUpdatedApp = process.ProcessId & "|" & executable
         Exit Function
       End If
     End If
   Next
 End Function
 
+' Every exit of T3 Code starts a helper, so several can be waiting when an
+' update reopens it. The first to claim the reopened process shows the
+' message, and the others stay silent.
+Sub NotifyOnce(key, message)
+  Dim lockPath, markerPath, attempt, stream, claimed
+  lockPath = baseDir & "\update-notice.lock"
+  markerPath = baseDir & "\update-notice.txt"
+  For attempt = 1 To 10
+    If TakeLock(lockPath) Then Exit For
+    WScript.Sleep 500
+  Next
+  If attempt > 10 Then Exit Sub
+
+  claimed = False
+  If ReadTrimmedFile(markerPath) <> key And fileSystem.FileExists(repairListPath) Then
+    On Error Resume Next
+    Set stream = fileSystem.CreateTextFile(markerPath, True, True)
+    stream.Write key
+    stream.Close
+    claimed = (Err.Number = 0)
+    On Error GoTo 0
+  End If
+  ReleaseLock lockPath
+  If claimed Then Notify message
+End Sub
+
 Function TakeLock(lockPath)
   Dim stream
   TakeLock = False
   On Error Resume Next
   If fileSystem.FileExists(lockPath) Then
-    ' A helper that was stopped never removed its lock. Ignore it after the
-    ' longest wait has passed.
-    If DateDiff("n", fileSystem.GetFile(lockPath).DateLastModified, Now) < 10 Then Exit Function
+    ' A helper that was stopped while holding the lock never removed it. The
+    ' lock is held only for a moment, so an old one is ignored.
+    If DateDiff("s", fileSystem.GetFile(lockPath).DateLastModified, Now) < 60 Then Exit Function
     fileSystem.DeleteFile lockPath, True
   End If
   Err.Clear
