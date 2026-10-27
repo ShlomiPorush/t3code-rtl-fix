@@ -113,6 +113,7 @@ async function run() {
       .flex-col { flex-direction: column; }
       .shrink-0 { flex-shrink: 0; }
       .radio { width: 16px; height: 16px; }
+      .rotate-90 { rotate: 90deg; }
       .items-start { align-items: flex-start; }
       .border-l-2 { border-left: 2px solid gray; }
       .pl-3 { padding-left: 12px; }
@@ -378,18 +379,29 @@ async function run() {
       <div id="toast-description" class="min-w-0 select-text wrap-break-word" data-slot="toast-description">${rtlText} T3</div>
     </div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
-    <div id="work-log-row" class="group/timeline-row relative flex flex-col text-left" role="button" aria-expanded="true" style="width: 400px">
-      <div class="flex items-center">
-        <div class="min-w-0 flex-1 overflow-hidden"><p id="work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="work-log-question-summary" class="min-w-0 truncate">${rtlText} PR?</span><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div>
+    <div id="work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="true" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="work-log-question-summary" class="min-w-0 truncate">${rtlText} PR?</span><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="work-log-chevron" class="flex shrink-0"><svg id="work-log-chevron-icon" class="icon rotate-90"></svg></span>
       </div>
       <div class="ms-7 mt-2 space-y-2"><div class="space-y-1">
         <p id="work-log-question" class="whitespace-pre-wrap text-sm">${rtlText} PR?</p>
         <p id="work-log-answer" class="ms-3 whitespace-pre-wrap text-sm">3 PRs ${rtlText} (Recommended)</p>
       </div></div>
     </div>
-    <div class="group/timeline-row relative flex flex-col text-left" style="width: 400px">
-      <div class="flex items-center">
-        <div class="min-w-0 flex-1 overflow-hidden"><p id="english-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="english-work-log-question-summary" class="min-w-0 truncate">Which plan?</span><span id="english-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div>
+    <div id="closed-work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="false" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="closed-work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="closed-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="closed-work-log-question-summary" class="min-w-0 truncate">${rtlText}?</span><span id="closed-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="closed-work-log-chevron" class="flex shrink-0"><svg id="closed-work-log-chevron-icon" class="icon"></svg></span>
+      </div>
+    </div>
+    <div id="english-work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="false" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="english-work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="english-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="english-work-log-question-summary" class="min-w-0 truncate">Which plan?</span><span id="english-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="english-work-log-chevron" class="flex shrink-0"><svg id="english-work-log-chevron-icon" class="icon"></svg></span>
       </div>
     </div>
     <div class="group/timeline-row relative flex flex-col">
@@ -778,13 +790,22 @@ ${rtlText}
           workLogAnswerDirection: style("work-log-answer").direction,
           workLogAnswerDir: document.getElementById("work-log-answer").dir,
           workLogCommandDirection: style("work-log-command").direction,
+          workLogRowDirection: style("work-log-row").direction,
+          workLogIconAtRight: Math.abs(document.getElementById("work-log-icon").getBoundingClientRect().right - document.getElementById("work-log-row").getBoundingClientRect().right) <= 1,
+          workLogChevronAtLeft: Math.abs(document.getElementById("work-log-chevron").getBoundingClientRect().left - document.getElementById("work-log-row").getBoundingClientRect().left) <= 1,
           workLogQuestionSummaryRightOfAnswer:
             document.getElementById("work-log-question-summary").getBoundingClientRect().left >= document.getElementById("work-log-answer-summary").getBoundingClientRect().right,
           workLogSummaryNextToIcon:
-            Math.abs(document.getElementById("work-log-answer-summary").getBoundingClientRect().left - document.getElementById("work-log-summary").getBoundingClientRect().left) <= 1,
+            Math.abs(document.getElementById("work-log-question-summary").getBoundingClientRect().right - document.getElementById("work-log-summary").getBoundingClientRect().right) <= 1,
+          workLogOpenChevronTransform: style("work-log-chevron-icon").transform,
+          closedWorkLogChevronTransform: style("closed-work-log-chevron-icon").transform,
+          englishWorkLogRowDirection: style("english-work-log-row").direction,
+          englishWorkLogIconAtLeft:
+            Math.abs(document.getElementById("english-work-log-icon").getBoundingClientRect().left - document.getElementById("english-work-log-row").getBoundingClientRect().left) <= 1,
           englishWorkLogQuestionSummaryLeftOfAnswer:
             document.getElementById("english-work-log-question-summary").getBoundingClientRect().right <=
             document.getElementById("english-work-log-answer-summary").getBoundingClientRect().left,
+          englishWorkLogChevronTransform: style("english-work-log-chevron-icon").transform,
           workLogQuestionTextAlign: style("work-log-question").textAlign,
           workLogQuestionAtRight: (() => {
             const range = document.createRange();
@@ -1113,9 +1134,17 @@ ${rtlText}
     workLogAnswerDirection: "rtl",
     workLogAnswerDir: "rtl",
     workLogCommandDirection: "ltr",
+    workLogRowDirection: "rtl",
+    workLogIconAtRight: true,
+    workLogChevronAtLeft: true,
     workLogQuestionSummaryRightOfAnswer: true,
     workLogSummaryNextToIcon: true,
+    workLogOpenChevronTransform: "none",
+    closedWorkLogChevronTransform: "matrix(-1, 0, 0, 1, 0, 0)",
+    englishWorkLogRowDirection: "ltr",
+    englishWorkLogIconAtLeft: true,
     englishWorkLogQuestionSummaryLeftOfAnswer: true,
+    englishWorkLogChevronTransform: "none",
     workLogQuestionTextAlign: "start",
     workLogQuestionAtRight: true,
     liveThoughtDir: "auto",

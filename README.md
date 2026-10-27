@@ -46,9 +46,10 @@ need to open DevTools and paste CSS manually.
   its first item starts.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
-  letter so commands that start in English stay left to right. When an asked
-  question reads right to left, its row summary shows the question to the
-  right of the answer, and the expanded question and answer align right. The agent's
+  letter so commands that start in English stay left to right. A row whose
+  summary starts in Hebrew or Arabic, such as an asked question, is mirrored:
+  its icon and summary sit on the right, the question comes before the
+  answer, and the expanded question and answer align right. The agent's
   latest thought, shown while it works, follows its first letter too, and an
   expanded thought follows the message rule.
 - Subagent and delegated task cards show their title and result summary in the

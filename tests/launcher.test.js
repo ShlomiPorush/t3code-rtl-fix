@@ -172,7 +172,8 @@ test("work log summaries follow their first letter and answers follow the messag
   assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
   assert.match(source, /\[class~=\\"group\/live-work\\"\] \.line-clamp-4/);
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
-  assert.match(css, /p\.items-baseline:has\(> span:first-child:dir\(rtl\)\)\s*> span:first-child \{\s*order: 1;/);
+  assert.match(css, /p\.items-baseline > span:first-child:dir\(rtl\)\s*\) \{\s*direction: rtl;/);
+  assert.match(css, /> span:last-child\s*> svg:not\(\.rotate-90\) \{\s*transform: scaleX\(-1\);/);
   assert.match(css, /\[class~="group\/timeline-row"\] \.space-y-1 > p \{\s*text-align: start !important;/);
 });
 

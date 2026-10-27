@@ -221,13 +221,26 @@ ul[aria-label="Related threads"] span.block.truncate {
   text-align: start !important;
 }
 
-/* The summary of an asked question in the work log shows the question and
-   then the answer, side by side next to the row's icon. When the question
-   reads right to left, it moves to the right of the answer, so the pair reads
-   from the right. */
-[class~="group/timeline-row"] p.items-baseline:has(> span:first-child:dir(rtl))
-  > span:first-child {
-  order: 1;
+/* A work log row whose summary starts right to left, such as an asked
+   question in Hebrew, is mirrored: the icon and the summary move to the
+   right, the question comes before the answer from the right, and the
+   timestamp and chevron move to the left. The summary is the first item of
+   the row's header, so rows nested in its expanded content do not count. A
+   closed chevron points left. An open one is rotated to point down, so it is
+   not flipped. */
+[class~="group/timeline-row"]:has(
+    > div > div.items-baseline p.items-baseline > span:first-child:dir(rtl)
+  ) {
+  direction: rtl;
+}
+
+[class~="group/timeline-row"]:has(
+    > div > div.items-baseline p.items-baseline > span:first-child:dir(rtl)
+  )
+  > div
+  > span:last-child
+  > svg:not(.rotate-90) {
+  transform: scaleX(-1);
 }
 
 /* The work log row is left aligned in T3 Code's markup, so an expanded
