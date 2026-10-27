@@ -23,6 +23,11 @@ const QUEUED_MARKDOWN_ROOT_SELECTOR = `${QUEUED_MESSAGE_SELECTOR} .chat-markdown
 // line. The row with its reorder handle and actions keeps T3 Code's layout.
 const QUEUED_PROMPT_SELECTOR =
   '[role="region"][aria-label*=" queued message"] [data-slot="composer-banner-content"] > span.min-w-0.flex-1.truncate';
+// Since T3 Code 0.1.3, queued prompts wait in the thread above the composer,
+// each in a card whose prompt is plain text. The prompt follows the message
+// rule. The row of reorder, edit, Steer, and remove buttons below the card
+// keeps T3 Code's layout.
+const THREAD_QUEUE_PROMPT_SELECTOR = '[data-thread-queue="true"] li > div > p';
 // Thread titles in the sidebar rows, the open thread header, and the rename
 // field shared by both, in the related threads list of the thread details
 // panel, in the threads suggested after typing @ in the composer, and in the
@@ -114,6 +119,7 @@ const DIRECTION_ROOT_SELECTOR = [
   QUEUED_MESSAGE_SELECTOR,
   QUEUED_MARKDOWN_ROOT_SELECTOR,
   QUEUED_PROMPT_SELECTOR,
+  THREAD_QUEUE_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
@@ -242,6 +248,7 @@ const AUTO_DIRECTION_SELECTOR = [
   `${QUEUED_MARKDOWN_ROOT_SELECTOR} td`,
   ...markdownBlocks(QUEUED_MARKDOWN_ROOT_SELECTOR),
   QUEUED_PROMPT_SELECTOR,
+  THREAD_QUEUE_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
   PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR,

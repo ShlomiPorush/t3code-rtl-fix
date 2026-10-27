@@ -35,7 +35,9 @@ need to open DevTools and paste CSS manually.
   border and the Go to source button move to the side where the text starts.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons. In the queue above the composer, each prompt follows the
-  direction of its text.
+  direction of its text. Since T3 Code 0.1.3, a queued prompt waits in the
+  thread above the composer and follows the message rule, while the buttons
+  below it keep their layout.
 - Each paragraph typed in the composer follows the same rule as a sent
   message: Hebrew or Arabic anywhere in it makes it right to left, even after
   an English word or an attachment chip, and word selection with

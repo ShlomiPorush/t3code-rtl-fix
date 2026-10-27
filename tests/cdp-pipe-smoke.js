@@ -326,6 +326,17 @@ async function run() {
         <li data-composer-banner-row="true"><span data-slot="composer-banner-content"><span id="english-queue-prompt" class="min-w-0 flex-1 truncate">Run the tests first</span></span></li>
       </ol>
     </div>
+    <section data-thread-queue="true" aria-label="Up next: 2 queued messages" style="display: flex; flex-direction: column; width: 400px">
+      <ol style="display: flex; flex-direction: column; align-items: flex-end">
+        <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
+          <div style="width: 160px"><p id="thread-queue-rtl-prompt" class="whitespace-pre-wrap wrap-anywhere">${rtlText} - ${rtlText} ${rtlText} ${rtlText}</p></div>
+          <div id="thread-queue-rtl-actions" class="flex"><button aria-label="Edit queued message"></button><button>Steer</button><button aria-label="Remove queued message"></button></div>
+        </li>
+        <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
+          <div style="width: 160px"><p id="thread-queue-english-prompt" class="whitespace-pre-wrap wrap-anywhere">Run the tests first and then open the pull request</p></div>
+        </li>
+      </ol>
+    </section>
     <div id="composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
@@ -877,6 +888,25 @@ ${rtlText}
           rtlQueuePromptTextAlign: style("rtl-queue-prompt").textAlign,
           englishQueuePromptDir: document.getElementById("english-queue-prompt").dir,
           rtlQueueRowDirection: style("rtl-queue-row").direction,
+          ...(() => {
+            const lastLine = (id) => {
+              const element = document.getElementById(id);
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              const rects = range.getClientRects();
+              return { box: element.getBoundingClientRect(), line: rects[rects.length - 1], lines: rects.length };
+            };
+            const rtl = lastLine("thread-queue-rtl-prompt");
+            const english = lastLine("thread-queue-english-prompt");
+            return {
+              threadQueueRtlPromptDir: document.getElementById("thread-queue-rtl-prompt").dir,
+              threadQueueRtlPromptWraps: rtl.lines > 1,
+              threadQueueRtlLastLineAtRight: Math.abs(rtl.line.right - rtl.box.right) <= 1,
+              threadQueueRtlActionsDirection: style("thread-queue-rtl-actions").direction,
+              threadQueueEnglishPromptDir: document.getElementById("thread-queue-english-prompt").dir,
+              threadQueueEnglishLastLineAtLeft: Math.abs(english.line.left - english.box.left) <= 1,
+            };
+          })(),
           rtlQueueActionsDirection: style("rtl-queue-actions").direction,
           queueHeaderDirection: style("queue-header").direction,
           composerHeadingDirection: style("composer-heading").direction,
@@ -1185,6 +1215,12 @@ ${rtlText}
     rtlQueuePromptTextAlign: "start",
     englishQueuePromptDir: "auto",
     rtlQueueRowDirection: "ltr",
+    threadQueueRtlPromptDir: "rtl",
+    threadQueueRtlPromptWraps: true,
+    threadQueueRtlLastLineAtRight: true,
+    threadQueueRtlActionsDirection: "ltr",
+    threadQueueEnglishPromptDir: "auto",
+    threadQueueEnglishLastLineAtLeft: true,
     rtlQueueActionsDirection: "ltr",
     queueHeaderDirection: "ltr",
     composerHeadingDirection: "rtl",
