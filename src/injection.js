@@ -80,6 +80,19 @@ const PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR = [
   "div.mt-1.whitespace-pre-wrap.wrap-break-word.text-sm",
   ".min-w-0.px-3.py-2\\.5 > .text-message-foreground.text-xs.font-medium",
 ].join(", ");
+// The card that opens from a quoted text chip in a message: the quoted text,
+// the comment written on it, and a Go to source button. The class combination
+// of its scrolling text box is unique to this card in T3 Code's markup. The
+// card follows its text, so the button sits on the side where the text
+// starts, while the button's own English label keeps its direction.
+const CITATION_CARD_TEXT_BOX_SELECTOR =
+  ".max-h-64.min-h-0.space-y-3.self-stretch.overflow-y-auto.whitespace-pre-wrap.wrap-break-word";
+const CITATION_CARD_SELECTOR = `div:has(> ${CITATION_CARD_TEXT_BOX_SELECTOR})`;
+const CITATION_CARD_TEXT_SELECTOR = [
+  CITATION_CARD_SELECTOR,
+  `${CITATION_CARD_SELECTOR} > ${CITATION_CARD_TEXT_BOX_SELECTOR} > :is(blockquote, p)`,
+  `${CITATION_CARD_SELECTOR} > :not(${CITATION_CARD_TEXT_BOX_SELECTOR})`,
+].join(", ");
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
 const COMPOSER_CHIP_SELECTOR = ".react-renderer";
 const COMPOSER_MARKER = "data-t3-rtl-composer";
@@ -106,6 +119,7 @@ const DIRECTION_ROOT_SELECTOR = [
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
+  CITATION_CARD_SELECTOR,
 ].join(", ");
 // T3 Code 0.1.2 gives every top-level Markdown block its own dir from a
 // majority vote of its words, so these blocks need the fix's rule too, or an
@@ -251,6 +265,7 @@ const AUTO_DIRECTION_SELECTOR = [
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
+  CITATION_CARD_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

@@ -107,11 +107,15 @@
   unicode-bidi: isolate;
 }
 
+/* Each option starts with its radio button or checkbox, then its text, and
+   ends with its shortcut number. In a right-to-left option the number moves
+   next to the radio button, before the text. English options keep T3 Code's
+   layout. */
 [data-slot="collapsible"]:has([data-pending-user-input-toggle])
   [data-slot="collapsible-panel"]
-  button
-  > :is(kbd, svg:last-child) {
-  order: -1;
+  button:dir(rtl)
+  > div {
+  order: 1;
 }
 
 [data-t3-rtl-plan-card],
@@ -167,6 +171,24 @@
 [data-assistant-citation-chip="true"] button {
   margin-left: 0 !important;
   margin-inline-start: 0.17em !important;
+}
+
+/* The card that opens from a quoted text chip in a message. The border of the
+   quote moves to the side where the quote starts. The class combination of
+   the scrolling text box is unique to this card. */
+.max-h-64.min-h-0.space-y-3.self-stretch.overflow-y-auto.whitespace-pre-wrap.wrap-break-word
+  > :is(blockquote, p) {
+  text-align: start !important;
+}
+
+.max-h-64.min-h-0.space-y-3.self-stretch.overflow-y-auto.whitespace-pre-wrap.wrap-break-word
+  > blockquote {
+  border-left-style: none !important;
+  border-left-width: 0 !important;
+  border-inline-start-style: solid !important;
+  border-inline-start-width: 2px !important;
+  padding-left: 0 !important;
+  padding-inline-start: 0.75rem !important;
 }
 
 /* A queued message card takes the direction of its prompt. The attachment

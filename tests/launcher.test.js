@@ -64,7 +64,7 @@ test("the stylesheet uses content-aware alignment and logical RTL layout", () =>
   assert.match(css, /data-t3-rtl-plan-card/);
   assert.match(
     css,
-    /data-slot="collapsible-panel"[\s\S]*button[\s\S]*> :is\(kbd, svg:last-child\)[\s\S]*order:\s*-1/,
+    /data-slot="collapsible-panel"\]\s*button:dir\(rtl\)\s*> div\s*\{\s*order:\s*1;/,
   );
   assert.doesNotMatch(css, /button\[dir=/);
   assert.doesNotMatch(css, /direction:\s*rtl\s*!important/);
@@ -189,6 +189,15 @@ test("preview annotation cards follow the direction of their comment", () => {
   // The injected source holds the selector JSON-encoded, so its escaped dot
   // appears there as two backslashes.
   assert.ok(source.includes(".min-w-0.px-3.py-2\\\\.5 > .text-message-foreground.text-xs.font-medium"));
+});
+
+test("quoted text cards follow the direction of their quote and comment", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const textBox = ".max-h-64.min-h-0.space-y-3.self-stretch.overflow-y-auto.whitespace-pre-wrap.wrap-break-word";
+  assert.ok(source.includes(`div:has(> ${textBox}) > ${textBox} > :is(blockquote, p)`));
+  assert.ok(source.includes(`div:has(> ${textBox}) > :not(${textBox})`));
+  assert.match(css, /wrap-break-word\s*> blockquote \{[\s\S]*border-inline-start-width: 2px !important;/);
 });
 
 test("related thread and @ suggestion titles follow the direction of their text", () => {

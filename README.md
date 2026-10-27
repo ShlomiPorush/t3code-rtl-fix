@@ -22,14 +22,17 @@ need to open DevTools and paste CSS manually.
 - Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
   direction of their text.
-- Pending question cards align their content and option shortcuts without
-  changing English questions.
+- Pending question cards align their content without changing English
+  questions. In a Hebrew or Arabic option, the shortcut number sits next to
+  the radio button, before the option text.
 - Proposed plan cards align their title and Markdown content independently.
 - Plan progress and composer task controls follow the direction of their steps.
 - Pull request descriptions and comments follow the direction of each Markdown block.
 - Rendered Markdown file previews follow the direction of each content block.
 - Comments on quoted text and their citation chips follow the direction of the
-  comment while it is typed.
+  comment while it is typed. In the card that opens from a citation chip, the
+  quote and the comment follow the direction of their text, and the quote
+  border and the Go to source button move to the side where the text starts.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons. In the queue above the composer, each prompt follows the
   direction of its text.

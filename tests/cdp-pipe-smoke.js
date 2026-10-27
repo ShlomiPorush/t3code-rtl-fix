@@ -110,6 +110,12 @@ async function run() {
       [data-node-view-wrapper] { display: inline-flex; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
+      .flex-col { flex-direction: column; }
+      .shrink-0 { flex-shrink: 0; }
+      .radio { width: 16px; height: 16px; }
+      .items-start { align-items: flex-start; }
+      .border-l-2 { border-left: 2px solid gray; }
+      .pl-3 { padding-left: 12px; }
       .gap-3 { gap: 12px; }
       .ml-auto { margin-left: auto; }
       .w-full { width: 300px; }
@@ -183,28 +189,19 @@ async function run() {
       <div data-slot="collapsible-panel">
         <p id="pending-question">${rtlText} GitHub?</p>
         <button id="pending-option" class="flex w-full gap-3 text-left">
-          <div id="pending-option-content" class="flex flex-1">
+          <span id="pending-radio" class="flex shrink-0"><span class="radio"></span></span>
+          <div id="pending-option-content" class="flex flex-1 flex-col">
             <span>${rtlText} Docker</span>
+            <span>PR 1 ${rtlText}</span>
           </div>
-          <kbd id="pending-shortcut">1</kbd>
+          <span class="flex shrink-0"><kbd id="pending-shortcut">1</kbd></span>
         </button>
         <button id="pending-english-option" class="flex w-full gap-3 text-left">
-          <div id="pending-english-option-content" class="flex flex-1">
+          <span id="pending-english-radio" class="flex shrink-0"><span class="radio"></span></span>
+          <div id="pending-english-option-content" class="flex flex-1 flex-col">
             <span>Use the local fix</span>
           </div>
-          <kbd id="pending-english-shortcut">2</kbd>
-        </button>
-        <button id="pending-selected-option" class="flex w-full gap-3 text-left">
-          <div id="pending-selected-option-content" class="flex flex-1">
-            <span>${rtlText} selected</span>
-          </div>
-          <kbd id="pending-selected-shortcut">3</kbd>
-        </button>
-        <button id="pending-english-selected-option" class="flex w-full gap-3 text-left">
-          <div id="pending-english-selected-option-content" class="flex flex-1">
-            <span>Selected English option</span>
-          </div>
-          <kbd id="pending-english-selected-shortcut">4</kbd>
+          <span class="flex shrink-0"><kbd id="pending-english-shortcut">2</kbd></span>
         </button>
       </div>
     </div>
@@ -443,6 +440,13 @@ async function run() {
 ${rtlText}
 
 1 element</div>
+    <div id="english-citation-card" class="flex flex-col items-start gap-3 p-1 text-sm" style="width: 300px">
+      <div class="max-h-64 min-h-0 space-y-3 self-stretch overflow-y-auto whitespace-pre-wrap wrap-break-word">
+        <blockquote id="english-citation-quote" class="border-l-2 border-border pl-3 text-muted-foreground">Run the tests first.</blockquote>
+        <p id="english-citation-card-comment">Why first?</p>
+      </div>
+      <a id="english-citation-source" href="#">Go to source</a>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -461,20 +465,15 @@ ${rtlText}
       dynamicPlanCard.id = "dynamic-plan-card";
       dynamicPlanCard.innerHTML = '<div><div><h3 id="dynamic-plan-title">${rtlText}</h3></div><button aria-label="Plan actions">...</button></div><div><div id="dynamic-plan-markdown" class="chat-markdown" dir="auto"><p id="dynamic-plan-paragraph">${rtlText}</p></div></div>';
       document.body.appendChild(dynamicPlanCard);
-      for (const [shortcutId, checkId] of [
-        ["pending-selected-shortcut", "pending-selected-check"],
-        ["pending-english-selected-shortcut", "pending-english-selected-check"],
-      ]) {
-        const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        check.id = checkId;
-        check.setAttribute("class", "icon");
-        document.getElementById(shortcutId).replaceWith(check);
-      }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
       const dynamicTooltip = document.createElement("div");
       dynamicTooltip.setAttribute("data-slot", "tooltip-positioner");
       dynamicTooltip.innerHTML = '<div id="dynamic-tooltip" data-slot="tooltip-popup"><div data-slot="tooltip-viewport">' + ${JSON.stringify(rtlText)} + "</div></div>";
       document.body.appendChild(dynamicTooltip);
+      // The card of a quoted text chip opens in a popup after the page loads.
+      const citationPopup = document.createElement("div");
+      citationPopup.innerHTML = '<div id="citation-card" class="flex flex-col items-start gap-3 p-1 text-sm" style="width: 300px"><div class="max-h-64 min-h-0 space-y-3 self-stretch overflow-y-auto whitespace-pre-wrap wrap-break-word"><blockquote id="citation-quote" class="border-l-2 border-border pl-3 text-muted-foreground">' + ${JSON.stringify(rtlText)} + ' common.md</blockquote><p id="citation-card-comment">' + ${JSON.stringify(rtlText)} + '</p></div><a id="citation-source" href="#">Go to source</a></div>';
+      document.body.appendChild(citationPopup);
       // Typing into an empty composer paragraph after injection.
       document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
       const secondComposerParagraph = document.getElementById("second-composer-paragraph");
@@ -590,35 +589,20 @@ ${rtlText}
           pendingOptionDir: document.getElementById("pending-option").dir,
           pendingOptionTextAlign: style("pending-option").textAlign,
           pendingShortcutDir: document.getElementById("pending-shortcut").dir,
-          pendingShortcutAfterContent:
+          pendingRadioBeforeShortcut:
+            document.getElementById("pending-radio").getBoundingClientRect().left >=
+            document.getElementById("pending-shortcut").getBoundingClientRect().right,
+          pendingShortcutBeforeContent:
             document.getElementById("pending-shortcut").getBoundingClientRect().left >=
             document.getElementById("pending-option-content").getBoundingClientRect().right,
           pendingEnglishOptionDir: document.getElementById("pending-english-option").dir,
           pendingEnglishShortcutDir: document.getElementById("pending-english-shortcut").dir,
-          pendingEnglishShortcutBeforeContent:
-            document.getElementById("pending-english-shortcut").getBoundingClientRect().right <=
-            document
-              .getElementById("pending-english-option-content")
-              .getBoundingClientRect().left,
-          pendingSelectedOptionDir: document.getElementById("pending-selected-option").dir,
-          pendingSelectedOptionTextAlign: style("pending-selected-option").textAlign,
-          pendingSelectedCheckAfterContent:
-            document.getElementById("pending-selected-check").getBoundingClientRect().left >=
-            document
-              .getElementById("pending-selected-option-content")
-              .getBoundingClientRect().right,
-          pendingEnglishSelectedOptionDir: document.getElementById(
-            "pending-english-selected-option",
-          ).dir,
-          pendingEnglishSelectedOptionTextAlign: style(
-            "pending-english-selected-option",
-          ).textAlign,
-          pendingEnglishSelectedCheckBeforeContent:
-            document.getElementById("pending-english-selected-check").getBoundingClientRect()
-              .right <=
-            document
-              .getElementById("pending-english-selected-option-content")
-              .getBoundingClientRect().left,
+          pendingEnglishRadioBeforeContent:
+            document.getElementById("pending-english-radio").getBoundingClientRect().right <=
+            document.getElementById("pending-english-option-content").getBoundingClientRect().left,
+          pendingEnglishShortcutAfterContent:
+            document.getElementById("pending-english-shortcut").getBoundingClientRect().left >=
+            document.getElementById("pending-english-option-content").getBoundingClientRect().right,
           planCardMarked: document.getElementById("plan-card").hasAttribute("data-t3-rtl-plan-card"),
           planCardDir: document.getElementById("plan-card").dir,
           planTitleDir: document.getElementById("plan-title").dir,
@@ -807,6 +791,25 @@ ${rtlText}
           englishHoverCardResultHeadAtLeft:
             document.getElementById("english-hover-card-result-head").getBoundingClientRect().left <
             document.getElementById("english-hover-card-result-tail").getBoundingClientRect().left,
+          citationCardDir: document.getElementById("citation-card").dir,
+          citationQuoteDir: document.getElementById("citation-quote").dir,
+          citationQuoteBorderLeft: style("citation-quote").borderLeftWidth,
+          citationQuoteBorderRight: style("citation-quote").borderRightWidth,
+          citationCommentDir: document.getElementById("citation-card-comment").dir,
+          citationSourceDir: document.getElementById("citation-source").dir,
+          citationSourceAtRight:
+            Math.abs(
+              document.getElementById("citation-source").getBoundingClientRect().right -
+                document.getElementById("citation-card").getBoundingClientRect().right,
+            ) <= 5,
+          englishCitationCardDir: document.getElementById("english-citation-card").dir,
+          englishCitationQuoteDir: document.getElementById("english-citation-quote").dir,
+          englishCitationQuoteBorderLeft: style("english-citation-quote").borderLeftWidth,
+          englishCitationSourceAtLeft:
+            Math.abs(
+              document.getElementById("english-citation-source").getBoundingClientRect().left -
+                document.getElementById("english-citation-card").getBoundingClientRect().left,
+            ) <= 5,
           annotationCardCommentDir: document.getElementById("annotation-card-comment").dir,
           annotationCardCommentDirection: style("annotation-card-comment").direction,
           annotationCardTitleDir: document.getElementById("annotation-card-title").dir,
@@ -977,16 +980,12 @@ ${rtlText}
     pendingOptionDir: "rtl",
     pendingOptionTextAlign: "start",
     pendingShortcutDir: "ltr",
-    pendingShortcutAfterContent: true,
+    pendingRadioBeforeShortcut: true,
+    pendingShortcutBeforeContent: true,
     pendingEnglishOptionDir: "auto",
     pendingEnglishShortcutDir: "ltr",
-    pendingEnglishShortcutBeforeContent: true,
-    pendingSelectedOptionDir: "rtl",
-    pendingSelectedOptionTextAlign: "start",
-    pendingSelectedCheckAfterContent: true,
-    pendingEnglishSelectedOptionDir: "auto",
-    pendingEnglishSelectedOptionTextAlign: "start",
-    pendingEnglishSelectedCheckBeforeContent: true,
+    pendingEnglishRadioBeforeContent: true,
+    pendingEnglishShortcutAfterContent: true,
     planCardMarked: true,
     planCardDir: "rtl",
     planTitleDir: "rtl",
@@ -1110,6 +1109,17 @@ ${rtlText}
     hoverCardResultHeadAtRight: true,
     englishHoverCardResultDir: "auto",
     englishHoverCardResultHeadAtLeft: true,
+    citationCardDir: "rtl",
+    citationQuoteDir: "rtl",
+    citationQuoteBorderLeft: "0px",
+    citationQuoteBorderRight: "2px",
+    citationCommentDir: "rtl",
+    citationSourceDir: "auto",
+    citationSourceAtRight: true,
+    englishCitationCardDir: "auto",
+    englishCitationQuoteDir: "auto",
+    englishCitationQuoteBorderLeft: "2px",
+    englishCitationSourceAtLeft: true,
     annotationCardCommentDir: "rtl",
     annotationCardCommentDirection: "rtl",
     annotationCardTitleDir: "auto",
