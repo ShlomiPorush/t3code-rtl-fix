@@ -221,6 +221,21 @@ ul[aria-label="Related threads"] span.block.truncate {
   text-align: start !important;
 }
 
+/* The summary of an asked question in the work log shows the question and
+   then the answer, side by side next to the row's icon. When the question
+   reads right to left, it moves to the right of the answer, so the pair reads
+   from the right. */
+[class~="group/timeline-row"] p.items-baseline:has(> span:first-child:dir(rtl))
+  > span:first-child {
+  order: 1;
+}
+
+/* The work log row is left aligned in T3 Code's markup, so an expanded
+   question or answer that reads right to left would sit on the wrong side. */
+[class~="group/timeline-row"] .space-y-1 > p {
+  text-align: start !important;
+}
+
 /* A list or quote typed in the composer takes the direction of its first
    paragraph, so its gutter and border move to the side where it starts. */
 .composer-tiptap :is(ul, ol):not([data-type="taskList"]) {

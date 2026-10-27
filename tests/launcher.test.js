@@ -171,6 +171,9 @@ test("work log summaries follow their first letter and answers follow the messag
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] \.space-y-1 > p/);
   assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
   assert.match(source, /\[class~=\\"group\/live-work\\"\] \.line-clamp-4/);
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  assert.match(css, /p\.items-baseline:has\(> span:first-child:dir\(rtl\)\)\s*> span:first-child \{\s*order: 1;/);
+  assert.match(css, /\[class~="group\/timeline-row"\] \.space-y-1 > p \{\s*text-align: start !important;/);
 });
 
 test("expanded thoughts and subagent cards follow the message rule", () => {

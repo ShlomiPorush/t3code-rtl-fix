@@ -378,14 +378,19 @@ async function run() {
       <div id="toast-description" class="min-w-0 select-text wrap-break-word" data-slot="toast-description">${rtlText} T3</div>
     </div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
-    <div class="group/timeline-row relative flex flex-col" role="button" aria-expanded="true">
+    <div id="work-log-row" class="group/timeline-row relative flex flex-col text-left" role="button" aria-expanded="true" style="width: 400px">
       <div class="flex items-center">
-        <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div>
+        <div class="min-w-0 flex-1 overflow-hidden"><p id="work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="work-log-question-summary" class="min-w-0 truncate">${rtlText} PR?</span><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div>
       </div>
       <div class="ms-7 mt-2 space-y-2"><div class="space-y-1">
         <p id="work-log-question" class="whitespace-pre-wrap text-sm">${rtlText} PR?</p>
         <p id="work-log-answer" class="ms-3 whitespace-pre-wrap text-sm">3 PRs ${rtlText} (Recommended)</p>
       </div></div>
+    </div>
+    <div class="group/timeline-row relative flex flex-col text-left" style="width: 400px">
+      <div class="flex items-center">
+        <div class="min-w-0 flex-1 overflow-hidden"><p id="english-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="english-work-log-question-summary" class="min-w-0 truncate">Which plan?</span><span id="english-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div>
+      </div>
     </div>
     <div class="group/timeline-row relative flex flex-col">
       <div class="flex items-center">
@@ -773,6 +778,19 @@ ${rtlText}
           workLogAnswerDirection: style("work-log-answer").direction,
           workLogAnswerDir: document.getElementById("work-log-answer").dir,
           workLogCommandDirection: style("work-log-command").direction,
+          workLogQuestionSummaryRightOfAnswer:
+            document.getElementById("work-log-question-summary").getBoundingClientRect().left >= document.getElementById("work-log-answer-summary").getBoundingClientRect().right,
+          workLogSummaryNextToIcon:
+            Math.abs(document.getElementById("work-log-answer-summary").getBoundingClientRect().left - document.getElementById("work-log-summary").getBoundingClientRect().left) <= 1,
+          englishWorkLogQuestionSummaryLeftOfAnswer:
+            document.getElementById("english-work-log-question-summary").getBoundingClientRect().right <=
+            document.getElementById("english-work-log-answer-summary").getBoundingClientRect().left,
+          workLogQuestionTextAlign: style("work-log-question").textAlign,
+          workLogQuestionAtRight: (() => {
+            const range = document.createRange();
+            range.selectNodeContents(document.getElementById("work-log-question"));
+            return Math.abs(range.getBoundingClientRect().right - document.getElementById("work-log-question").getBoundingClientRect().right) <= 1;
+          })(),
           liveThoughtDir: document.getElementById("live-thought").dir,
           liveThoughtDirection: style("live-thought").direction,
           englishLiveThoughtDirection: style("english-live-thought").direction,
@@ -1095,6 +1113,11 @@ ${rtlText}
     workLogAnswerDirection: "rtl",
     workLogAnswerDir: "rtl",
     workLogCommandDirection: "ltr",
+    workLogQuestionSummaryRightOfAnswer: true,
+    workLogSummaryNextToIcon: true,
+    englishWorkLogQuestionSummaryLeftOfAnswer: true,
+    workLogQuestionTextAlign: "start",
+    workLogQuestionAtRight: true,
     liveThoughtDir: "auto",
     liveThoughtDirection: "rtl",
     englishLiveThoughtDirection: "ltr",
