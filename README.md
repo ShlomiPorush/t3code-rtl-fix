@@ -20,8 +20,11 @@ need to open DevTools and paste CSS manually.
   message around them.
 - Code, commands, and file paths remain left to right.
 - Tables follow their content direction, and expanded tables fit the available width.
+- A wide Hebrew or Arabic table opens on its first column at the right. Its
+  edge fade and scrollbar follow the hidden part on the left.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
-  direction of their text.
+  direction of their text. In a Hebrew or Arabic table every column aligns
+  right, including English headers and values.
 - Pending question cards align their content without changing English
   questions. In a Hebrew or Arabic option, the shortcut number sits next to
   the radio button, before the option text.

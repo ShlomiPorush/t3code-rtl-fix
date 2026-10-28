@@ -98,6 +98,8 @@ const CITATION_CARD_TEXT_SELECTOR = [
   `${CITATION_CARD_SELECTOR} > ${CITATION_CARD_TEXT_BOX_SELECTOR} > :is(blockquote, p)`,
   `${CITATION_CARD_SELECTOR} > :not(${CITATION_CARD_TEXT_BOX_SELECTOR})`,
 ].join(", ");
+const TABLE_CONTAINER_SELECTOR = ".chat-markdown-table-container";
+const TABLE_VIEWPORT_SELECTOR = `${TABLE_CONTAINER_SELECTOR} [data-slot="scroll-area-viewport"]`;
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
 const COMPOSER_CHIP_SELECTOR = ".react-renderer";
 const COMPOSER_MARKER = "data-t3-rtl-composer";
@@ -322,14 +324,26 @@ function buildInjectionSource(css) {
   const composerChipSelector = ${JSON.stringify(COMPOSER_CHIP_SELECTOR)};
   const composerMarker = ${JSON.stringify(COMPOSER_MARKER)};
   const composerStyleId = ${JSON.stringify(COMPOSER_STYLE_ID)};
+  const tableContainerSelector = ${JSON.stringify(TABLE_CONTAINER_SELECTOR)};
+  const tableViewportSelector = ${JSON.stringify(TABLE_VIEWPORT_SELECTOR)};
 
   const previousState = globalThis[stateKey];
   if (previousState?.observer) previousState.observer.disconnect();
   if (previousState?.onReady) {
     document.removeEventListener("DOMContentLoaded", previousState.onReady);
   }
+  if (previousState?.tableResizeObserver) previousState.tableResizeObserver.disconnect();
+  if (previousState?.onTableScroll) {
+    document.removeEventListener("scroll", previousState.onTableScroll, true);
+  }
 
-  const state = { observer: null, onReady: null, composerRules: new Map() };
+  const state = {
+    observer: null,
+    onReady: null,
+    composerRules: new Map(),
+    tableResizeObserver: null,
+    onTableScroll: null,
+  };
   globalThis[stateKey] = state;
 
   const applyStyle = () => {
@@ -437,6 +451,73 @@ function buildInjectionSource(css) {
     for (const element of root.querySelectorAll(autoDirectionSelector)) apply(element);
   };
 
+  // The stylesheet keeps the scroll area of a right-to-left table left to
+  // right, so a wide table would open on its last columns. Each such scroll
+  // area is scrolled to its right end, where the table starts, and stays
+  // there while the table grows or the window resizes, until the user scrolls
+  // it. Scrolling back to the right end pins it again.
+  const tableScrolls = new WeakMap();
+  const resizeObserved = new WeakSet();
+  const tableScrollEnd = (viewport) => Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+
+  // Each scroll area remembers the position and right end it last saw. Any
+  // other position was scrolled by the user, even before its scroll event
+  // arrives, and decides whether the scroll area stays pinned. The table may
+  // have grown or shrunk since, so reaching either right end pins it.
+  const syncTableScroll = (viewport, scroll) => {
+    const end = tableScrollEnd(viewport);
+    if (viewport.scrollLeft !== scroll.position) {
+      scroll.pinned = Math.min(scroll.end, end) - viewport.scrollLeft <= 1;
+      scroll.position = viewport.scrollLeft;
+    }
+    scroll.end = end;
+  };
+
+  const pinTableScroll = (viewport) => {
+    const scroll = tableScrolls.get(viewport);
+    if (!scroll) return;
+    syncTableScroll(viewport, scroll);
+    if (!scroll.pinned) return;
+    const end = tableScrollEnd(viewport);
+    if (viewport.scrollLeft !== end) viewport.scrollLeft = end;
+    scroll.position = viewport.scrollLeft;
+  };
+
+  const observeTableResize = (element) => {
+    if (resizeObserved.has(element)) return;
+    resizeObserved.add(element);
+    state.tableResizeObserver.observe(element);
+  };
+
+  const alignTableScrolls = (root) => {
+    const viewports = [];
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(tableViewportSelector)) viewports.push(root);
+    if (typeof root.querySelectorAll === "function") {
+      viewports.push(...root.querySelectorAll(tableViewportSelector));
+    }
+    for (const viewport of viewports) {
+      const rightToLeft =
+        viewport.closest(tableContainerSelector)?.matches(":dir(rtl)") &&
+        getComputedStyle(viewport).direction === "ltr";
+      if (!rightToLeft) {
+        // A table that stops being right to left opens on its first column again.
+        if (tableScrolls.delete(viewport)) viewport.scrollLeft = 0;
+        continue;
+      }
+      if (!tableScrolls.has(viewport)) {
+        tableScrolls.set(viewport, {
+          pinned: true,
+          position: viewport.scrollLeft,
+          end: tableScrollEnd(viewport),
+        });
+      }
+      observeTableResize(viewport);
+      const table = viewport.querySelector("table");
+      if (table) observeTableResize(table);
+      pinTableScroll(viewport);
+    }
+  };
+
   const applyDirections = (root) => {
     markPlanCards(root);
     markTurnPlans(root);
@@ -444,6 +525,7 @@ function buildInjectionSource(css) {
     setDirection(root, ltrDirectionSelector, "ltr");
     setDirection(root, workLogSummarySelector, "auto");
     setDirection(root, tooltipSelector, "auto");
+    alignTableScrolls(root);
   };
 
   // The composer editor replaces any paragraph whose attributes it did not
@@ -563,6 +645,17 @@ function buildInjectionSource(css) {
 
   const start = () => {
     if (!applyStyle() || !document.documentElement) return false;
+    state.tableResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const viewport = entry.target.closest(tableViewportSelector);
+        if (viewport) pinTableScroll(viewport);
+      }
+    });
+    state.onTableScroll = (event) => {
+      const scroll = tableScrolls.get(event.target);
+      if (scroll) syncTableScroll(event.target, scroll);
+    };
+    document.addEventListener("scroll", state.onTableScroll, true);
     applyDirections(document);
     updateComposers(new Set(document.querySelectorAll(composerRootSelector)));
     state.observer = new MutationObserver((records) => {

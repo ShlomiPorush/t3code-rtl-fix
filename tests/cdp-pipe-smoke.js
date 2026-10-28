@@ -1372,6 +1372,149 @@ async function runNativeDirectionChecks(sessionId) {
     throw new Error(`Unexpected layout with T3 Code direction attributes: ${JSON.stringify(actual)}`);
   }
   process.stdout.write("CDP pipe direction over T3 Code direction attributes passed\n");
+  await runTableScrollChecks(sessionId);
+}
+
+// T3 Code scrolls a wide table in a Base UI scroll area. Without a direction
+// provider, Base UI measures the scroll as left to right: the start overflow
+// is scrollLeft clamped to the scrollable width, the end overflow is the
+// rest, and it fades the left and right edges by those amounts. Under a
+// right-to-left table that fades the edge where the table starts.
+async function runTableScrollChecks(sessionId) {
+  const tableRows = (count) =>
+    Array.from({ length: count }, () =>
+      `<tr><td>${rtlText} ${rtlText}</td><td>${rtlText} ${rtlText} ${rtlText}</td><td>${rtlText} ${rtlText} ${rtlText}</td></tr>`,
+    ).join("");
+  const scrollTable = (id, header, rows) => `
+    <div class="chat-markdown-table-container" data-expanded="false">
+      <div class="relative overflow-hidden">
+        <div id="${id}-viewport" data-slot="scroll-area-viewport" style="overflow: scroll">
+          <table id="${id}">
+            <thead><tr><th id="${id}-first-header">${header[0]}</th><th id="${id}-english-header">${header[1]}</th><th>${header[2]}</th></tr></thead>
+            <tbody id="${id}-body">${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  const tableFixtureHtml = `
+    <style>
+      [data-message-role] { width: 360px; }
+      .chat-markdown table { width: 100%; min-width: max-content; border-collapse: collapse; }
+      .chat-markdown th, .chat-markdown td { padding: 8px 12px; text-align: start; white-space: nowrap; }
+    </style>
+    <div data-message-role="assistant">
+      <div class="chat-markdown">
+        <p>${rtlText}</p>
+        ${scrollTable("rtl-scroll-table", [rtlText, "API key", "Owner"], tableRows(2))}
+        ${scrollTable("english-scroll-table", ["Name", "Status", "Owner"], "<tr><td>Build pipeline for the release</td><td>Done after the second attempt</td><td>The release engineering team</td></tr>")}
+      </div>
+    </div>`;
+  await send("Runtime.evaluate", {
+    expression: `document.body.innerHTML = ${JSON.stringify(tableFixtureHtml)}`,
+  }, sessionId);
+  await send("Runtime.evaluate", { expression: injectionSource }, sessionId);
+  const result = await send("Runtime.evaluate", {
+    expression: `new Promise((resolve) => {
+      const element = (id) => document.getElementById(id);
+      const settle = () => new Promise((done) => setTimeout(done, 100));
+      const viewport = element("rtl-scroll-table-viewport");
+      const englishViewport = element("english-scroll-table-viewport");
+      const baseUiFades = (scroller) => {
+        const scrollable = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+        const start = Math.min(Math.max(scroller.scrollLeft, 0), scrollable);
+        return { left: start > 0, right: scrollable - start > 0 };
+      };
+      const firstColumnVisible = () => {
+        const header = element("rtl-scroll-table-first-header").getBoundingClientRect();
+        const box = viewport.getBoundingClientRect();
+        return header.left >= box.left - 1 && header.right <= box.right + 1;
+      };
+      const atEnd = () => viewport.scrollWidth - viewport.clientWidth - viewport.scrollLeft <= 1;
+      // Each streamed row is wider than the last, so the table grows every
+      // time, and the result tells whether it did.
+      let wideRowWords = 3;
+      const growTable = () => {
+        const widthBefore = viewport.scrollWidth;
+        wideRowWords += 1;
+        element("rtl-scroll-table-body").insertAdjacentHTML(
+          "beforeend",
+          "<tr><td></td><td></td><td>" + Array(wideRowWords).fill(${JSON.stringify(rtlText)}).join(" ") + "</td></tr>",
+        );
+        return viewport.scrollWidth > widthBefore;
+      };
+      (async () => {
+        await settle();
+        const opened = {
+          overflows: viewport.scrollWidth > viewport.clientWidth,
+          viewportDirection: getComputedStyle(viewport).direction,
+          tableDirection: getComputedStyle(element("rtl-scroll-table")).direction,
+          firstColumnVisible: firstColumnVisible(),
+          fades: baseUiFades(viewport),
+          englishHeaderTextAlign: getComputedStyle(element("rtl-scroll-table-english-header")).textAlign,
+        };
+        let grew = growTable();
+        await settle();
+        const afterGrowth = { grew, atEnd: atEnd(), firstColumnVisible: firstColumnVisible() };
+        // The user scrolls away and back to the same right end the fix wrote.
+        const pinnedEnd = viewport.scrollLeft;
+        viewport.scrollLeft = 0;
+        await settle();
+        viewport.scrollLeft = pinnedEnd;
+        await settle();
+        grew = growTable();
+        await settle();
+        const afterScrollBack = { grew, atEnd: atEnd() };
+        // The user scrolls back to the right end as a row streams in.
+        const streamingEnd = viewport.scrollLeft;
+        viewport.scrollLeft = 0;
+        await settle();
+        viewport.scrollLeft = streamingEnd;
+        grew = growTable();
+        await settle();
+        const afterScrollBackWhileStreaming = { grew, atEnd: atEnd() };
+        // The user scrolls away and a row streams in before the scroll event
+        // arrives.
+        viewport.scrollLeft = 0;
+        grew = growTable();
+        await settle();
+        const afterUserScroll = { grew, scrollLeft: viewport.scrollLeft };
+        resolve({
+          opened,
+          afterGrowth,
+          afterScrollBack,
+          afterScrollBackWhileStreaming,
+          afterUserScroll,
+          english: {
+            overflows: englishViewport.scrollWidth > englishViewport.clientWidth,
+            scrollLeft: englishViewport.scrollLeft,
+            headerTextAlign: getComputedStyle(element("english-scroll-table-english-header")).textAlign,
+          },
+        });
+      })();
+    })`,
+    awaitPromise: true,
+    returnByValue: true,
+  }, sessionId);
+  const actual = result.result.value;
+  const expected = {
+    opened: {
+      overflows: true,
+      viewportDirection: "ltr",
+      tableDirection: "rtl",
+      firstColumnVisible: true,
+      fades: { left: true, right: false },
+      englishHeaderTextAlign: "right",
+    },
+    afterGrowth: { grew: true, atEnd: true, firstColumnVisible: true },
+    afterScrollBack: { grew: true, atEnd: true },
+    afterScrollBackWhileStreaming: { grew: true, atEnd: true },
+    afterUserScroll: { grew: true, scrollLeft: 0 },
+    english: { overflows: true, scrollLeft: 0, headerTextAlign: "start" },
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`Unexpected right-to-left table scroll: ${JSON.stringify(actual)}`);
+  }
+  process.stdout.write("CDP pipe right-to-left table scroll passed\n");
 }
 
 const timeout = setTimeout(() => {
