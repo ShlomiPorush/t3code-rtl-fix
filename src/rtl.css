@@ -46,6 +46,36 @@
   white-space: normal !important;
 }
 
+/* T3 Code scrolls a wide table in a Base UI scroll area, which assumes left to
+   right scrolling. Under a right-to-left table it fades the edge where the
+   table starts and leaves its scrollbar stuck. The scroll area stays left to
+   right, so its fades and scrollbar follow the real overflow, and the table
+   inside keeps its own direction. The injection scrolls it to the start. */
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]), [data-queued-message-id], [data-v2-item-type="reasoning"])
+  .chat-markdown
+  .chat-markdown-table-container:dir(rtl)
+  > :has(> [data-slot="scroll-area-viewport"]) {
+  direction: ltr;
+}
+
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]), [data-queued-message-id], [data-v2-item-type="reasoning"])
+  .chat-markdown
+  .chat-markdown-table-container:dir(rtl)
+  [data-slot="scroll-area-viewport"]
+  table {
+  direction: rtl;
+}
+
+/* A cell gets its own direction so its words keep their order, but a column
+   lines up with the table: an English header in a right-to-left table sits on
+   the right like the values below it. */
+:is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]), [data-queued-message-id], [data-v2-item-type="reasoning"])
+  .chat-markdown
+  .chat-markdown-table-container:dir(rtl)
+  :is(th, td) {
+  text-align: right !important;
+}
+
 :is([data-message-role], [data-t3-rtl-plan-card], [data-pull-request-summary-scroll], [data-preview-panel-mode]:has([aria-label="Show markdown source"]), [data-queued-message-id], [data-v2-item-type="reasoning"]) .chat-markdown ul {
   padding-left: 0 !important;
   padding-inline-start: 1.25rem !important;
