@@ -110,6 +110,13 @@ async function run() {
       [data-node-view-wrapper] { display: inline-flex; }
       .flex { display: flex; }
       .flex-1 { flex: 1 1 0%; }
+      .flex-col { flex-direction: column; }
+      .shrink-0 { flex-shrink: 0; }
+      .radio { width: 16px; height: 16px; }
+      .rotate-90 { rotate: 90deg; }
+      .items-start { align-items: flex-start; }
+      .border-l-2 { border-left: 2px solid gray; }
+      .pl-3 { padding-left: 12px; }
       .gap-3 { gap: 12px; }
       .ml-auto { margin-left: auto; }
       .w-full { width: 300px; }
@@ -183,28 +190,19 @@ async function run() {
       <div data-slot="collapsible-panel">
         <p id="pending-question">${rtlText} GitHub?</p>
         <button id="pending-option" class="flex w-full gap-3 text-left">
-          <div id="pending-option-content" class="flex flex-1">
+          <span id="pending-radio" class="flex shrink-0"><span class="radio"></span></span>
+          <div id="pending-option-content" class="flex flex-1 flex-col">
             <span>${rtlText} Docker</span>
+            <span>PR 1 ${rtlText}</span>
           </div>
-          <kbd id="pending-shortcut">1</kbd>
+          <span class="flex shrink-0"><kbd id="pending-shortcut">1</kbd></span>
         </button>
         <button id="pending-english-option" class="flex w-full gap-3 text-left">
-          <div id="pending-english-option-content" class="flex flex-1">
+          <span id="pending-english-radio" class="flex shrink-0"><span class="radio"></span></span>
+          <div id="pending-english-option-content" class="flex flex-1 flex-col">
             <span>Use the local fix</span>
           </div>
-          <kbd id="pending-english-shortcut">2</kbd>
-        </button>
-        <button id="pending-selected-option" class="flex w-full gap-3 text-left">
-          <div id="pending-selected-option-content" class="flex flex-1">
-            <span>${rtlText} selected</span>
-          </div>
-          <kbd id="pending-selected-shortcut">3</kbd>
-        </button>
-        <button id="pending-english-selected-option" class="flex w-full gap-3 text-left">
-          <div id="pending-english-selected-option-content" class="flex flex-1">
-            <span>Selected English option</span>
-          </div>
-          <kbd id="pending-english-selected-shortcut">4</kbd>
+          <span class="flex shrink-0"><kbd id="pending-english-shortcut">2</kbd></span>
         </button>
       </div>
     </div>
@@ -328,6 +326,17 @@ async function run() {
         <li data-composer-banner-row="true"><span data-slot="composer-banner-content"><span id="english-queue-prompt" class="min-w-0 flex-1 truncate">Run the tests first</span></span></li>
       </ol>
     </div>
+    <section data-thread-queue="true" aria-label="Up next: 2 queued messages" style="display: flex; flex-direction: column; width: 400px">
+      <ol style="display: flex; flex-direction: column; align-items: flex-end">
+        <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
+          <div style="width: 160px"><p id="thread-queue-rtl-prompt" class="whitespace-pre-wrap wrap-anywhere">${rtlText} - ${rtlText} ${rtlText} ${rtlText}</p></div>
+          <div id="thread-queue-rtl-actions" class="flex"><button aria-label="Edit queued message"></button><button>Steer</button><button aria-label="Remove queued message"></button></div>
+        </li>
+        <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
+          <div style="width: 160px"><p id="thread-queue-english-prompt" class="whitespace-pre-wrap wrap-anywhere">Run the tests first and then open the pull request</p></div>
+        </li>
+      </ol>
+    </section>
     <div id="composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="composer-chip-rtl-paragraph"><span class="react-renderer"><span id="composer-chip" data-node-view-wrapper="">image.png 48 KB</span></span> ${rtlText}.</p>
       <p id="composer-chip-english-paragraph"><span class="react-renderer"><span id="composer-english-chip" data-node-view-wrapper="">image.png</span></span> Please check this.</p>
@@ -381,14 +390,30 @@ async function run() {
       <div id="toast-description" class="min-w-0 select-text wrap-break-word" data-slot="toast-description">${rtlText} T3</div>
     </div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
-    <div class="group/timeline-row relative flex flex-col" role="button" aria-expanded="true">
-      <div class="flex items-center">
-        <div class="min-w-0 flex-1 overflow-hidden"><p class="flex min-w-0 w-full items-baseline"><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div>
+    <div id="work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="true" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="work-log-question-summary" class="min-w-0 truncate">${rtlText} PR?</span><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="work-log-chevron" class="flex shrink-0"><svg id="work-log-chevron-icon" class="icon rotate-90"></svg></span>
       </div>
       <div class="ms-7 mt-2 space-y-2"><div class="space-y-1">
         <p id="work-log-question" class="whitespace-pre-wrap text-sm">${rtlText} PR?</p>
         <p id="work-log-answer" class="ms-3 whitespace-pre-wrap text-sm">3 PRs ${rtlText} (Recommended)</p>
       </div></div>
+    </div>
+    <div id="closed-work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="false" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="closed-work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="closed-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="closed-work-log-question-summary" class="min-w-0 truncate">${rtlText}?</span><span id="closed-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="closed-work-log-chevron" class="flex shrink-0"><svg id="closed-work-log-chevron-icon" class="icon"></svg></span>
+      </div>
+    </div>
+    <div id="english-work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="false" style="width: 400px">
+      <div class="flex min-w-0 gap-1.5 items-center">
+        <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="english-work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="english-work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="english-work-log-question-summary" class="min-w-0 truncate">Which plan?</span><span id="english-work-log-answer-summary" class="min-w-0 truncate">${rtlText}</span></p></div></div></div>
+        <span>12:00</span>
+        <span id="english-work-log-chevron" class="flex shrink-0"><svg id="english-work-log-chevron-icon" class="icon"></svg></span>
+      </div>
     </div>
     <div class="group/timeline-row relative flex flex-col">
       <div class="flex items-center">
@@ -443,6 +468,13 @@ async function run() {
 ${rtlText}
 
 1 element</div>
+    <div id="english-citation-card" class="flex flex-col items-start gap-3 p-1 text-sm" style="width: 300px">
+      <div class="max-h-64 min-h-0 space-y-3 self-stretch overflow-y-auto whitespace-pre-wrap wrap-break-word">
+        <blockquote id="english-citation-quote" class="border-l-2 border-border pl-3 text-muted-foreground">Run the tests first.</blockquote>
+        <p id="english-citation-card-comment">Why first?</p>
+      </div>
+      <a id="english-citation-source" href="#">Go to source</a>
+    </div>
     <div id="composer-chrome">
       <textarea id="pending-answer" placeholder="Type your own answer"></textarea>
       <button>Submit answers</button>
@@ -461,20 +493,15 @@ ${rtlText}
       dynamicPlanCard.id = "dynamic-plan-card";
       dynamicPlanCard.innerHTML = '<div><div><h3 id="dynamic-plan-title">${rtlText}</h3></div><button aria-label="Plan actions">...</button></div><div><div id="dynamic-plan-markdown" class="chat-markdown" dir="auto"><p id="dynamic-plan-paragraph">${rtlText}</p></div></div>';
       document.body.appendChild(dynamicPlanCard);
-      for (const [shortcutId, checkId] of [
-        ["pending-selected-shortcut", "pending-selected-check"],
-        ["pending-english-selected-shortcut", "pending-english-selected-check"],
-      ]) {
-        const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        check.id = checkId;
-        check.setAttribute("class", "icon");
-        document.getElementById(shortcutId).replaceWith(check);
-      }
       document.getElementById("streamed-paragraph").append(" ", ${JSON.stringify(rtlText)});
       const dynamicTooltip = document.createElement("div");
       dynamicTooltip.setAttribute("data-slot", "tooltip-positioner");
       dynamicTooltip.innerHTML = '<div id="dynamic-tooltip" data-slot="tooltip-popup"><div data-slot="tooltip-viewport">' + ${JSON.stringify(rtlText)} + "</div></div>";
       document.body.appendChild(dynamicTooltip);
+      // The card of a quoted text chip opens in a popup after the page loads.
+      const citationPopup = document.createElement("div");
+      citationPopup.innerHTML = '<div id="citation-card" class="flex flex-col items-start gap-3 p-1 text-sm" style="width: 300px"><div class="max-h-64 min-h-0 space-y-3 self-stretch overflow-y-auto whitespace-pre-wrap wrap-break-word"><blockquote id="citation-quote" class="border-l-2 border-border pl-3 text-muted-foreground">' + ${JSON.stringify(rtlText)} + ' common.md</blockquote><p id="citation-card-comment">' + ${JSON.stringify(rtlText)} + '</p></div><a id="citation-source" href="#">Go to source</a></div>';
+      document.body.appendChild(citationPopup);
       // Typing into an empty composer paragraph after injection.
       document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
       const secondComposerParagraph = document.getElementById("second-composer-paragraph");
@@ -590,35 +617,20 @@ ${rtlText}
           pendingOptionDir: document.getElementById("pending-option").dir,
           pendingOptionTextAlign: style("pending-option").textAlign,
           pendingShortcutDir: document.getElementById("pending-shortcut").dir,
-          pendingShortcutAfterContent:
+          pendingRadioBeforeShortcut:
+            document.getElementById("pending-radio").getBoundingClientRect().left >=
+            document.getElementById("pending-shortcut").getBoundingClientRect().right,
+          pendingShortcutBeforeContent:
             document.getElementById("pending-shortcut").getBoundingClientRect().left >=
             document.getElementById("pending-option-content").getBoundingClientRect().right,
           pendingEnglishOptionDir: document.getElementById("pending-english-option").dir,
           pendingEnglishShortcutDir: document.getElementById("pending-english-shortcut").dir,
-          pendingEnglishShortcutBeforeContent:
-            document.getElementById("pending-english-shortcut").getBoundingClientRect().right <=
-            document
-              .getElementById("pending-english-option-content")
-              .getBoundingClientRect().left,
-          pendingSelectedOptionDir: document.getElementById("pending-selected-option").dir,
-          pendingSelectedOptionTextAlign: style("pending-selected-option").textAlign,
-          pendingSelectedCheckAfterContent:
-            document.getElementById("pending-selected-check").getBoundingClientRect().left >=
-            document
-              .getElementById("pending-selected-option-content")
-              .getBoundingClientRect().right,
-          pendingEnglishSelectedOptionDir: document.getElementById(
-            "pending-english-selected-option",
-          ).dir,
-          pendingEnglishSelectedOptionTextAlign: style(
-            "pending-english-selected-option",
-          ).textAlign,
-          pendingEnglishSelectedCheckBeforeContent:
-            document.getElementById("pending-english-selected-check").getBoundingClientRect()
-              .right <=
-            document
-              .getElementById("pending-english-selected-option-content")
-              .getBoundingClientRect().left,
+          pendingEnglishRadioBeforeContent:
+            document.getElementById("pending-english-radio").getBoundingClientRect().right <=
+            document.getElementById("pending-english-option-content").getBoundingClientRect().left,
+          pendingEnglishShortcutAfterContent:
+            document.getElementById("pending-english-shortcut").getBoundingClientRect().left >=
+            document.getElementById("pending-english-option-content").getBoundingClientRect().right,
           planCardMarked: document.getElementById("plan-card").hasAttribute("data-t3-rtl-plan-card"),
           planCardDir: document.getElementById("plan-card").dir,
           planTitleDir: document.getElementById("plan-title").dir,
@@ -789,6 +801,28 @@ ${rtlText}
           workLogAnswerDirection: style("work-log-answer").direction,
           workLogAnswerDir: document.getElementById("work-log-answer").dir,
           workLogCommandDirection: style("work-log-command").direction,
+          workLogRowDirection: style("work-log-row").direction,
+          workLogIconAtRight: Math.abs(document.getElementById("work-log-icon").getBoundingClientRect().right - document.getElementById("work-log-row").getBoundingClientRect().right) <= 1,
+          workLogChevronAtLeft: Math.abs(document.getElementById("work-log-chevron").getBoundingClientRect().left - document.getElementById("work-log-row").getBoundingClientRect().left) <= 1,
+          workLogQuestionSummaryRightOfAnswer:
+            document.getElementById("work-log-question-summary").getBoundingClientRect().left >= document.getElementById("work-log-answer-summary").getBoundingClientRect().right,
+          workLogSummaryNextToIcon:
+            Math.abs(document.getElementById("work-log-question-summary").getBoundingClientRect().right - document.getElementById("work-log-summary").getBoundingClientRect().right) <= 1,
+          workLogOpenChevronTransform: style("work-log-chevron-icon").transform,
+          closedWorkLogChevronTransform: style("closed-work-log-chevron-icon").transform,
+          englishWorkLogRowDirection: style("english-work-log-row").direction,
+          englishWorkLogIconAtLeft:
+            Math.abs(document.getElementById("english-work-log-icon").getBoundingClientRect().left - document.getElementById("english-work-log-row").getBoundingClientRect().left) <= 1,
+          englishWorkLogQuestionSummaryLeftOfAnswer:
+            document.getElementById("english-work-log-question-summary").getBoundingClientRect().right <=
+            document.getElementById("english-work-log-answer-summary").getBoundingClientRect().left,
+          englishWorkLogChevronTransform: style("english-work-log-chevron-icon").transform,
+          workLogQuestionTextAlign: style("work-log-question").textAlign,
+          workLogQuestionAtRight: (() => {
+            const range = document.createRange();
+            range.selectNodeContents(document.getElementById("work-log-question"));
+            return Math.abs(range.getBoundingClientRect().right - document.getElementById("work-log-question").getBoundingClientRect().right) <= 1;
+          })(),
           liveThoughtDir: document.getElementById("live-thought").dir,
           liveThoughtDirection: style("live-thought").direction,
           englishLiveThoughtDirection: style("english-live-thought").direction,
@@ -807,6 +841,25 @@ ${rtlText}
           englishHoverCardResultHeadAtLeft:
             document.getElementById("english-hover-card-result-head").getBoundingClientRect().left <
             document.getElementById("english-hover-card-result-tail").getBoundingClientRect().left,
+          citationCardDir: document.getElementById("citation-card").dir,
+          citationQuoteDir: document.getElementById("citation-quote").dir,
+          citationQuoteBorderLeft: style("citation-quote").borderLeftWidth,
+          citationQuoteBorderRight: style("citation-quote").borderRightWidth,
+          citationCommentDir: document.getElementById("citation-card-comment").dir,
+          citationSourceDir: document.getElementById("citation-source").dir,
+          citationSourceAtRight:
+            Math.abs(
+              document.getElementById("citation-source").getBoundingClientRect().right -
+                document.getElementById("citation-card").getBoundingClientRect().right,
+            ) <= 5,
+          englishCitationCardDir: document.getElementById("english-citation-card").dir,
+          englishCitationQuoteDir: document.getElementById("english-citation-quote").dir,
+          englishCitationQuoteBorderLeft: style("english-citation-quote").borderLeftWidth,
+          englishCitationSourceAtLeft:
+            Math.abs(
+              document.getElementById("english-citation-source").getBoundingClientRect().left -
+                document.getElementById("english-citation-card").getBoundingClientRect().left,
+            ) <= 5,
           annotationCardCommentDir: document.getElementById("annotation-card-comment").dir,
           annotationCardCommentDirection: style("annotation-card-comment").direction,
           annotationCardTitleDir: document.getElementById("annotation-card-title").dir,
@@ -835,6 +888,25 @@ ${rtlText}
           rtlQueuePromptTextAlign: style("rtl-queue-prompt").textAlign,
           englishQueuePromptDir: document.getElementById("english-queue-prompt").dir,
           rtlQueueRowDirection: style("rtl-queue-row").direction,
+          ...(() => {
+            const lastLine = (id) => {
+              const element = document.getElementById(id);
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              const rects = range.getClientRects();
+              return { box: element.getBoundingClientRect(), line: rects[rects.length - 1], lines: rects.length };
+            };
+            const rtl = lastLine("thread-queue-rtl-prompt");
+            const english = lastLine("thread-queue-english-prompt");
+            return {
+              threadQueueRtlPromptDir: document.getElementById("thread-queue-rtl-prompt").dir,
+              threadQueueRtlPromptWraps: rtl.lines > 1,
+              threadQueueRtlLastLineAtRight: Math.abs(rtl.line.right - rtl.box.right) <= 1,
+              threadQueueRtlActionsDirection: style("thread-queue-rtl-actions").direction,
+              threadQueueEnglishPromptDir: document.getElementById("thread-queue-english-prompt").dir,
+              threadQueueEnglishLastLineAtLeft: Math.abs(english.line.left - english.box.left) <= 1,
+            };
+          })(),
           rtlQueueActionsDirection: style("rtl-queue-actions").direction,
           queueHeaderDirection: style("queue-header").direction,
           composerHeadingDirection: style("composer-heading").direction,
@@ -977,16 +1049,12 @@ ${rtlText}
     pendingOptionDir: "rtl",
     pendingOptionTextAlign: "start",
     pendingShortcutDir: "ltr",
-    pendingShortcutAfterContent: true,
+    pendingRadioBeforeShortcut: true,
+    pendingShortcutBeforeContent: true,
     pendingEnglishOptionDir: "auto",
     pendingEnglishShortcutDir: "ltr",
-    pendingEnglishShortcutBeforeContent: true,
-    pendingSelectedOptionDir: "rtl",
-    pendingSelectedOptionTextAlign: "start",
-    pendingSelectedCheckAfterContent: true,
-    pendingEnglishSelectedOptionDir: "auto",
-    pendingEnglishSelectedOptionTextAlign: "start",
-    pendingEnglishSelectedCheckBeforeContent: true,
+    pendingEnglishRadioBeforeContent: true,
+    pendingEnglishShortcutAfterContent: true,
     planCardMarked: true,
     planCardDir: "rtl",
     planTitleDir: "rtl",
@@ -1096,6 +1164,19 @@ ${rtlText}
     workLogAnswerDirection: "rtl",
     workLogAnswerDir: "rtl",
     workLogCommandDirection: "ltr",
+    workLogRowDirection: "rtl",
+    workLogIconAtRight: true,
+    workLogChevronAtLeft: true,
+    workLogQuestionSummaryRightOfAnswer: true,
+    workLogSummaryNextToIcon: true,
+    workLogOpenChevronTransform: "none",
+    closedWorkLogChevronTransform: "matrix(-1, 0, 0, 1, 0, 0)",
+    englishWorkLogRowDirection: "ltr",
+    englishWorkLogIconAtLeft: true,
+    englishWorkLogQuestionSummaryLeftOfAnswer: true,
+    englishWorkLogChevronTransform: "none",
+    workLogQuestionTextAlign: "start",
+    workLogQuestionAtRight: true,
     liveThoughtDir: "auto",
     liveThoughtDirection: "rtl",
     englishLiveThoughtDirection: "ltr",
@@ -1110,6 +1191,17 @@ ${rtlText}
     hoverCardResultHeadAtRight: true,
     englishHoverCardResultDir: "auto",
     englishHoverCardResultHeadAtLeft: true,
+    citationCardDir: "rtl",
+    citationQuoteDir: "rtl",
+    citationQuoteBorderLeft: "0px",
+    citationQuoteBorderRight: "2px",
+    citationCommentDir: "rtl",
+    citationSourceDir: "auto",
+    citationSourceAtRight: true,
+    englishCitationCardDir: "auto",
+    englishCitationQuoteDir: "auto",
+    englishCitationQuoteBorderLeft: "2px",
+    englishCitationSourceAtLeft: true,
     annotationCardCommentDir: "rtl",
     annotationCardCommentDirection: "rtl",
     annotationCardTitleDir: "auto",
@@ -1123,6 +1215,12 @@ ${rtlText}
     rtlQueuePromptTextAlign: "start",
     englishQueuePromptDir: "auto",
     rtlQueueRowDirection: "ltr",
+    threadQueueRtlPromptDir: "rtl",
+    threadQueueRtlPromptWraps: true,
+    threadQueueRtlLastLineAtRight: true,
+    threadQueueRtlActionsDirection: "ltr",
+    threadQueueEnglishPromptDir: "auto",
+    threadQueueEnglishLastLineAtLeft: true,
     rtlQueueActionsDirection: "ltr",
     queueHeaderDirection: "ltr",
     composerHeadingDirection: "rtl",

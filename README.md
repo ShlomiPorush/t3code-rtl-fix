@@ -22,17 +22,22 @@ need to open DevTools and paste CSS manually.
 - Tables follow their content direction, and expanded tables fit the available width.
 - Lists, task lists, quotes, footnotes, alerts, and table cells follow the
   direction of their text.
-- Pending question cards align their content and option shortcuts without
-  changing English questions.
+- Pending question cards align their content without changing English
+  questions. In a Hebrew or Arabic option, the shortcut number sits next to
+  the radio button, before the option text.
 - Proposed plan cards align their title and Markdown content independently.
 - Plan progress and composer task controls follow the direction of their steps.
 - Pull request descriptions and comments follow the direction of each Markdown block.
 - Rendered Markdown file previews follow the direction of each content block.
 - Comments on quoted text and their citation chips follow the direction of the
-  comment while it is typed.
+  comment while it is typed. In the card that opens from a citation chip, the
+  quote and the comment follow the direction of their text, and the quote
+  border and the Go to source button move to the side where the text starts.
 - Queued messages follow the direction of their prompt, including their status
   and action buttons. In the queue above the composer, each prompt follows the
-  direction of its text.
+  direction of its text. Since T3 Code 0.1.3, a queued prompt waits in the
+  thread above the composer and follows the message rule, while the buttons
+  below it keep their layout.
 - Each paragraph typed in the composer follows the same rule as a sent
   message: Hebrew or Arabic anywhere in it makes it right to left, even after
   an English word or an attachment chip, and word selection with
@@ -43,7 +48,10 @@ need to open DevTools and paste CSS manually.
   its first item starts.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
-  letter so commands that start in English stay left to right. The agent's
+  letter so commands that start in English stay left to right. A row whose
+  summary starts in Hebrew or Arabic, such as an asked question, is mirrored:
+  its icon and summary sit on the right, the question comes before the
+  answer, and the expanded question and answer align right. The agent's
   latest thought, shown while it works, follows its first letter too, and an
   expanded thought follows the message rule.
 - Subagent and delegated task cards show their title and result summary in the

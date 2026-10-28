@@ -64,7 +64,7 @@ test("the stylesheet uses content-aware alignment and logical RTL layout", () =>
   assert.match(css, /data-t3-rtl-plan-card/);
   assert.match(
     css,
-    /data-slot="collapsible-panel"[\s\S]*button[\s\S]*> :is\(kbd, svg:last-child\)[\s\S]*order:\s*-1/,
+    /data-slot="collapsible-panel"\]\s*button:dir\(rtl\)\s*> div\s*\{\s*order:\s*1;/,
   );
   assert.doesNotMatch(css, /button\[dir=/);
   assert.doesNotMatch(css, /direction:\s*rtl\s*!important/);
@@ -126,6 +126,8 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown code/);
   // The queue that replaced the queued message cards in T3 Code 0.1.0.
   assert.match(source, /queued message\\"\] \[data-slot=\\"composer-banner-content\\"\] > span\.min-w-0\.flex-1\.truncate/);
+  // The queue in the thread that replaced it in T3 Code 0.1.3.
+  assert.match(source, /\[data-thread-queue=\\"true\\"\] li > div > p/);
   assert.match(source, /> div:first-child :is\(p, h3\)/);
   assert.match(css, /\[data-queued-message-id\][^)]*\) \.chat-markdown/);
   // The queued prompt is no longer a pre-wrap div, so no rule may still tell
@@ -171,6 +173,10 @@ test("work log summaries follow their first letter and answers follow the messag
   assert.match(source, /\[class~=\\"group\/timeline-row\\"\] \.space-y-1 > p/);
   assert.match(source, /setDirection\(root, workLogSummarySelector, "auto"\)/);
   assert.match(source, /\[class~=\\"group\/live-work\\"\] \.line-clamp-4/);
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  assert.match(css, /p\.items-baseline > span:first-child:dir\(rtl\)\s*\) \{\s*direction: rtl;/);
+  assert.match(css, /> span:last-child\s*> svg:not\(\.rotate-90\) \{\s*transform: scaleX\(-1\);/);
+  assert.match(css, /\[class~="group\/timeline-row"\] \.space-y-1 > p \{\s*text-align: start !important;/);
 });
 
 test("expanded thoughts and subagent cards follow the message rule", () => {
@@ -189,6 +195,15 @@ test("preview annotation cards follow the direction of their comment", () => {
   // The injected source holds the selector JSON-encoded, so its escaped dot
   // appears there as two backslashes.
   assert.ok(source.includes(".min-w-0.px-3.py-2\\\\.5 > .text-message-foreground.text-xs.font-medium"));
+});
+
+test("quoted text cards follow the direction of their quote and comment", () => {
+  const source = buildInjectionSource("body { color: red; }");
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const textBox = ".max-h-64.min-h-0.space-y-3.self-stretch.overflow-y-auto.whitespace-pre-wrap.wrap-break-word";
+  assert.ok(source.includes(`div:has(> ${textBox}) > ${textBox} > :is(blockquote, p)`));
+  assert.ok(source.includes(`div:has(> ${textBox}) > :not(${textBox})`));
+  assert.match(css, /wrap-break-word\s*> blockquote \{[\s\S]*border-inline-start-width: 2px !important;/);
 });
 
 test("related thread and @ suggestion titles follow the direction of their text", () => {
