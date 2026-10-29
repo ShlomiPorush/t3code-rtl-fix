@@ -335,6 +335,10 @@ async function run() {
         <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
           <div style="width: 160px"><p id="thread-queue-english-prompt" class="whitespace-pre-wrap wrap-anywhere">Run the tests first and then open the pull request</p></div>
         </li>
+        <li style="display: flex; flex-direction: column; align-items: flex-end; width: 100%">
+          <div class="flex min-w-0 flex-col" style="width: 160px"><div class="flex flex-col gap-2"><p id="thread-queue-nested-rtl-prompt" class="whitespace-pre-wrap wrap-anywhere">${rtlText} <span id="thread-queue-nested-rtl-latin">PR</span></p></div></div>
+          <div class="flex"><button aria-label="Edit queued message"></button></div>
+        </li>
       </ol>
     </section>
     <div id="composer-editor" class="composer-tiptap" contenteditable="true">
@@ -905,6 +909,17 @@ ${rtlText}
               threadQueueRtlActionsDirection: style("thread-queue-rtl-actions").direction,
               threadQueueEnglishPromptDir: document.getElementById("thread-queue-english-prompt").dir,
               threadQueueEnglishLastLineAtLeft: Math.abs(english.line.left - english.box.left) <= 1,
+              // T3 Code 0.1.4 wraps the prompt in one more div.
+              threadQueueNestedRtlPromptDir: document.getElementById("thread-queue-nested-rtl-prompt").dir,
+              threadQueueNestedRtlLatinAtLeft: (() => {
+                const prompt = document.getElementById("thread-queue-nested-rtl-prompt");
+                const hebrew = document.createRange();
+                hebrew.selectNodeContents(prompt.firstChild);
+                return (
+                  document.getElementById("thread-queue-nested-rtl-latin").getBoundingClientRect().right <=
+                  hebrew.getBoundingClientRect().left + 1
+                );
+              })(),
             };
           })(),
           rtlQueueActionsDirection: style("rtl-queue-actions").direction,
@@ -1221,6 +1236,8 @@ ${rtlText}
     threadQueueRtlActionsDirection: "ltr",
     threadQueueEnglishPromptDir: "auto",
     threadQueueEnglishLastLineAtLeft: true,
+    threadQueueNestedRtlPromptDir: "rtl",
+    threadQueueNestedRtlLatinAtLeft: true,
     rtlQueueActionsDirection: "ltr",
     queueHeaderDirection: "ltr",
     composerHeadingDirection: "rtl",

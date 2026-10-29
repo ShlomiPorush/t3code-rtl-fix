@@ -26,8 +26,8 @@ const QUEUED_PROMPT_SELECTOR =
 // Since T3 Code 0.1.3, queued prompts wait in the thread above the composer,
 // each in a card whose prompt is plain text. The prompt follows the message
 // rule. The row of reorder, edit, Steer, and remove buttons below the card
-// keeps T3 Code's layout.
-const THREAD_QUEUE_PROMPT_SELECTOR = '[data-thread-queue="true"] li > div > p';
+// keeps T3 Code's layout. T3 Code 0.1.4 wraps the prompt in one more div.
+const THREAD_QUEUE_PROMPT_SELECTOR = '[data-thread-queue="true"] :is(li > div, li > div > div.flex-col) > p';
 // Thread titles in the sidebar rows, the open thread header, and the rename
 // field shared by both, in the related threads list of the thread details
 // panel, in the threads suggested after typing @ in the composer, and in the

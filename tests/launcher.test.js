@@ -126,8 +126,9 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
   assert.match(source, /\[data-queued-message-id\] \.chat-markdown code/);
   // The queue that replaced the queued message cards in T3 Code 0.1.0.
   assert.match(source, /queued message\\"\] \[data-slot=\\"composer-banner-content\\"\] > span\.min-w-0\.flex-1\.truncate/);
-  // The queue in the thread that replaced it in T3 Code 0.1.3.
-  assert.match(source, /\[data-thread-queue=\\"true\\"\] li > div > p/);
+  // The queue in the thread that replaced it in T3 Code 0.1.3, and the extra
+  // wrapper around its prompt in T3 Code 0.1.4.
+  assert.match(source, /\[data-thread-queue=\\"true\\"\] :is\(li > div, li > div > div\.flex-col\) > p/);
   assert.match(source, /> div:first-child :is\(p, h3\)/);
   assert.match(css, /\[data-queued-message-id\][^)]*\) \.chat-markdown/);
   // The queued prompt is no longer a pre-wrap div, so no rule may still tell
