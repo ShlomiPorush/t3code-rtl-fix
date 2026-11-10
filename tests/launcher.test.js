@@ -118,6 +118,17 @@ test("composer lists, task lists and quotes follow the direction of their text",
   assert.match(css, /\.composer-tiptap blockquote\s*\{[^}]*border-inline-start/);
 });
 
+test("the composer placeholder and its predicted prompt follow their text", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+  const placeholder = "div\\.pointer-events-none\\.absolute\\.inset-0\\.leading-relaxed\\.text-placeholder";
+
+  assert.match(source, new RegExp(placeholder));
+  assert.match(source, new RegExp(`${placeholder} kbd`));
+  assert.match(css, new RegExp(`${placeholder}\\s*\\{[^}]*text-align: start`));
+  assert.match(css, new RegExp(`${placeholder}\\s*> span\\.ml-2\\s*\\{[^}]*margin-inline-start`));
+});
+
 test("queued prompts and plan titles follow the current T3 Code markup", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");

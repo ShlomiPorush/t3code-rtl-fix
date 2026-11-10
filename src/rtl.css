@@ -279,6 +279,19 @@ ul[aria-label="Related threads"] span.block.truncate {
   text-align: start !important;
 }
 
+/* The placeholder of the empty composer, which can show a predicted next
+   prompt, sits on the side where its text starts. The Tab key hint after the
+   prediction keeps its gap from the text on the side where the text ends. */
+div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
+  text-align: start !important;
+}
+
+div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
+  > span.ml-2 {
+  margin-left: 0 !important;
+  margin-inline-start: 0.5rem !important;
+}
+
 /* A list or quote typed in the composer takes the direction of its first
    paragraph, so its gutter and border move to the side where it starts. */
 .composer-tiptap :is(ul, ol):not([data-type="taskList"]) {
