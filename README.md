@@ -49,6 +49,9 @@ need to open DevTools and paste CSS manually.
   list items, task list items, and quotes typed in the composer follow the
   same rule, and a list or quote moves its markers or border to the side where
   its first item starts.
+- With prompt suggestions on, a predicted next prompt shown in the empty
+  composer follows the direction of its text. A Hebrew or Arabic prediction
+  sits on the right, and the Tab key hint after it keeps its order.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
   letter so commands that start in English stay left to right. A row whose

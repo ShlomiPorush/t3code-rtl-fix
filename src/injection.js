@@ -98,6 +98,12 @@ const CITATION_CARD_TEXT_SELECTOR = [
   `${CITATION_CARD_SELECTOR} > ${CITATION_CARD_TEXT_BOX_SELECTOR} > :is(blockquote, p)`,
   `${CITATION_CARD_SELECTOR} > :not(${CITATION_CARD_TEXT_BOX_SELECTOR})`,
 ].join(", ");
+// The placeholder of the empty composer. With prompt suggestions on, it shows
+// the predicted next prompt followed by a Tab key hint, so it follows the
+// message rule and the key hint keeps its own direction. The class combination
+// is unique to this placeholder in T3 Code's markup.
+const COMPOSER_PLACEHOLDER_SELECTOR =
+  "div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder";
 const TABLE_CONTAINER_SELECTOR = ".chat-markdown-table-container";
 const TABLE_VIEWPORT_SELECTOR = `${TABLE_CONTAINER_SELECTOR} [data-slot="scroll-area-viewport"]`;
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
@@ -128,6 +134,7 @@ const DIRECTION_ROOT_SELECTOR = [
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
   CITATION_CARD_SELECTOR,
+  COMPOSER_PLACEHOLDER_SELECTOR,
 ].join(", ");
 // T3 Code 0.1.2 gives every top-level Markdown block its own dir from a
 // majority vote of its words, so these blocks need the fix's rule too, or an
@@ -275,6 +282,7 @@ const AUTO_DIRECTION_SELECTOR = [
   HOVER_CARD_TEXT_SELECTOR,
   TOAST_TEXT_SELECTOR,
   CITATION_CARD_TEXT_SELECTOR,
+  COMPOSER_PLACEHOLDER_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
@@ -302,6 +310,7 @@ const LTR_DIRECTION_SELECTOR = [
   `${REASONING_MARKDOWN_ROOT_SELECTOR} code`,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} a.chat-markdown-file-link`,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} .chat-markdown-codeblock`,
+  `${COMPOSER_PLACEHOLDER_SELECTOR} kbd`,
 ].join(", ");
 
 function buildInjectionSource(css) {

@@ -362,6 +362,15 @@ async function run() {
     <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="second-composer-paragraph">${rtlText}</p>
     </div>
+    <div style="position: relative; width: 400px; height: 40px">
+      <div id="rtl-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">${rtlText} PR<span id="rtl-placeholder-hint" class="ml-2 inline-flex align-[1px]" style="display: inline-flex; margin-left: 8px"><kbd id="rtl-placeholder-key">⇥ Tab</kbd></span></div>
+    </div>
+    <div style="position: relative; width: 400px; height: 40px">
+      <div id="english-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">Run the tests<span id="english-placeholder-hint" class="ml-2 inline-flex align-[1px]" style="display: inline-flex; margin-left: 8px"><kbd>⇥ Tab</kbd></span></div>
+    </div>
+    <div style="position: relative; width: 400px; height: 40px">
+      <div id="updated-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">Ask anything. @ files, $ skills, / commands</div>
+    </div>
     <ul>
       <li data-thread-item="true">
         <div role="button"><span>agent-config</span></div>
@@ -508,6 +517,9 @@ ${rtlText}
       document.body.appendChild(citationPopup);
       // Typing into an empty composer paragraph after injection.
       document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
+      // A predicted next prompt replaces the text of the composer placeholder
+      // in place, the way React updates it.
+      document.getElementById("updated-placeholder").firstChild.nodeValue = ${JSON.stringify(rtlText)};
       const secondComposerParagraph = document.getElementById("second-composer-paragraph");
       const composerParagraphBeforeTyping = document.getElementById("composer-chip-rtl-paragraph");
       const dynamicCommentEditor = document.createElement("div");
@@ -758,6 +770,26 @@ ${rtlText}
             document.getElementById("composer-editor").getAttribute("data-t3-rtl-composer") !==
             document.getElementById("second-composer-editor").getAttribute("data-t3-rtl-composer"),
           composerStyleInjected: Boolean(document.getElementById("t3-rtl-fix-composer")),
+          ...(() => {
+            const textBox = (id) => {
+              const range = document.createRange();
+              range.selectNodeContents(document.getElementById(id).firstChild);
+              return range.getBoundingClientRect();
+            };
+            const box = (id) => document.getElementById(id).getBoundingClientRect();
+            const rtlRect = textBox("rtl-placeholder");
+            const englishRect = textBox("english-placeholder");
+            return {
+              rtlPlaceholderDir: document.getElementById("rtl-placeholder").dir,
+              rtlPlaceholderTextAtRight: Math.abs(rtlRect.right - box("rtl-placeholder").right) <= 1,
+              rtlPlaceholderHintGap: Math.round(rtlRect.left - box("rtl-placeholder-hint").right),
+              rtlPlaceholderKeyDirection: style("rtl-placeholder-key").direction,
+              englishPlaceholderDir: document.getElementById("english-placeholder").dir,
+              englishPlaceholderTextAtLeft: Math.abs(englishRect.left - box("english-placeholder").left) <= 1,
+              englishPlaceholderHintGap: Math.round(box("english-placeholder-hint").left - englishRect.right),
+              updatedPlaceholderDir: document.getElementById("updated-placeholder").dir,
+            };
+          })(),
           composerParagraphsKept:
             composerParagraphBeforeTyping === document.getElementById("composer-chip-rtl-paragraph") &&
             secondComposerParagraph === document.getElementById("second-composer-paragraph"),
@@ -1150,6 +1182,14 @@ ${rtlText}
     secondComposerParagraphDirection: "rtl",
     composerEditorsMarkedSeparately: true,
     composerStyleInjected: true,
+    rtlPlaceholderDir: "rtl",
+    rtlPlaceholderTextAtRight: true,
+    rtlPlaceholderHintGap: 8,
+    rtlPlaceholderKeyDirection: "ltr",
+    englishPlaceholderDir: "auto",
+    englishPlaceholderTextAtLeft: true,
+    englishPlaceholderHintGap: 8,
+    updatedPlaceholderDir: "rtl",
     composerParagraphsKept: true,
     composerRtlChipAtStart: true,
     composerEnglishChipAtStart: true,
