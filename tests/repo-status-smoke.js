@@ -157,7 +157,11 @@ const fakeRun = async (file, args) => {
       stderr: "",
     };
   }
-  return { error: null, stdout: "[]", stderr: "" };
+  // Five alerts of each scanning kind, so the security tooltip is tall.
+  const alerts = Array.from({ length: 5 }, (_, i) => (args[3].includes("code-scanning")
+    ? { rule: { security_severity_level: ["high", "low"][i % 2], description: `Rule ${i}` }, most_recent_instance: { location: { path: `src/${i}.js` } } }
+    : { secret_type_display_name: `Token ${i}` }));
+  return { error: null, stdout: JSON.stringify(alerts), stderr: "" };
 };
 
 const STATE = `JSON.stringify((() => {
@@ -218,7 +222,7 @@ async function run() {
     items: [
       ["BUTTON", "issues", "Issues3", 0, false],
       ["BUTTON", "pulls", "Pull requests1", 0, false],
-      ["BUTTON", "security", "Security alerts2", 0, false],
+      ["BUTTON", "security", "Security alerts12", 0, false],
       ["group", "Branches", true, "solid"],
       ["BUTTON", "branches-remote", "Remote1", 0, false],
       // Local branches have no GitHub page, so their row is not a button,
@@ -407,6 +411,31 @@ async function checkShortWindow(sessionId) {
     state.more !== `and ${8 - state.shown} more`
   ) {
     throw new Error(`Unexpected tooltip in a short window: ${JSON.stringify(state)}`);
+  }
+
+  // Three sources of alerts do not fit even with one item each, so only
+  // their counts show, and every source keeps its title.
+  await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 260, deviceScaleFactor: 1, mobile: false }, sessionId);
+  await wait(300);
+  await hoverRow(sessionId, "security");
+  await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the security tooltip in a short window");
+  const security = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
+    const tip = document.querySelector(".t3-rtl-repo-status-tip");
+    const box = tip.getBoundingClientRect();
+    return {
+      fits: tip.scrollHeight <= tip.clientHeight && box.top >= 0 && box.bottom <= innerHeight,
+      sections: [...tip.querySelectorAll(".t3-rtl-tip-section")].map((section) => [
+        section.querySelector(".t3-rtl-tip-section-title").textContent,
+        section.querySelectorAll(".t3-rtl-tip-item").length,
+        section.querySelector(".t3-rtl-tip-more")?.textContent,
+      ]),
+    };
+  })())`));
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
+  const counted = security.sections.every(([, shown, more]) => shown > 0 || /^and \d+ more$/.test(more || ""));
+  if (!security.fits || security.sections.length !== 3 || !counted) {
+    throw new Error(`Unexpected security tooltip in a short window: ${JSON.stringify(security)}`);
   }
 }
 

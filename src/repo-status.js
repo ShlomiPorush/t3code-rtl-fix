@@ -1396,8 +1396,8 @@ function buildRepoStatusPageSource() {
   };
 
   // limit caps the items of each section. The items left out add to its
-  // "more" count.
-  const fillTip = (detail, limit = Infinity) => {
+  // "more" count. A bare tooltip also leaves out the chips and the note.
+  const fillTip = (detail, limit = Infinity, bare = false) => {
     const box = ensureTip();
     box.replaceChildren();
     const head = make("div", "t3-rtl-tip-head");
@@ -1406,7 +1406,7 @@ function buildRepoStatusPageSource() {
     for (const section of detail.sections || []) {
       const part = make("div", "t3-rtl-tip-section");
       if (section.title) part.appendChild(make("div", "t3-rtl-tip-section-title", section.title));
-      if (section.chips && section.chips.length) {
+      if (!bare && section.chips && section.chips.length) {
         const chips = make("div", "t3-rtl-tip-chips");
         for (const chip of section.chips) chips.appendChild(badge(chip));
         part.appendChild(chips);
@@ -1418,7 +1418,7 @@ function buildRepoStatusPageSource() {
       if (more > 0) part.appendChild(make("div", "t3-rtl-tip-more", "and " + more + " more"));
       box.appendChild(part);
     }
-    if (detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
+    if (!bare && detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
   };
 
   // Beside the row, on the side with room, else below or above it, and
@@ -1469,11 +1469,12 @@ function buildRepoStatusPageSource() {
       }
     }
     // The tooltip cannot scroll, so in a short window it shows fewer items
-    // of each section until it fits.
+    // of each section until it fits, down to the counts alone.
     const longest = Math.max(0, ...(detail.sections || []).map((section) => (section.items || []).length));
-    for (let limit = longest - 1; limit >= 1 && tip.scrollHeight > tip.clientHeight; limit -= 1) {
+    for (let limit = longest - 1; limit >= 0 && tip.scrollHeight > tip.clientHeight; limit -= 1) {
       fillTip(detail, limit);
     }
+    if (tip.scrollHeight > tip.clientHeight) fillTip(detail, 0, true);
     placeTip();
     anchor.setAttribute("aria-describedby", tip.id);
     requestAnimationFrame(() => {
