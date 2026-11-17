@@ -107,9 +107,23 @@ async function waitFor(sessionId, expression, description) {
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+const recent = new Date().toISOString();
+const recentSeconds = Math.floor(Date.now() / 1000);
 const fakeRun = async (file, args) => {
+  if (file === "git" && args[2] === "for-each-ref") {
+    return {
+      error: null,
+      stdout: `main\0origin\0refs/heads/main\0${recentSeconds}\nspike\0\0\0${recentSeconds}\n`,
+      stderr: "",
+    };
+  }
   if (file === "git") return { error: null, stdout: "git@github.com:o/r.git\n", stderr: "" };
   if (args[3] === "graphql") {
+    const branch = (name) => ({
+      name,
+      target: { oid: name, committedDate: recent },
+      associatedPullRequests: { totalCount: 0, nodes: [] },
+    });
     return {
       error: null,
       stdout: JSON.stringify({
@@ -118,6 +132,8 @@ const fakeRun = async (file, args) => {
             issues: { totalCount: 3 },
             pullRequests: { totalCount: 1 },
             vulnerabilityAlerts: { totalCount: 2 },
+            defaultBranchRef: { name: "main" },
+            refs: { totalCount: 2, nodes: [branch("main"), branch("feature/x")] },
           },
         },
       }),
@@ -135,11 +151,11 @@ const STATE = `JSON.stringify((() => {
     last: section === section.parentElement.lastElementChild,
     sections: document.querySelectorAll("[data-t3-rtl-repo-status]").length,
     repo: section.querySelector(".t3-rtl-repo-status-head").textContent,
-    rows: [...section.querySelectorAll("button")].map((button) => [
-      button.dataset.kind,
-      button.textContent,
-      button.title,
-    ]),
+    items: [...section.children].slice(1).map((item) =>
+      item.classList.contains("t3-rtl-repo-status-group")
+        ? ["group", item.textContent, item.hasAttribute("data-separated"), getComputedStyle(item).borderTopStyle]
+        : [item.tagName, item.dataset.kind, item.textContent, item.title],
+    ),
   };
 })())`;
 
@@ -182,10 +198,14 @@ async function run() {
     last: true,
     sections: 1,
     repo: "o/r",
-    rows: [
-      ["issues", "Issues3", "Open issues on GitHub"],
-      ["pulls", "Pull requests1", "Open pull requests on GitHub"],
-      ["security", "Security alerts2", "Dependabot: 2"],
+    items: [
+      ["BUTTON", "issues", "Issues3", "Open issues on GitHub"],
+      ["BUTTON", "pulls", "Pull requests1", "Open pull requests on GitHub"],
+      ["BUTTON", "security", "Security alerts2", "Dependabot: 2"],
+      ["group", "Branches", true, "solid"],
+      ["BUTTON", "branches-remote", "Remote1", "feature/x"],
+      // Local branches have no GitHub page, so their row is not a button.
+      ["DIV", "branches-local", "Local1", "spike"],
     ],
   };
   if (JSON.stringify(shown) !== JSON.stringify(expectedShown)) {
@@ -230,6 +250,23 @@ async function run() {
   await send("Page.reload", {}, sessionId);
   await waitFor(sessionId, `!!window.__t3RtlFixRepoStatusWatcher && !!document.getElementById("content")`, "the reloaded script");
   await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section after a reload");
+
+  // With branch rows only, the Branches title has no line above it.
+  await evaluate(sessionId, `window.__t3RtlFixRepoStatusUpdate({
+    path: location.href,
+    repo: "o/r",
+    rows: [{ group: "branches", kind: "branches-stale", label: "Stale", count: "1", title: "old (40 days)" }],
+  }), 1`);
+  await waitFor(
+    sessionId,
+    `(() => {
+      const group = document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-group");
+      return !!group && !group.hasAttribute("data-separated") &&
+        getComputedStyle(group).borderTopStyle === "none" &&
+        document.querySelectorAll("[data-t3-rtl-repo-status] .t3-rtl-repo-status-row").length === 1;
+    })()`,
+    "a Branches group without a line above it",
+  );
   process.stdout.write("Repository status section passed\n");
 }
 
