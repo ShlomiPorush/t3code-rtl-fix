@@ -85,12 +85,22 @@ need to open DevTools and paste CSS manually.
 
 The thread details card shows a section with the open issues, open pull
 requests, and open security alerts of the open thread's GitHub repository.
-Security alerts add up Dependabot, code scanning, and secret scanning alerts,
-and the row's tooltip lists each of them. Click a row to open that page on
-GitHub in your browser.
+Security alerts add up Dependabot, code scanning, and secret scanning alerts.
+Click a row to open that page on GitHub in your browser.
 
 Below them, a **Branches** group counts the repository's branches. The default
-branch is never counted, and each row's tooltip lists the branch names.
+branch is never counted.
+
+Point at a row, or move to it with the keyboard, to see its details:
+
+- **Issues** and **Pull requests**: the five most recently updated, with
+  author, age, and labels, or the draft and review state.
+- **Security alerts**: the alerts of each source by severity, with the
+  affected package, rule, or secret type. The secret itself is never read
+  into the section.
+- **Branches**: the branch names with the age of their newest commit. Local
+  branches also show whether they are ahead of or behind their branch on
+  GitHub, as of the last fetch.
 
 - **Remote**: branches on GitHub. Click to open the branches page on GitHub.
 - **Local**: branches in the project folder.

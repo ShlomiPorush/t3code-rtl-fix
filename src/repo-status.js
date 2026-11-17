@@ -21,6 +21,9 @@ const PAGE_FLAG = "__t3RtlFixRepoStatusWatcher";
 const CHECK = "__t3RtlFixRepoStatusCheck";
 const SECTION_ATTRIBUTE = "data-t3-rtl-repo-status";
 const STYLE_ID = "t3-rtl-fix-repo-status-style";
+const TIP_CLASS = "t3-rtl-repo-status-tip";
+// A pointer that rests on a row this long opens its tooltip.
+const TIP_DELAY_MS = 250;
 
 // A thread change or a return to the window reuses counts younger than this.
 const FRESH_MS = 60 * 1000;
@@ -54,14 +57,37 @@ const BRANCH_PAGE_SIZE = 100;
 const MERGED_PULLS_PER_BRANCH = 10;
 const STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
-// A tooltip lists this many branch names, then a count of the rest.
-const TOOLTIP_NAMES = 10;
+// The tooltip of a row lists this many issues, pull requests, or alerts.
+const DETAIL_ITEMS = 5;
+// The tooltip of a branch row lists this many branches.
+const BRANCH_ITEMS = 8;
+// Dependabot severities are counted from one page of alerts.
+const DEPENDABOT_PAGE_SIZE = 100;
+const LABEL_COLOR = /^[0-9a-f]{6}$/i;
+const SEVERITIES = ["critical", "high", "medium", "low"];
+const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+// GitHub names severities differently for each kind of alert.
+const SEVERITY_ALIASES = { moderate: "medium", error: "high", warning: "medium", note: "low" };
+const REVIEW_BADGES = {
+  APPROVED: { text: "Approved", tone: "success" },
+  CHANGES_REQUESTED: { text: "Changes requested", tone: "critical" },
+  REVIEW_REQUIRED: { text: "Review required", tone: "muted" },
+};
 
 const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    issues(states: OPEN) { totalCount }
-    pullRequests(states: OPEN) { totalCount }
-    vulnerabilityAlerts(states: OPEN) { totalCount }
+    issues(states: OPEN, first: ${DETAIL_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      totalCount
+      nodes { number title updatedAt author { login } labels(first: 3) { nodes { name color } } }
+    }
+    pullRequests(states: OPEN, first: ${DETAIL_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      totalCount
+      nodes { number title updatedAt isDraft reviewDecision author { login } }
+    }
+    vulnerabilityAlerts(states: OPEN, first: ${DEPENDABOT_PAGE_SIZE}) {
+      totalCount
+      nodes { securityVulnerability { severity package { name } } }
+    }
     defaultBranchRef { name }
     refs(refPrefix: "refs/heads/", first: ${BRANCH_PAGE_SIZE}) {
       totalCount
@@ -121,10 +147,14 @@ function repositoryUrl(repo, kind) {
   return `https://github.com/${repo.owner}/${repo.name}/${page}`;
 }
 
-function nameList(names) {
-  const shown = names.slice(0, TOOLTIP_NAMES).join(", ");
-  const rest = names.length - TOOLTIP_NAMES;
-  return rest > 0 ? `${shown}, and ${rest} more` : shown;
+// Newest first. A branch without a readable time goes last.
+function byNewest(a, b) {
+  const rank = (branch) => (Number.isFinite(branch.time) ? branch.time : -Infinity);
+  return rank(b) - rank(a);
+}
+
+function branchTime(branch) {
+  return Number.isFinite(branch.time) ? branch.time : null;
 }
 
 // Sorts the branches into the four counts of the Branches group. The default
@@ -147,14 +177,13 @@ function summarizeBranches({ defaultBranch, remote, local }, now) {
     remoteNodes.some((node) => node.merged === null) ||
     (!remote && localBranches.some((branch) => branch.upstream && branch.upstream !== defaultBranch));
 
-  const merged = remoteNodes.filter((node) => node.merged).map((node) => node.name);
+  const merged = remoteNodes.filter((node) => node.merged);
   const deleted = remoteComplete
-    ? localBranches
-        .filter((branch) => branch.upstream && !remoteNames.has(branch.upstream))
-        .map((branch) => branch.name)
+    ? localBranches.filter((branch) => branch.upstream && !remoteNames.has(branch.upstream))
     : [];
-  const mergedNames = new Set(merged);
-  const deletedNames = new Set(deleted);
+  const mergedNames = new Set(merged.map((node) => node.name));
+  const deletedNames = new Set(deleted.map((branch) => branch.name));
+  const named = (branch) => ({ name: branch.name, time: branchTime(branch) });
 
   // A local branch and the GitHub branch it tracks are one branch, named as
   // on GitHub, whatever the local name. Other local branches stand alone,
@@ -189,18 +218,41 @@ function summarizeBranches({ defaultBranch, remote, local }, now) {
   const stale = [...copies.values()]
     .filter((copy) => copy.time < staleBefore && !copy.skip)
     .sort((a, b) => a.time - b.time)
-    .map(({ name, time }) => ({ name, days: Math.floor((now - time) / DAY_MS) }));
+    .map(({ name, time }) => ({ name, time, days: Math.floor((now - time) / DAY_MS) }));
 
   // The total counts every branch on GitHub, the default branch among them.
   const remoteTotal = remote ? Math.max(remote.total - (defaultBranch ? 1 : 0), 0) : 0;
   return {
     remote: remote
-      ? { value: remoteTotal, capped: false, names: remoteNodes.map((node) => node.name) }
+      ? {
+          value: remoteTotal,
+          capped: false,
+          // The list holds one page of branches, so it can be shorter than
+          // the count.
+          partial: Boolean(remote.capped),
+          branches: [...remoteNodes].sort(byNewest).map((node) => ({ ...named(node), merged: node.merged === true })),
+        }
       : null,
-    local: local ? { value: localBranches.length, capped: false, names: localBranches.map((b) => b.name) } : null,
+    local: local
+      ? {
+          value: localBranches.length,
+          capped: false,
+          branches: [...localBranches].sort(byNewest).map((branch) => ({
+            ...named(branch),
+            upstream: branch.upstream,
+            track: typeof branch.track === "string" ? branch.track : "",
+            deleted: deletedNames.has(branch.name),
+          })),
+        }
+      : null,
     // A merged branch is on GitHub and a deleted one is local, so they are
     // never the same branch.
-    dead: { value: merged.length + deleted.length, capped, merged, deleted },
+    dead: {
+      value: merged.length + deleted.length,
+      capped,
+      merged: [...merged].sort(byNewest).map(named),
+      deleted: [...deleted].sort(byNewest).map(named),
+    },
     stale: { value: stale.length, capped, branches: stale },
   };
 }
@@ -213,58 +265,223 @@ function countText(count) {
   return `${count.value}${count.capped ? "+" : ""}`;
 }
 
+// A tooltip section shows the first items of a list and how many more there
+// are. total is the full count, which can be larger than the list read.
+function listSection(list, total, limit, toItem, title) {
+  const items = Array.isArray(list) ? list.slice(0, limit) : [];
+  const section = { items: items.map(toItem), more: Math.max(total - items.length, 0) };
+  if (title) section.title = title;
+  return section;
+}
+
+function severityBadge(severity) {
+  return severity ? { text: SEVERITY_LABELS[severity], tone: severity } : null;
+}
+
+// One chip per severity found, from the most severe.
+function severityChips(alerts) {
+  const counts = new Map();
+  for (const alert of alerts) {
+    if (alert.severity) counts.set(alert.severity, (counts.get(alert.severity) || 0) + 1);
+  }
+  return SEVERITIES.filter((severity) => counts.has(severity)).map((severity) => ({
+    text: `${counts.get(severity)} ${SEVERITY_LABELS[severity]}`,
+    tone: severity,
+  }));
+}
+
+function bySeverity(a, b) {
+  const rank = (alert) => (alert.severity ? SEVERITIES.indexOf(alert.severity) : SEVERITIES.length);
+  return rank(a) - rank(b);
+}
+
+function compact(badges) {
+  return badges.filter(Boolean);
+}
+
+function issueDetail(issues) {
+  return {
+    title: "Issues",
+    summary: `${countText(issues)} open`,
+    sections: [
+      listSection(issues.items, issues.value, DETAIL_ITEMS, (issue) => ({
+        lead: `#${issue.number}`,
+        text: issue.title,
+        meta: compact([issue.author]),
+        time: issue.time,
+        badges: (issue.labels || []).map((label) => ({ text: label.name, color: label.color })),
+      })),
+    ],
+  };
+}
+
+function pullDetail(pulls) {
+  return {
+    title: "Pull requests",
+    summary: `${countText(pulls)} open`,
+    sections: [
+      listSection(pulls.items, pulls.value, DETAIL_ITEMS, (pull) => ({
+        lead: `#${pull.number}`,
+        text: pull.title,
+        meta: compact([pull.author]),
+        time: pull.time,
+        badges: compact([
+          pull.draft ? { text: "Draft", tone: "muted" } : null,
+          REVIEW_BADGES[pull.review] || null,
+        ]),
+      })),
+    ],
+  };
+}
+
+function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
+  const sections = [];
+  const notes = [];
+  if (dependabot) {
+    const alerts = dependabot.alerts || [];
+    sections.push({
+      ...listSection([...alerts].sort(bySeverity), dependabot.value, DETAIL_ITEMS, (alert) => ({
+        text: alert.package || "Unknown package",
+        badges: compact([severityBadge(alert.severity)]),
+      }), `Dependabot · ${countText(dependabot)}`),
+      chips: alerts.length > 1 ? severityChips(alerts) : [],
+    });
+    if (alerts.length < dependabot.value) {
+      notes.push(`Severities count the first ${alerts.length} Dependabot alerts.`);
+    }
+  }
+  if (codeScanning) {
+    const alerts = codeScanning.alerts || [];
+    sections.push({
+      ...listSection([...alerts].sort(bySeverity), codeScanning.value, DETAIL_ITEMS, (alert) => ({
+        text: alert.rule || "Unnamed rule",
+        meta: compact([alert.path]),
+        badges: compact([severityBadge(alert.severity)]),
+      }), `Code scanning · ${countText(codeScanning)}`),
+      chips: alerts.length > 1 ? severityChips(alerts) : [],
+    });
+  }
+  if (secretScanning) {
+    sections.push(listSection(secretScanning.alerts, secretScanning.value, DETAIL_ITEMS, (alert) => ({
+      text: alert.type || "Unknown secret type",
+    }), `Secret scanning · ${countText(secretScanning)}`));
+  }
+  const detail = { title: "Security alerts", summary: `${countText(total)} open`, sections };
+  if (notes.length) detail.note = notes.join(" ");
+  return detail;
+}
+
+function localBadge(branch) {
+  if (branch.deleted) return { text: "Deleted on GitHub", tone: "critical" };
+  if (!branch.upstream) return { text: "No upstream", tone: "muted" };
+  if (branch.track === "gone") return { text: "Upstream gone", tone: "critical" };
+  if (!branch.track) return { text: "Up to date", tone: "success" };
+  return { text: branch.track, tone: branch.track.includes("behind") ? "medium" : "info" };
+}
+
+const branchItem = (branch) => ({ text: branch.name, time: branch.time });
+const UNKNOWN_NOTE = "Some branches could not be checked, so there may be more.";
+
+function branchDetails(branches) {
+  const details = {};
+  const remote = countValue(branches.remote);
+  if (remote) {
+    details.remote = {
+      title: "Remote branches",
+      summary: `${countText(remote)} on GitHub`,
+      sections: [
+        listSection(remote.branches, remote.value, BRANCH_ITEMS, (branch) => ({
+          ...branchItem(branch),
+          badges: branch.merged ? [{ text: "Merged", tone: "success" }] : [],
+        })),
+      ],
+    };
+    if (remote.partial) details.remote.note = `Only the first ${BRANCH_PAGE_SIZE} branches on GitHub were read.`;
+  }
+  const local = countValue(branches.local);
+  if (local) {
+    details.local = {
+      title: "Local branches",
+      summary: `${countText(local)} in this folder`,
+      sections: [
+        listSection(local.branches, local.value, BRANCH_ITEMS, (branch) => ({
+          ...branchItem(branch),
+          badges: [localBadge(branch)],
+        })),
+      ],
+      note: "Ahead and behind come from the last fetch.",
+    };
+  }
+  const dead = countValue(branches.dead);
+  if (dead) {
+    details.dead = {
+      title: "Dead branches",
+      summary: `${countText(dead)} to clean up`,
+      sections: [
+        dead.merged.length
+          ? listSection(dead.merged, dead.merged.length, BRANCH_ITEMS, branchItem, "Merged on GitHub")
+          : null,
+        dead.deleted.length
+          ? listSection(dead.deleted, dead.deleted.length, BRANCH_ITEMS, branchItem, "Deleted on GitHub")
+          : null,
+      ].filter(Boolean),
+    };
+    if (dead.capped) details.dead.note = UNKNOWN_NOTE;
+  }
+  const stale = countValue(branches.stale);
+  if (stale) {
+    details.stale = {
+      title: "Stale branches",
+      summary: `No commits for ${STALE_DAYS}+ days`,
+      sections: [listSection(stale.branches, stale.branches.length, BRANCH_ITEMS, branchItem)],
+    };
+    if (stale.capped) details.stale.note = UNKNOWN_NOTE;
+  }
+  return details;
+}
+
 // Turns the counts into the rows the page shows. Zero, missing, and
-// unreadable counts produce no row.
+// unreadable counts produce no row. Each row carries the content of its
+// tooltip.
 function buildRows(status) {
   if (!status) return [];
   const rows = [];
   const issues = countValue(status.issues);
   if (issues) {
-    rows.push({ kind: "issues", label: "Issues", count: countText(issues), title: "Open issues on GitHub" });
+    rows.push({ kind: "issues", label: "Issues", count: countText(issues), detail: issueDetail(issues) });
   }
   const pulls = countValue(status.pulls);
   if (pulls) {
-    rows.push({ kind: "pulls", label: "Pull requests", count: countText(pulls), title: "Open pull requests on GitHub" });
+    rows.push({ kind: "pulls", label: "Pull requests", count: countText(pulls), detail: pullDetail(pulls) });
   }
-  const parts = [
-    ["Dependabot", countValue(status.dependabot)],
-    ["Code scanning", countValue(status.codeScanning)],
-    ["Secret scanning", countValue(status.secretScanning)],
-  ].filter(([, count]) => count);
+  const security = {
+    dependabot: countValue(status.dependabot),
+    codeScanning: countValue(status.codeScanning),
+    secretScanning: countValue(status.secretScanning),
+  };
+  const parts = Object.values(security).filter(Boolean);
   if (parts.length > 0) {
-    const total = parts.reduce((sum, [, count]) => sum + count.value, 0);
-    const capped = parts.some(([, count]) => count.capped);
+    const total = {
+      value: parts.reduce((sum, count) => sum + count.value, 0),
+      capped: parts.some((count) => count.capped),
+    };
     rows.push({
       kind: "security",
       label: "Security alerts",
-      count: countText({ value: total, capped }),
-      title: parts.map(([label, count]) => `${label}: ${countText(count)}`).join(", "),
+      count: countText(total),
+      detail: securityDetail(total, security),
       tone: "warning",
     });
   }
   const branches = status.branches;
   if (branches) {
     const group = "branches";
-    const remote = countValue(branches.remote);
-    if (remote) {
-      rows.push({ group, kind: "branches-remote", label: "Remote", count: countText(remote), title: nameList(remote.names) });
-    }
-    const local = countValue(branches.local);
-    if (local) {
-      rows.push({ group, kind: "branches-local", label: "Local", count: countText(local), title: nameList(local.names) });
-    }
-    const dead = countValue(branches.dead);
-    if (dead) {
-      const title = [
-        dead.merged.length ? `Merged on GitHub: ${nameList(dead.merged)}` : "",
-        dead.deleted.length ? `Deleted on GitHub: ${nameList(dead.deleted)}` : "",
-      ].filter(Boolean).join("\n");
-      rows.push({ group, kind: "branches-dead", label: "Dead", count: countText(dead), title });
-    }
-    const stale = countValue(branches.stale);
-    if (stale) {
-      const title = nameList(stale.branches.map(({ name, days }) => `${name} (${days} days)`));
-      rows.push({ group, kind: "branches-stale", label: "Stale", count: countText(stale), title });
+    const details = branchDetails(branches);
+    for (const [key, label] of [["remote", "Remote"], ["local", "Local"], ["dead", "Dead"], ["stale", "Stale"]]) {
+      const count = countValue(branches[key]);
+      if (count) {
+        rows.push({ group, kind: `branches-${key}`, label, count: countText(count), detail: details[key] });
+      }
     }
   }
   return rows;
@@ -310,8 +527,86 @@ function totalCount(node) {
 
 const HEADS_PREFIX = "refs/heads/";
 
+function text(value, max = 300) {
+  return typeof value === "string" ? value.slice(0, max) : "";
+}
+
+function timeOf(value) {
+  const time = Date.parse(value ?? "");
+  return Number.isFinite(time) ? time : null;
+}
+
+function nodesOf(connection) {
+  return Array.isArray(connection?.nodes) ? connection.nodes.filter(Boolean) : [];
+}
+
+function readSeverity(value) {
+  const name = typeof value === "string" ? value.toLowerCase() : "";
+  const severity = SEVERITY_ALIASES[name] || name;
+  return SEVERITIES.includes(severity) ? severity : null;
+}
+
+// The open issues: their count and the most recently updated of them.
+function readIssues(connection) {
+  const count = totalCount(connection);
+  if (!count) return null;
+  count.items = nodesOf(connection)
+    .filter((issue) => Number.isInteger(issue.number))
+    .map((issue) => ({
+      number: issue.number,
+      title: text(issue.title),
+      author: text(issue.author?.login, 100),
+      time: timeOf(issue.updatedAt),
+      labels: nodesOf(issue.labels).map((label) => ({
+        name: text(label.name, 50),
+        color: LABEL_COLOR.test(label.color ?? "") ? label.color.toLowerCase() : null,
+      })),
+    }));
+  return count;
+}
+
+function readPulls(connection) {
+  const count = totalCount(connection);
+  if (!count) return null;
+  count.items = nodesOf(connection)
+    .filter((pull) => Number.isInteger(pull.number))
+    .map((pull) => ({
+      number: pull.number,
+      title: text(pull.title),
+      author: text(pull.author?.login, 100),
+      time: timeOf(pull.updatedAt),
+      draft: pull.isDraft === true,
+      review: Object.hasOwn(REVIEW_BADGES, pull.reviewDecision ?? "") ? pull.reviewDecision : null,
+    }));
+  return count;
+}
+
+function readDependabot(connection) {
+  const count = totalCount(connection);
+  if (!count) return null;
+  count.alerts = nodesOf(connection).map((alert) => ({
+    severity: readSeverity(alert.securityVulnerability?.severity),
+    package: text(alert.securityVulnerability?.package?.name, 100),
+  }));
+  return count;
+}
+
+// Only the fields the tooltip shows are kept. A secret scanning alert also
+// holds the secret it found, which never leaves this function.
+const ALERT_READERS = {
+  "code-scanning": (alert) => ({
+    severity: readSeverity(alert?.rule?.security_severity_level || alert?.rule?.severity),
+    rule: text(alert?.rule?.description || alert?.rule?.name || alert?.rule?.id, 200),
+    path: text(alert?.most_recent_instance?.location?.path, 200),
+  }),
+  "secret-scanning": (alert) => ({
+    type: text(alert?.secret_type_display_name || alert?.secret_type, 100),
+  }),
+};
+
 // Lists the local branches of a folder with the name of the branch they
-// track on origin, as GitHub names it, and the time of their newest commit.
+// track on origin, as GitHub names it, the time of their newest commit, and
+// how far they are from their upstream at the last fetch.
 // Returns null when git cannot read it.
 async function readLocalBranches(run, folder) {
   if (!folder) return null;
@@ -320,19 +615,21 @@ async function readLocalBranches(run, folder) {
     folder,
     "for-each-ref",
     "refs/heads",
-    "--format=%(refname:lstrip=2)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(committerdate:unix)",
+    "--format=%(refname:lstrip=2)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(committerdate:unix)%00%(upstream:track,nobracket)",
   ]);
   if (result.error) return null;
   return result.stdout
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => {
-      const [name, remoteName = "", remoteRef = "", seconds = ""] = line.split("\0");
+      const [name, remoteName = "", remoteRef = "", seconds = "", track = ""] = line.split("\0");
       const tracksOrigin = remoteName === "origin" && remoteRef.startsWith(HEADS_PREFIX);
       return {
         name,
         upstream: tracksOrigin ? remoteRef.slice(HEADS_PREFIX.length) : null,
         time: Number(seconds) * 1000,
+        // Such as "ahead 1, behind 2" or "gone".
+        track: track.trim().slice(0, 40),
       };
     });
 }
@@ -394,7 +691,11 @@ async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
     ]).then((result) => {
       const list = parseJson(result.stdout);
       if (!Array.isArray(list)) return null;
-      return { value: list.length, capped: list.length >= ALERT_PAGE_SIZE };
+      return {
+        value: list.length,
+        capped: list.length >= ALERT_PAGE_SIZE,
+        alerts: list.map(ALERT_READERS[kind]),
+      };
     });
   const [graphqlResult, codeScanning, secretScanning, local] = await Promise.all([
     graphql,
@@ -411,9 +712,9 @@ async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
     throw new Error(`GitHub did not return ${repo.slug}: ${reason.split("\n")[0]}`);
   }
   return {
-    issues: totalCount(repository.issues),
-    pulls: totalCount(repository.pullRequests),
-    dependabot: totalCount(repository.vulnerabilityAlerts),
+    issues: readIssues(repository.issues),
+    pulls: readPulls(repository.pullRequests),
+    dependabot: readDependabot(repository.vulnerabilityAlerts),
     codeScanning,
     secretScanning,
     branches: readBranches(repository, local, now),
@@ -721,6 +1022,7 @@ const PAGE_CSS = `
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   width: calc(100% + 12px);
   margin: 0 -6px;
   padding: 4px 6px;
@@ -765,6 +1067,187 @@ const PAGE_CSS = `
 [${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] svg {
   color: var(--warning, #d97706);
 }
+[${SECTION_ATTRIBUTE}] div.t3-rtl-repo-status-row:focus-visible {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  outline: none;
+}
+.${TIP_CLASS} {
+  --t3-rtl-tip-critical: var(--destructive, #dc2626);
+  --t3-rtl-tip-high: #ea580c;
+  --t3-rtl-tip-medium: var(--warning, #d97706);
+  --t3-rtl-tip-low: var(--muted-foreground, #71717a);
+  --t3-rtl-tip-muted: var(--muted-foreground, #71717a);
+  --t3-rtl-tip-success: var(--success, #16a34a);
+  --t3-rtl-tip-info: var(--info, #2563eb);
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border, rgb(0 0 0 / 0.12));
+  border-radius: 10px;
+  background: var(--popover, #fff);
+  color: var(--popover-foreground, #18181b);
+  box-shadow: 0 12px 32px -10px rgb(0 0 0 / 0.35), 0 2px 6px -2px rgb(0 0 0 / 0.15);
+  direction: ltr;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: start;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+.${TIP_CLASS}:not([data-open]) {
+  display: none;
+}
+.${TIP_CLASS}[data-shown] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .${TIP_CLASS} { transition: none; transform: none; }
+}
+.${TIP_CLASS} .t3-rtl-tip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid var(--border, rgb(0 0 0 / 0.12));
+}
+.${TIP_CLASS} .t3-rtl-tip-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.${TIP_CLASS} .t3-rtl-tip-summary,
+.${TIP_CLASS} .t3-rtl-tip-lead,
+.${TIP_CLASS} .t3-rtl-tip-meta,
+.${TIP_CLASS} .t3-rtl-tip-more,
+.${TIP_CLASS} .t3-rtl-tip-note {
+  color: var(--muted-foreground, #71717a);
+}
+.${TIP_CLASS} .t3-rtl-tip-summary {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.${TIP_CLASS} .t3-rtl-tip-section {
+  display: grid;
+  gap: 2px;
+  padding: 7px 12px 8px;
+}
+.${TIP_CLASS} .t3-rtl-tip-section + .t3-rtl-tip-section {
+  border-top: 1px solid var(--border, rgb(0 0 0 / 0.12));
+}
+.${TIP_CLASS} .t3-rtl-tip-section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground, #71717a);
+}
+.${TIP_CLASS} .t3-rtl-tip-chips,
+.${TIP_CLASS} .t3-rtl-tip-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.${TIP_CLASS} .t3-rtl-tip-chips {
+  margin: 2px 0 3px;
+}
+.${TIP_CLASS} .t3-rtl-tip-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 3px 0;
+}
+.${TIP_CLASS} .t3-rtl-tip-lead {
+  font-variant-numeric: tabular-nums;
+}
+.${TIP_CLASS} .t3-rtl-tip-text {
+  grid-column: 2;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.${TIP_CLASS} .t3-rtl-tip-item:not([data-lead]) .t3-rtl-tip-text {
+  grid-column: 1 / -1;
+}
+.${TIP_CLASS} .t3-rtl-tip-sub {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.${TIP_CLASS} .t3-rtl-tip-item:not([data-lead]) .t3-rtl-tip-sub {
+  grid-column: 1 / -1;
+}
+.${TIP_CLASS} .t3-rtl-tip-meta {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.${TIP_CLASS} .t3-rtl-tip-badge {
+  --t3-rtl-tip-tone: var(--t3-rtl-tip-muted);
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--t3-rtl-tip-tone) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--t3-rtl-tip-tone) 14%, transparent);
+  color: color-mix(in srgb, var(--t3-rtl-tip-tone) 75%, currentColor);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="critical"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-critical); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="high"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-high); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="medium"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-medium); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="low"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-low); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="success"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-success); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-tone="info"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-info); }
+.${TIP_CLASS} .t3-rtl-tip-badge[data-label] {
+  --t3-rtl-tip-tone: var(--t3-rtl-tip-label);
+  /* A label can have any color, so its text leans toward the text color. */
+  color: color-mix(in oklab, var(--t3-rtl-tip-label) 45%, currentColor);
+}
+/* An item with badges only keeps them on its line. */
+.${TIP_CLASS} .t3-rtl-tip-item[data-inline] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.${TIP_CLASS} .t3-rtl-tip-item[data-inline] .t3-rtl-tip-sub {
+  flex: none;
+}
+.${TIP_CLASS} .t3-rtl-tip-more {
+  padding-top: 2px;
+  font-size: 11px;
+}
+.${TIP_CLASS} .t3-rtl-tip-note {
+  padding: 7px 12px 8px;
+  border-top: 1px solid var(--border, rgb(0 0 0 / 0.12));
+  font-size: 11px;
+}
 `;
 
 function buildRepoStatusPageSource() {
@@ -779,6 +1262,8 @@ function buildRepoStatusPageSource() {
   const groupTitles = ${JSON.stringify(GROUP_TITLES)};
   const linkKinds = ${JSON.stringify(Object.keys(PAGE_BY_KIND))};
   const refreshInterval = ${REFRESH_INTERVAL_MS};
+  const tipClass = ${JSON.stringify(TIP_CLASS)};
+  const tipDelay = ${TIP_DELAY_MS};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
 
@@ -832,6 +1317,189 @@ function buildRepoStatusPageSource() {
     return svg;
   };
 
+  // One tooltip serves every row. It sits in the top layer when the browser
+  // supports popovers, so no dialog or panel of T3 Code covers it. Text from
+  // GitHub is set only as text.
+  let tip = null;
+  let tipAnchor = null;
+  let tipTimer = 0;
+  let tipHiddenAt = 0;
+
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag);
+    node.className = className;
+    if (text != null) node.textContent = String(text);
+    return node;
+  };
+
+  const ago = (time) => {
+    if (typeof time !== "number" || !Number.isFinite(time)) return "";
+    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
+    if (minutes < 1) return "just now";
+    const unit = (value, word) => value + " " + word + (value === 1 ? "" : "s") + " ago";
+    if (minutes < 60) return unit(minutes, "minute");
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return unit(hours, "hour");
+    const days = Math.floor(hours / 24);
+    if (days < 60) return unit(days, "day");
+    if (days < 730) return unit(Math.floor(days / 30), "month");
+    return unit(Math.floor(days / 365), "year");
+  };
+
+  const badge = (data) => {
+    const node = make("span", "t3-rtl-tip-badge", data.text);
+    node.dir = "auto";
+    if (data.tone) node.dataset.tone = data.tone;
+    if (typeof data.color === "string" && /^[0-9a-f]{6}$/i.test(data.color)) {
+      node.dataset.label = "";
+      node.style.setProperty("--t3-rtl-tip-label", "#" + data.color);
+    }
+    return node;
+  };
+
+  const tipItem = (item) => {
+    const node = make("div", "t3-rtl-tip-item");
+    if (item.lead) {
+      node.dataset.lead = "";
+      node.appendChild(make("span", "t3-rtl-tip-lead", item.lead));
+    }
+    const text = make("span", "t3-rtl-tip-text", item.text);
+    text.dir = "auto";
+    node.appendChild(text);
+    const meta = [...(item.meta || []), ago(item.time)].filter(Boolean).join(" · ");
+    const badges = item.badges || [];
+    if (!item.lead && !meta && badges.length) node.dataset.inline = "";
+    if (meta || badges.length) {
+      const sub = make("div", "t3-rtl-tip-sub");
+      if (meta) {
+        const metaNode = make("span", "t3-rtl-tip-meta", meta);
+        metaNode.dir = "auto";
+        sub.appendChild(metaNode);
+      }
+      for (const data of badges) sub.appendChild(badge(data));
+      node.appendChild(sub);
+    }
+    return node;
+  };
+
+  const ensureTip = () => {
+    if (tip && tip.isConnected) return tip;
+    tip = make("div", tipClass);
+    tip.id = tipClass;
+    tip.setAttribute("role", "tooltip");
+    if (typeof tip.showPopover === "function") tip.setAttribute("popover", "manual");
+    document.body.appendChild(tip);
+    return tip;
+  };
+
+  const fillTip = (detail) => {
+    const box = ensureTip();
+    box.replaceChildren();
+    const head = make("div", "t3-rtl-tip-head");
+    head.append(make("span", "t3-rtl-tip-title", detail.title), make("span", "t3-rtl-tip-summary", detail.summary));
+    box.appendChild(head);
+    for (const section of detail.sections || []) {
+      const part = make("div", "t3-rtl-tip-section");
+      if (section.title) part.appendChild(make("div", "t3-rtl-tip-section-title", section.title));
+      if (section.chips && section.chips.length) {
+        const chips = make("div", "t3-rtl-tip-chips");
+        for (const chip of section.chips) chips.appendChild(badge(chip));
+        part.appendChild(chips);
+      }
+      for (const item of section.items || []) part.appendChild(tipItem(item));
+      if (section.more > 0) part.appendChild(make("div", "t3-rtl-tip-more", "and " + section.more + " more"));
+      box.appendChild(part);
+    }
+    if (detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
+  };
+
+  // Beside the row, on the side with room, else below or above it, and
+  // always inside the window.
+  const placeTip = () => {
+    if (!tip || !tipAnchor) return;
+    const gap = 8;
+    const margin = 8;
+    const anchor = tipAnchor.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const height = tip.offsetHeight;
+    let left;
+    let top = anchor.top - gap;
+    if (anchor.left - gap - width >= margin) {
+      left = anchor.left - gap - width;
+    } else if (anchor.right + gap + width <= innerWidth - margin) {
+      left = anchor.right + gap;
+    } else {
+      left = anchor.left;
+      top = anchor.bottom + gap + height <= innerHeight - margin ? anchor.bottom + gap : anchor.top - gap - height;
+    }
+    left = Math.min(Math.max(left, margin), Math.max(margin, innerWidth - width - margin));
+    top = Math.min(Math.max(top, margin), Math.max(margin, innerHeight - height - margin));
+    tip.style.left = Math.round(left) + "px";
+    tip.style.top = Math.round(top) + "px";
+  };
+
+  const popoverOpen = (node) => {
+    try {
+      return node.matches(":popover-open");
+    } catch {
+      return false;
+    }
+  };
+
+  const showTip = (anchor, detail) => {
+    clearTimeout(tipTimer);
+    if (!anchor.isConnected || !detail) return;
+    if (tipAnchor && tipAnchor !== anchor) tipAnchor.removeAttribute("aria-describedby");
+    fillTip(detail);
+    tipAnchor = anchor;
+    tip.setAttribute("data-open", "");
+    if (tip.hasAttribute("popover") && !popoverOpen(tip)) {
+      try {
+        tip.showPopover();
+      } catch {
+        // A fixed tooltip with a high z-index still shows.
+      }
+    }
+    placeTip();
+    anchor.setAttribute("aria-describedby", tip.id);
+    requestAnimationFrame(() => {
+      if (tipAnchor === anchor) tip.setAttribute("data-shown", "");
+    });
+  };
+
+  const hideTip = () => {
+    clearTimeout(tipTimer);
+    if (!tipAnchor) return;
+    tipAnchor.removeAttribute("aria-describedby");
+    tipAnchor = null;
+    tipHiddenAt = Date.now();
+    tip.removeAttribute("data-shown");
+    tip.removeAttribute("data-open");
+    if (popoverOpen(tip)) tip.hidePopover();
+  };
+
+  // Moving from one row to the next switches the tooltip at once.
+  const scheduleTip = (anchor, detail) => {
+    clearTimeout(tipTimer);
+    const delay = tipAnchor || Date.now() - tipHiddenAt < 300 ? 0 : tipDelay;
+    tipTimer = setTimeout(() => showTip(anchor, detail), delay);
+  };
+
+  const attachTip = (element, detail) => {
+    element.addEventListener("pointerenter", () => scheduleTip(element, detail));
+    element.addEventListener("pointerleave", hideTip);
+    element.addEventListener("focus", () => {
+      if (element.matches(":focus-visible")) showTip(element, detail);
+    });
+    element.addEventListener("blur", hideTip);
+  };
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideTip();
+  }, true);
+  window.addEventListener("scroll", hideTip, true);
+  window.addEventListener("resize", hideTip);
+
   // The card holds a scroll area around one element with its sections. The
   // section goes after the last of them.
   const sectionContainer = (card) => {
@@ -876,7 +1544,6 @@ function buildRepoStatusPageSource() {
       if (linked) element.type = "button";
       element.dataset.kind = row.kind;
       if (row.tone) element.dataset.tone = row.tone;
-      element.title = row.title || "";
       element.appendChild(icon(row.kind));
       const label = document.createElement("span");
       label.textContent = row.label;
@@ -884,10 +1551,16 @@ function buildRepoStatusPageSource() {
       count.className = "t3-rtl-repo-status-count";
       count.textContent = row.count;
       element.append(label, count);
+      if (row.detail) {
+        // The keyboard reaches a row that is not a button for its tooltip.
+        if (!linked) element.tabIndex = 0;
+        attachTip(element, row.detail);
+      }
       if (linked) {
         element.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
+          hideTip();
           notify({ type: "open", kind: row.kind });
         });
       }
@@ -917,6 +1590,8 @@ function buildRepoStatusPageSource() {
     for (const section of document.querySelectorAll("[" + attribute + "]")) {
       if (!keep.has(section)) section.remove();
     }
+    // A rebuilt or removed section takes the row of an open tooltip with it.
+    if (tipAnchor && !tipAnchor.isConnected) hideTip();
   };
 
   const scheduleRender = () => {

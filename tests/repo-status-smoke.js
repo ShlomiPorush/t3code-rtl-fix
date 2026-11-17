@@ -29,7 +29,10 @@ if (process.platform !== "win32" || !fs.existsSync(edgePath)) {
 const environmentId = "env-1";
 const threadWithRepo = "thread-1";
 const threadWithoutRepo = "thread-2";
-const fixture = `<!doctype html><html><head><title>fixture</title></head><body>
+// The card sits in a panel on the right, like T3 Code's thread details.
+const fixture = `<!doctype html><html><head><title>fixture</title>
+  <style>aside { position: fixed; top: 0; right: 0; width: 280px; }</style>
+</head><body>
   <aside>
     <div data-thread-details-card>
       <div data-slot="scroll-area-root">
@@ -129,7 +132,16 @@ const fakeRun = async (file, args) => {
       stdout: JSON.stringify({
         data: {
           repository: {
-            issues: { totalCount: 3 },
+            issues: {
+              totalCount: 3,
+              nodes: [{
+                number: 7,
+                title: "תיקון כיוון בטבלאות",
+                updatedAt: recent,
+                author: { login: "dana" },
+                labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
+              }],
+            },
             pullRequests: { totalCount: 1 },
             vulnerabilityAlerts: { totalCount: 2 },
             defaultBranchRef: { name: "main" },
@@ -154,7 +166,7 @@ const STATE = `JSON.stringify((() => {
     items: [...section.children].slice(1).map((item) =>
       item.classList.contains("t3-rtl-repo-status-group")
         ? ["group", item.textContent, item.hasAttribute("data-separated"), getComputedStyle(item).borderTopStyle]
-        : [item.tagName, item.dataset.kind, item.textContent, item.title],
+        : [item.tagName, item.dataset.kind, item.textContent, item.tabIndex, item.hasAttribute("title")],
     ),
   };
 })())`;
@@ -199,13 +211,14 @@ async function run() {
     sections: 1,
     repo: "o/r",
     items: [
-      ["BUTTON", "issues", "Issues3", "Open issues on GitHub"],
-      ["BUTTON", "pulls", "Pull requests1", "Open pull requests on GitHub"],
-      ["BUTTON", "security", "Security alerts2", "Dependabot: 2"],
+      ["BUTTON", "issues", "Issues3", 0, false],
+      ["BUTTON", "pulls", "Pull requests1", 0, false],
+      ["BUTTON", "security", "Security alerts2", 0, false],
       ["group", "Branches", true, "solid"],
-      ["BUTTON", "branches-remote", "Remote1", "feature/x"],
-      // Local branches have no GitHub page, so their row is not a button.
-      ["DIV", "branches-local", "Local1", "spike"],
+      ["BUTTON", "branches-remote", "Remote1", 0, false],
+      // Local branches have no GitHub page, so their row is not a button,
+      // but the keyboard still reaches it for its tooltip.
+      ["DIV", "branches-local", "Local1", 0, false],
     ],
   };
   if (JSON.stringify(shown) !== JSON.stringify(expectedShown)) {
@@ -232,6 +245,8 @@ async function run() {
   if (JSON.stringify(opened) !== JSON.stringify(["https://github.com/o/r/issues"])) {
     throw new Error(`Unexpected opened pages: ${JSON.stringify(opened)}`);
   }
+
+  await checkTooltip(sessionId);
 
   // Another thread without a GitHub repository hides the section at once.
   await evaluate(sessionId, `history.pushState({}, "", "/${environmentId}/${threadWithoutRepo}"), 1`);
@@ -268,6 +283,89 @@ async function run() {
     "a Branches group without a line above it",
   );
   process.stdout.write("Repository status section passed\n");
+}
+
+const TIP_STATE = `JSON.stringify((() => {
+  const tip = document.querySelector(".t3-rtl-repo-status-tip");
+  const row = document.querySelector('[data-t3-rtl-repo-status] [data-kind="issues"]');
+  if (!tip) return null;
+  const box = tip.getBoundingClientRect();
+  const anchor = row.getBoundingClientRect();
+  const text = tip.querySelector(".t3-rtl-tip-text");
+  const label = tip.querySelector(".t3-rtl-tip-badge[data-label]");
+  return {
+    shown: tip.hasAttribute("data-shown"),
+    topLayer: tip.matches(":popover-open"),
+    role: tip.getAttribute("role"),
+    describedBy: row.getAttribute("aria-describedby") === tip.id,
+    head: [tip.querySelector(".t3-rtl-tip-title").textContent, tip.querySelector(".t3-rtl-tip-summary").textContent],
+    text: text.textContent,
+    textDirection: getComputedStyle(text).direction,
+    meta: tip.querySelector(".t3-rtl-tip-meta").textContent,
+    lead: tip.querySelector(".t3-rtl-tip-lead").textContent,
+    label: label ? [label.textContent, label.style.getPropertyValue("--t3-rtl-tip-label")] : null,
+    more: tip.querySelector(".t3-rtl-tip-more").textContent,
+    inWindow: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+    leftOfRow: box.right <= anchor.left,
+  };
+})())`;
+
+const TIP_HIDDEN = `(() => {
+  const tip = document.querySelector(".t3-rtl-repo-status-tip");
+  return !!tip && !tip.hasAttribute("data-open") && getComputedStyle(tip).display === "none" &&
+    !document.querySelector("[aria-describedby]");
+})()`;
+
+async function hoverRow(sessionId, kind) {
+  const box = JSON.parse(await evaluate(
+    sessionId,
+    `JSON.stringify(document.querySelector('[data-t3-rtl-repo-status] [data-kind="${kind}"]').getBoundingClientRect())`,
+  ));
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  }, sessionId);
+}
+
+async function checkTooltip(sessionId) {
+  await hoverRow(sessionId, "issues");
+  await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the tooltip");
+  const state = JSON.parse(await evaluate(sessionId, TIP_STATE));
+  const expected = {
+    shown: true,
+    topLayer: true,
+    role: "tooltip",
+    describedBy: true,
+    head: ["Issues", "3 open"],
+    text: "תיקון כיוון בטבלאות",
+    textDirection: "rtl",
+    meta: "dana · just now",
+    lead: "#7",
+    label: ["bug", "#d73a4a"],
+    more: "and 2 more",
+    inWindow: true,
+    leftOfRow: true,
+  };
+  if (JSON.stringify(state) !== JSON.stringify(expected)) {
+    throw new Error(`Unexpected tooltip: ${JSON.stringify(state)}`);
+  }
+
+  // Leaving the row closes it.
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close when the pointer leaves");
+
+  // The next row opens its own tooltip, and Escape closes it.
+  await hoverRow(sessionId, "branches-local");
+  await waitFor(
+    sessionId,
+    `document.querySelector(".t3-rtl-repo-status-tip[data-shown] .t3-rtl-tip-title")?.textContent === "Local branches"`,
+    "the Local tooltip",
+  );
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close on Escape");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
 }
 
 function cleanProfile() {

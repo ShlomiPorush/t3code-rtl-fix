@@ -29,6 +29,11 @@ function count(value, capped = false) {
   return { value, capped };
 }
 
+// The sections of a row's tooltip: title, item texts, and how many more.
+function tipLists(row) {
+  return row.detail.sections.map((section) => [section.title || "", section.items.map((item) => item.text), section.more]);
+}
+
 test("the thread is read from the page address", () => {
   assert.deepEqual(parseThreadLocation(threadHref), { environmentId, threadId });
   assert.deepEqual(parseThreadLocation(`${threadHref}?panel=diff`), { environmentId, threadId });
@@ -101,7 +106,11 @@ test("rows appear only for counts above zero", () => {
     ["issues", "3"],
     ["security", "102+"],
   ]);
-  assert.equal(rows[1].title, "Dependabot: 2, Code scanning: 100+");
+  assert.deepEqual(rows[1].detail.sections.map((section) => section.title), [
+    "Dependabot · 2",
+    "Code scanning · 100+",
+  ]);
+  assert.equal(rows[1].detail.summary, "102+ open");
   assert.equal(rows[1].tone, "warning");
 });
 
@@ -135,11 +144,11 @@ test("counts are read from a GraphQL answer that also carries errors", async () 
   assert.equal(branches.remote, null);
   assert.equal(branches.local, null);
   assert.deepEqual(status, {
-    issues: count(4),
-    pulls: count(1),
+    issues: { ...count(4), items: [] },
+    pulls: { ...count(1), items: [] },
     dependabot: null,
     codeScanning: null,
-    secretScanning: count(2),
+    secretScanning: { ...count(2), alerts: [{ type: "" }, { type: "" }] },
   });
   assert.ok(calls.every(([file]) => file === "gh"));
   assert.ok(calls.every((call) => call[2] === "--hostname" && call[3] === "github.com"));
@@ -443,14 +452,23 @@ test("branches are sorted into remote, local, dead, and stale", () => {
     NOW,
   );
   assert.equal(summary.remote.value, 4);
-  assert.deepEqual(summary.local.names, ["feature/active", "feature/gone", "spike", "feature/old-remote-new-local"]);
-  assert.deepEqual(summary.dead.merged, ["feature/merged"]);
-  assert.deepEqual(summary.dead.deleted, ["feature/gone"]);
+  // Newest first.
+  assert.deepEqual(
+    summary.local.branches.map((branch) => [branch.name, branch.deleted]),
+    [
+      ["feature/active", false],
+      ["feature/old-remote-new-local", false],
+      ["spike", false],
+      ["feature/gone", true],
+    ],
+  );
+  assert.deepEqual(summary.dead.merged, [{ name: "feature/merged", time: daysAgo(3) }]);
+  assert.deepEqual(summary.dead.deleted, [{ name: "feature/gone", time: daysAgo(90) }]);
   assert.equal(summary.dead.value, 2);
   // A dead branch is not also stale, and the newest copy of a branch decides.
   assert.deepEqual(summary.stale.branches, [
-    { name: "feature/old", days: 45 },
-    { name: "spike", days: 40 },
+    { name: "feature/old", time: daysAgo(45), days: 45 },
+    { name: "spike", time: daysAgo(40), days: 40 },
   ]);
 });
 
@@ -465,30 +483,237 @@ test("a partial list of GitHub branches does not mark local branches as deleted"
   );
   assert.equal(summary.remote.value, 249);
   assert.deepEqual(summary.dead.deleted, []);
-  assert.deepEqual(summary.dead.merged, ["feature/a"]);
+  assert.deepEqual(summary.dead.merged, [{ name: "feature/a", time: daysAgo(1) }]);
   assert.equal(summary.dead.capped, true);
-  assert.equal(buildRows({ branches: summary }).find((row) => row.kind === "branches-dead").count, "1+");
+  const rows = buildRows({ branches: summary });
+  assert.equal(rows.find((row) => row.kind === "branches-dead").count, "1+");
+  const remoteTip = rows.find((row) => row.kind === "branches-remote").detail;
+  // One branch was read of 249, so the tooltip counts the rest and says why.
+  assert.deepEqual(tipLists({ detail: remoteTip }), [["", ["feature/a"], 248]]);
+  assert.equal(remoteTip.note, "Only the first 100 branches on GitHub were read.");
 });
 
-test("branch rows form one group with names in their tooltips", () => {
+test("branch rows form one group with branches in their tooltips", () => {
   const rows = buildRows({
     issues: count(1),
     branches: {
-      remote: { value: 12, capped: false, names: Array.from({ length: 12 }, (_, i) => `b${i}`) },
-      local: { value: 0, capped: false, names: [] },
-      dead: { value: 2, capped: false, merged: ["m1"], deleted: ["d1"] },
-      stale: { value: 1, capped: false, branches: [{ name: "old", days: 40 }] },
+      remote: {
+        value: 12,
+        capped: false,
+        partial: false,
+        branches: Array.from({ length: 12 }, (_, i) => ({ name: `b${i}`, time: daysAgo(i), merged: i === 0 })),
+      },
+      local: { value: 0, capped: false, branches: [] },
+      dead: {
+        value: 2,
+        capped: false,
+        merged: [{ name: "m1", time: daysAgo(3) }],
+        deleted: [{ name: "d1", time: null }],
+      },
+      stale: { value: 1, capped: true, branches: [{ name: "old", time: daysAgo(40), days: 40 }] },
     },
   });
   assert.deepEqual(rows.map((row) => [row.group || "", row.kind, row.label, row.count]), [
     ["", "issues", "Issues", "1"],
     ["branches", "branches-remote", "Remote", "12"],
     ["branches", "branches-dead", "Dead", "2"],
-    ["branches", "branches-stale", "Stale", "1"],
+    ["branches", "branches-stale", "Stale", "1+"],
   ]);
-  assert.equal(rows[1].title, "b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, and 2 more");
-  assert.equal(rows[2].title, "Merged on GitHub: m1\nDeleted on GitHub: d1");
-  assert.equal(rows[3].title, "old (40 days)");
+  assert.deepEqual(tipLists(rows[1]), [["", ["b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"], 4]]);
+  assert.deepEqual(rows[1].detail.sections[0].items[0], {
+    text: "b0",
+    time: daysAgo(0),
+    badges: [{ text: "Merged", tone: "success" }],
+  });
+  assert.equal(rows[1].detail.note, undefined);
+  assert.deepEqual(tipLists(rows[2]), [
+    ["Merged on GitHub", ["m1"], 0],
+    ["Deleted on GitHub", ["d1"], 0],
+  ]);
+  assert.deepEqual(tipLists(rows[3]), [["", ["old"], 0]]);
+  assert.equal(rows[3].detail.summary, "No commits for 30+ days");
+  assert.equal(rows[3].detail.note, "Some branches could not be checked, so there may be more.");
+});
+
+test("issue and pull request tooltips list the latest items with their state", () => {
+  const rows = buildRows({
+    issues: {
+      value: 7,
+      capped: false,
+      items: [
+        { number: 12, title: "כותרת בעברית", author: "dana", time: daysAgo(1), labels: [{ name: "bug", color: "d73a4a" }, { name: "x", color: null }] },
+      ],
+    },
+    pulls: {
+      value: 2,
+      capped: false,
+      items: [
+        { number: 58, title: "Branches", author: "shlomi", time: daysAgo(0), draft: false, review: "APPROVED" },
+        { number: 49, title: "Tables", author: "", time: null, draft: true, review: null },
+      ],
+    },
+  });
+  assert.deepEqual(rows[0].detail, {
+    title: "Issues",
+    summary: "7 open",
+    sections: [
+      {
+        items: [
+          {
+            lead: "#12",
+            text: "כותרת בעברית",
+            meta: ["dana"],
+            time: daysAgo(1),
+            badges: [{ text: "bug", color: "d73a4a" }, { text: "x", color: null }],
+          },
+        ],
+        more: 6,
+      },
+    ],
+  });
+  assert.deepEqual(
+    rows[1].detail.sections[0].items.map((item) => [item.lead, item.meta, item.badges]),
+    [
+      ["#58", ["shlomi"], [{ text: "Approved", tone: "success" }]],
+      ["#49", [], [{ text: "Draft", tone: "muted" }]],
+    ],
+  );
+});
+
+test("the security tooltip groups alerts by source and severity", () => {
+  const [row] = buildRows({
+    dependabot: {
+      value: 150,
+      capped: false,
+      alerts: [
+        { severity: "low", package: "a" },
+        { severity: "critical", package: "b" },
+        { severity: "high", package: "c" },
+        { severity: "critical", package: "d" },
+      ],
+    },
+    codeScanning: { value: 1, capped: false, alerts: [{ severity: "medium", rule: "XSS", path: "src/x.js" }] },
+    secretScanning: { value: 1, capped: false, alerts: [{ type: "GitHub Token" }] },
+  });
+  const [dependabot, codeScanning, secretScanning] = row.detail.sections;
+  assert.equal(row.count, "152");
+  assert.deepEqual(dependabot.chips.map((chip) => chip.text), ["2 Critical", "1 High", "1 Low"]);
+  assert.deepEqual(dependabot.items.map((item) => item.text), ["b", "d", "c", "a"]);
+  assert.equal(dependabot.more, 146);
+  assert.deepEqual(codeScanning.items, [
+    { text: "XSS", meta: ["src/x.js"], badges: [{ text: "Medium", tone: "medium" }] },
+  ]);
+  assert.deepEqual(secretScanning, { title: "Secret scanning · 1", items: [{ text: "GitHub Token" }], more: 0 });
+  assert.equal(row.detail.note, "Severities count the first 4 Dependabot alerts.");
+});
+
+test("a local branch shows how it stands against its upstream", () => {
+  const summary = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: {
+        total: 3,
+        capped: false,
+        nodes: [
+          { name: "main", time: daysAgo(1), merged: false },
+          { name: "feature/a", time: daysAgo(1), merged: false },
+          { name: "feature/b", time: daysAgo(1), merged: false },
+        ],
+      },
+      local: [
+        { name: "feature/a", upstream: "feature/a", time: daysAgo(1), track: "" },
+        { name: "feature/b", upstream: "feature/b", time: daysAgo(2), track: "ahead 1, behind 2" },
+        { name: "feature/c", upstream: "feature/c", time: daysAgo(3), track: "gone" },
+        { name: "spike", upstream: null, time: daysAgo(4), track: "" },
+        { name: "wt", upstream: "main", time: daysAgo(5), track: "ahead 3" },
+      ],
+    },
+    NOW,
+  );
+  const local = buildRows({ branches: summary }).find((row) => row.kind === "branches-local");
+  assert.deepEqual(
+    local.detail.sections[0].items.map((item) => [item.text, item.badges[0].text, item.badges[0].tone]),
+    [
+      ["feature/a", "Up to date", "success"],
+      ["feature/b", "ahead 1, behind 2", "medium"],
+      // The complete GitHub list shows that feature/c is gone.
+      ["feature/c", "Deleted on GitHub", "critical"],
+      ["spike", "No upstream", "muted"],
+      ["wt", "ahead 3", "info"],
+    ],
+  );
+});
+
+test("GitHub details are read into plain fields, and a found secret is dropped", async () => {
+  const run = async (file, args) => {
+    if (args[3] === "graphql") {
+      return {
+        error: null,
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              issues: {
+                totalCount: 1,
+                nodes: [
+                  {
+                    number: 3,
+                    title: "x".repeat(400),
+                    updatedAt: "2026-11-16T12:00:00Z",
+                    author: null,
+                    labels: { nodes: [{ name: "bug", color: "D73A4A" }, { name: "evil", color: "red;background:url(x)" }] },
+                  },
+                  null,
+                  { number: "4", title: "not a number" },
+                ],
+              },
+              pullRequests: {
+                totalCount: 1,
+                nodes: [{ number: 9, title: "p", updatedAt: "bad", isDraft: true, reviewDecision: "SOMETHING_NEW", author: { login: "me" } }],
+              },
+              vulnerabilityAlerts: {
+                totalCount: 2,
+                nodes: [
+                  { securityVulnerability: { severity: "MODERATE", package: { name: "lodash" } } },
+                  { securityVulnerability: null },
+                ],
+              },
+            },
+          },
+        }),
+        stderr: "",
+      };
+    }
+    if (args[3].includes("code-scanning")) {
+      return {
+        error: null,
+        stdout: JSON.stringify([{ rule: { severity: "error", description: "SQL injection" }, most_recent_instance: { location: { path: "db.js" } } }]),
+        stderr: "",
+      };
+    }
+    return {
+      error: null,
+      stdout: JSON.stringify([{ secret_type: "token", secret_type_display_name: "GitHub Token", secret: "ghp_SECRETVALUE" }]),
+      stderr: "",
+    };
+  };
+  const status = await fetchCounts(run, parseGitHubRemote("https://github.com/o/r"));
+  assert.deepEqual(status.issues.items, [
+    {
+      number: 3,
+      title: "x".repeat(300),
+      author: "",
+      time: Date.parse("2026-11-16T12:00:00Z"),
+      labels: [{ name: "bug", color: "d73a4a" }, { name: "evil", color: null }],
+    },
+  ]);
+  assert.deepEqual(status.pulls.items, [{ number: 9, title: "p", author: "me", time: null, draft: true, review: null }]);
+  assert.deepEqual(status.dependabot.alerts, [
+    { severity: "medium", package: "lodash" },
+    { severity: null, package: "" },
+  ]);
+  assert.deepEqual(status.codeScanning.alerts, [{ severity: "high", rule: "SQL injection", path: "db.js" }]);
+  assert.deepEqual(status.secretScanning.alerts, [{ type: "GitHub Token" }]);
+  assert.equal(JSON.stringify(buildRows(status)).includes("ghp_SECRETVALUE"), false);
 });
 
 test("a check reads GitHub and local branches into the Branches group", async () => {
@@ -519,10 +744,10 @@ test("a check reads GitHub and local branches into the Branches group", async ()
     ["branches-local", "3"],
     ["branches-dead", "3"],
   ]);
-  assert.equal(
-    last().rows[3].title,
-    "Merged on GitHub: feature/done, feature/twice\nDeleted on GitHub: feature/gone",
-  );
+  assert.deepEqual(tipLists(last().rows[3]), [
+    ["Merged on GitHub", ["feature/done", "feature/twice"], 0],
+    ["Deleted on GitHub", ["feature/gone"], 0],
+  ]);
 
   await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-local" }));
   await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-dead" }));
@@ -551,10 +776,10 @@ test("two clones of one repository keep their own local branches", async () => {
   const otherHref = `t3code://app/${environmentId}/other-thread`;
   state.localBranches = `only-in-a\0\0\0${Math.floor(state.time / 1000)}\n`;
   await check();
-  assert.equal(last().rows.find((row) => row.kind === "branches-local").title, "only-in-a");
+  assert.deepEqual(tipLists(last().rows.find((row) => row.kind === "branches-local")), [["", ["only-in-a"], 0]]);
   state.localBranches = `only-in-b\0\0\0${Math.floor(state.time / 1000)}\n`;
   await check("navigate", otherHref);
-  assert.equal(last().rows.find((row) => row.kind === "branches-local").title, "only-in-b");
+  assert.deepEqual(tipLists(last().rows.find((row) => row.kind === "branches-local")), [["", ["only-in-b"], 0]]);
 });
 
 test("staleness follows the tracked GitHub branch, not the local name", () => {
@@ -582,8 +807,8 @@ test("staleness follows the tracked GitHub branch, not the local name", () => {
     NOW,
   );
   assert.deepEqual(summary.stale.branches, [
-    { name: "worktree-agent-1", days: 61 },
-    { name: "shared-name", days: 50 },
+    { name: "worktree-agent-1", time: daysAgo(61), days: 61 },
+    { name: "shared-name", time: daysAgo(50), days: 50 },
   ]);
 });
 
@@ -629,7 +854,7 @@ test("an unknown merge state or a branch outside the list is neither dead nor st
     },
     NOW,
   );
-  assert.deepEqual(summary.stale.branches, [{ name: "feature/old", days: 40 }]);
+  assert.deepEqual(summary.stale.branches, [{ name: "feature/old", time: daysAgo(40), days: 40 }]);
   assert.equal(buildRows({ branches: summary }).find((row) => row.kind === "branches-stale").count, "1+");
 });
 
@@ -650,7 +875,7 @@ test("an unreadable pull request or a missing GitHub list marks the counts as pa
   // says that more may exist.
   const stale = last().rows.find((row) => row.kind === "branches-stale");
   assert.equal(stale.count, "1+");
-  assert.equal(stale.title, "feature/y (45 days)");
+  assert.deepEqual(tipLists(stale), [["", ["feature/y"], 0]]);
 
   const noList = summarizeBranches(
     {
@@ -663,7 +888,7 @@ test("an unreadable pull request or a missing GitHub list marks the counts as pa
     },
     NOW,
   );
-  assert.deepEqual(noList.stale.branches, [{ name: "alone", days: 40 }]);
+  assert.deepEqual(noList.stale.branches, [{ name: "alone", time: daysAgo(40), days: 40 }]);
   assert.equal(noList.stale.capped, true);
 });
 
