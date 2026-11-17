@@ -371,6 +371,17 @@ async function run() {
     <div style="position: relative; width: 400px; height: 40px">
       <div id="updated-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">Ask anything. @ files, $ skills, / commands</div>
     </div>
+    <div id="composer-banners" style="width: 360px">
+      <div data-slot="composer-banner">
+        <div style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; text-align: start">
+          <div data-slot="composer-banner-icon">i</div>
+          <div data-slot="composer-banner-content" class="items-baseline whitespace-nowrap" style="display: flex; min-width: 0; gap: 4px; align-items: baseline; white-space: nowrap">
+            <span class="contents" style="display: contents"><span class="min-w-0 truncate font-medium" style="min-width: 0; overflow: hidden; text-overflow: ellipsis">Usage limits</span></span>
+            <span class="contents" style="display: contents"><span id="english-banner-description" class="w-0 min-w-0 grow truncate text-muted-foreground" style="width: 0; min-width: 0; flex-grow: 1; overflow: hidden; text-overflow: ellipsis">Resets in 2 hours</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <ul>
       <li data-thread-item="true">
         <div role="button"><span>agent-config</span></div>
@@ -520,6 +531,18 @@ ${rtlText}
       // A predicted next prompt replaces the text of the composer placeholder
       // in place, the way React updates it.
       document.getElementById("updated-placeholder").firstChild.nodeValue = ${JSON.stringify(rtlText)};
+      // Replying to quoted text adds a notice above the composer whose
+      // description is the quote, and a truncated description opens a
+      // Notice details popup with the full quote.
+      const replyQuote = ${JSON.stringify(`${rtlText} PR #131 ${rtlText} CI 4.4.0, ${rtlText} ${rtlText} ${rtlText}`)};
+      const replyBanner = document.createElement("div");
+      replyBanner.setAttribute("data-slot", "composer-banner");
+      replyBanner.innerHTML = '<div style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; text-align: start"><div data-slot="composer-banner-icon">i</div><div id="reply-banner-content" data-slot="composer-banner-content" class="items-baseline whitespace-nowrap" style="display: flex; min-width: 0; gap: 4px; align-items: baseline; white-space: nowrap"><span class="contents" style="display: contents"><span id="reply-banner-title" class="min-w-0 truncate font-medium" style="min-width: 0; overflow: hidden; text-overflow: ellipsis">Replying to</span></span><span class="contents" style="display: contents"><span id="reply-banner-description" class="w-0 min-w-0 grow truncate text-muted-foreground" style="width: 0; min-width: 0; flex-grow: 1; overflow: hidden; text-overflow: ellipsis"><button id="reply-banner-quote" type="button" class="cursor-pointer hover:text-foreground">' + replyQuote + '</button></span></span></div><div data-slot="composer-banner-actions"><button aria-label="Cancel reply">x</button></div></div>';
+      document.getElementById("composer-banners").appendChild(replyBanner);
+      const noticeDetails = document.createElement("div");
+      noticeDetails.setAttribute("data-slot", "popover-positioner");
+      noticeDetails.innerHTML = '<div id="notice-details" data-slot="popover-popup" aria-label="Notice details" style="width: 300px"><div data-slot="popover-viewport"><div><button type="button">' + replyQuote + '</button></div></div></div>';
+      document.body.appendChild(noticeDetails);
       const secondComposerParagraph = document.getElementById("second-composer-paragraph");
       const composerParagraphBeforeTyping = document.getElementById("composer-chip-rtl-paragraph");
       const dynamicCommentEditor = document.createElement("div");
@@ -788,6 +811,23 @@ ${rtlText}
               englishPlaceholderTextAtLeft: Math.abs(englishRect.left - box("english-placeholder").left) <= 1,
               englishPlaceholderHintGap: Math.round(box("english-placeholder-hint").left - englishRect.right),
               updatedPlaceholderDir: document.getElementById("updated-placeholder").dir,
+            };
+          })(),
+          ...(() => {
+            const box = (id) => document.getElementById(id).getBoundingClientRect();
+            const description = document.getElementById("reply-banner-description");
+            return {
+              replyBannerDescriptionDir: description.dir,
+              replyBannerQuoteDirection: style("reply-banner-quote").direction,
+              replyBannerQuoteTruncated: description.scrollWidth > description.clientWidth,
+              replyBannerQuoteStartsAtRight:
+                Math.abs(box("reply-banner-quote").right - box("reply-banner-description").right) <= 1,
+              replyBannerTitleDirection: style("reply-banner-title").direction,
+              replyBannerTitleAtLeft:
+                Math.abs(box("reply-banner-title").left - box("reply-banner-content").left) <= 1,
+              noticeDetailsDir: document.getElementById("notice-details").dir,
+              englishBannerDescriptionDir: document.getElementById("english-banner-description").dir,
+              englishBannerDescriptionDirection: style("english-banner-description").direction,
             };
           })(),
           composerParagraphsKept:
@@ -1190,6 +1230,15 @@ ${rtlText}
     englishPlaceholderTextAtLeft: true,
     englishPlaceholderHintGap: 8,
     updatedPlaceholderDir: "rtl",
+    replyBannerDescriptionDir: "rtl",
+    replyBannerQuoteDirection: "rtl",
+    replyBannerQuoteTruncated: true,
+    replyBannerQuoteStartsAtRight: true,
+    replyBannerTitleDirection: "ltr",
+    replyBannerTitleAtLeft: true,
+    noticeDetailsDir: "rtl",
+    englishBannerDescriptionDir: "auto",
+    englishBannerDescriptionDirection: "ltr",
     composerParagraphsKept: true,
     composerRtlChipAtStart: true,
     composerEnglishChipAtStart: true,
