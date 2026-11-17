@@ -116,7 +116,12 @@ const fakeRun = async (file, args) => {
   if (file === "git" && args[2] === "for-each-ref") {
     return {
       error: null,
-      stdout: `main\0origin\0refs/heads/main\0${recentSeconds}\nspike\0\0\0${recentSeconds}\n`,
+      stdout: [
+        `main\0origin\0refs/heads/main\0${recentSeconds}`,
+        ...["spike", "spike-1", "spike-2", "spike-3", "spike-4", "spike-5", "spike-6", "spike-7"].map(
+          (name, i) => `${name}\0\0\0${recentSeconds - i}`,
+        ),
+      ].join("\n") + "\n",
       stderr: "",
     };
   }
@@ -218,7 +223,7 @@ async function run() {
       ["BUTTON", "branches-remote", "Remote1", 0, false],
       // Local branches have no GitHub page, so their row is not a button,
       // but the keyboard still reaches it for its tooltip.
-      ["DIV", "branches-local", "Local1", 0, false],
+      ["DIV", "branches-local", "Local8", 0, false],
     ],
   };
   if (JSON.stringify(shown) !== JSON.stringify(expectedShown)) {
@@ -247,6 +252,7 @@ async function run() {
   }
 
   await checkTooltip(sessionId);
+  await checkShortWindow(sessionId);
 
   // Another thread without a GitHub repository hides the section at once.
   await evaluate(sessionId, `history.pushState({}, "", "/${environmentId}/${threadWithoutRepo}"), 1`);
@@ -321,11 +327,9 @@ async function hoverRow(sessionId, kind) {
     sessionId,
     `JSON.stringify(document.querySelector('[data-t3-rtl-repo-status] [data-kind="${kind}"]').getBoundingClientRect())`,
   ));
-  await send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x: box.x + box.width / 2,
-    y: box.y + box.height / 2,
-  }, sessionId);
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point }, sessionId);
+  return point;
 }
 
 async function checkTooltip(sessionId) {
@@ -365,7 +369,45 @@ async function checkTooltip(sessionId) {
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close on Escape");
+
+  // A click closes it on a row that is not a button too.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await waitFor(sessionId, TIP_HIDDEN, "the pointer to leave");
+  const local = await hoverRow(sessionId, "branches-local");
+  await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the Local tooltip again");
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", { type, x: local.x, y: local.y, button: "left", clickCount: 1 }, sessionId);
+  }
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close on a click on Local");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+}
+
+// In a short window the tooltip shows fewer items and counts the rest.
+// The fixture folder has eight local branches.
+async function checkShortWindow(sessionId) {
+  await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 320, deviceScaleFactor: 1, mobile: false }, sessionId);
+  // The resize closes any tooltip, so the hover waits for it.
+  await wait(300);
+  await hoverRow(sessionId, "branches-local");
+  await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the Local tooltip in a short window");
+  const state = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
+    const tip = document.querySelector(".t3-rtl-repo-status-tip");
+    const box = tip.getBoundingClientRect();
+    return {
+      title: tip.querySelector(".t3-rtl-tip-title").textContent,
+      fits: tip.scrollHeight <= tip.clientHeight && box.top >= 0 && box.bottom <= innerHeight,
+      shown: tip.querySelectorAll(".t3-rtl-tip-item").length,
+      more: tip.querySelector(".t3-rtl-tip-more")?.textContent,
+    };
+  })())`));
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
+  if (
+    state.title !== "Local branches" || !state.fits || state.shown >= 8 || state.shown < 1 ||
+    state.more !== `and ${8 - state.shown} more`
+  ) {
+    throw new Error(`Unexpected tooltip in a short window: ${JSON.stringify(state)}`);
+  }
 }
 
 function cleanProfile() {

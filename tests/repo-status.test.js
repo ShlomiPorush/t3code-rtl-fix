@@ -626,6 +626,8 @@ test("a local branch shows how it stands against its upstream", () => {
         { name: "feature/c", upstream: "feature/c", time: daysAgo(3), track: "gone" },
         { name: "spike", upstream: null, time: daysAgo(4), track: "" },
         { name: "wt", upstream: "main", time: daysAgo(5), track: "ahead 3" },
+        // Tracks a branch on a remote other than origin.
+        { name: "fork", upstream: null, tracking: true, time: daysAgo(6), track: "ahead 2, behind 1" },
       ],
     },
     NOW,
@@ -640,6 +642,7 @@ test("a local branch shows how it stands against its upstream", () => {
       ["feature/c", "Deleted on GitHub", "critical"],
       ["spike", "No upstream", "muted"],
       ["wt", "ahead 3", "info"],
+      ["fork", "ahead 2, behind 1", "medium"],
     ],
   );
 });
@@ -748,6 +751,15 @@ test("a check reads GitHub and local branches into the Branches group", async ()
     ["Merged on GitHub", ["feature/done", "feature/twice"], 0],
     ["Deleted on GitHub", ["feature/gone"], 0],
   ]);
+  // feature/mirror tracks a branch on another remote, so it has an upstream.
+  assert.deepEqual(
+    last().rows[2].detail.sections[0].items.map((item) => [item.text, item.badges[0].text]),
+    [
+      ["feature/gone", "Deleted on GitHub"],
+      ["feature/mirror", "Up to date"],
+      ["work", "Up to date"],
+    ],
+  );
 
   await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-local" }));
   await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-dead" }));

@@ -240,6 +240,7 @@ function summarizeBranches({ defaultBranch, remote, local }, now) {
           branches: [...localBranches].sort(byNewest).map((branch) => ({
             ...named(branch),
             upstream: branch.upstream,
+            tracking: Boolean(branch.upstream || branch.tracking),
             track: typeof branch.track === "string" ? branch.track : "",
             deleted: deletedNames.has(branch.name),
           })),
@@ -373,7 +374,7 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
 
 function localBadge(branch) {
   if (branch.deleted) return { text: "Deleted on GitHub", tone: "critical" };
-  if (!branch.upstream) return { text: "No upstream", tone: "muted" };
+  if (!branch.tracking) return { text: "No upstream", tone: "muted" };
   if (branch.track === "gone") return { text: "Upstream gone", tone: "critical" };
   if (!branch.track) return { text: "Up to date", tone: "success" };
   return { text: branch.track, tone: branch.track.includes("behind") ? "medium" : "info" };
@@ -627,6 +628,8 @@ async function readLocalBranches(run, folder) {
       return {
         name,
         upstream: tracksOrigin ? remoteRef.slice(HEADS_PREFIX.length) : null,
+        // Any upstream, such as a branch on another remote.
+        tracking: Boolean(remoteRef),
         time: Number(seconds) * 1000,
         // Such as "ahead 1, behind 2" or "gone".
         track: track.trim().slice(0, 40),
@@ -1392,7 +1395,9 @@ function buildRepoStatusPageSource() {
     return tip;
   };
 
-  const fillTip = (detail) => {
+  // limit caps the items of each section. The items left out add to its
+  // "more" count.
+  const fillTip = (detail, limit = Infinity) => {
     const box = ensureTip();
     box.replaceChildren();
     const head = make("div", "t3-rtl-tip-head");
@@ -1406,8 +1411,11 @@ function buildRepoStatusPageSource() {
         for (const chip of section.chips) chips.appendChild(badge(chip));
         part.appendChild(chips);
       }
-      for (const item of section.items || []) part.appendChild(tipItem(item));
-      if (section.more > 0) part.appendChild(make("div", "t3-rtl-tip-more", "and " + section.more + " more"));
+      const items = section.items || [];
+      const shown = items.slice(0, limit);
+      for (const item of shown) part.appendChild(tipItem(item));
+      const more = (section.more || 0) + items.length - shown.length;
+      if (more > 0) part.appendChild(make("div", "t3-rtl-tip-more", "and " + more + " more"));
       box.appendChild(part);
     }
     if (detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
@@ -1460,6 +1468,12 @@ function buildRepoStatusPageSource() {
         // A fixed tooltip with a high z-index still shows.
       }
     }
+    // The tooltip cannot scroll, so in a short window it shows fewer items
+    // of each section until it fits.
+    const longest = Math.max(0, ...(detail.sections || []).map((section) => (section.items || []).length));
+    for (let limit = longest - 1; limit >= 1 && tip.scrollHeight > tip.clientHeight; limit -= 1) {
+      fillTip(detail, limit);
+    }
     placeTip();
     anchor.setAttribute("aria-describedby", tip.id);
     requestAnimationFrame(() => {
@@ -1492,6 +1506,7 @@ function buildRepoStatusPageSource() {
       if (element.matches(":focus-visible")) showTip(element, detail);
     });
     element.addEventListener("blur", hideTip);
+    element.addEventListener("click", hideTip);
   };
 
   document.addEventListener("keydown", (event) => {
@@ -1560,7 +1575,6 @@ function buildRepoStatusPageSource() {
         element.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          hideTip();
           notify({ type: "open", kind: row.kind });
         });
       }
