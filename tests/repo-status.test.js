@@ -148,7 +148,7 @@ test("counts are read from a GraphQL answer that also carries errors", async () 
     pulls: { ...count(1), items: [] },
     dependabot: null,
     codeScanning: null,
-    secretScanning: { ...count(2), alerts: [{ type: "" }, { type: "" }] },
+    secretScanning: { ...count(2), alerts: [{ number: null, type: "" }, { number: null, type: "" }] },
   });
   assert.ok(calls.every(([file]) => file === "gh"));
   assert.ok(calls.every((call) => call[2] === "--hostname" && call[3] === "github.com"));
@@ -274,6 +274,7 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
   const send = async (method, params, sessionId) => {
     state.sent.push([sessionId, method]);
     if (method !== "Runtime.evaluate" || !params.expression.includes("receive(")) return {};
+    if (state.failPush) throw new Error("the page navigated");
     const match = /receive\((.*)\);/.exec(params.expression);
     state.pushes.push({ sessionId, data: JSON.parse(match[1]) });
     return {};
@@ -358,7 +359,7 @@ test("a row stays clickable while the same thread refreshes", async () => {
   state.time += FRESH_MS + 1;
   const refreshing = check("focus");
   await new Promise((resolve) => setImmediate(resolve));
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "issues" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "issues" }));
   assert.deepEqual(state.opened, ["https://github.com/o/r/issues"]);
   state.releases.forEach((release) => release());
   await refreshing;
@@ -467,8 +468,8 @@ test("branches are sorted into remote, local, dead, and stale", () => {
   assert.equal(summary.dead.value, 2);
   // A dead branch is not also stale, and the newest copy of a branch decides.
   assert.deepEqual(summary.stale.branches, [
-    { name: "feature/old", time: daysAgo(45), days: 45 },
-    { name: "spike", time: daysAgo(40), days: 40 },
+    { name: "feature/old", time: daysAgo(45), days: 45, github: true },
+    { name: "spike", time: daysAgo(40), days: 40, github: false },
   ]);
 });
 
@@ -523,8 +524,10 @@ test("branch rows form one group with branches in their tooltips", () => {
   assert.deepEqual(rows[1].detail.sections[0].items[0], {
     text: "b0",
     time: daysAgo(0),
+    link: "tree/b0",
     badges: [{ text: "Merged", tone: "success" }],
   });
+  assert.equal(rows[1].detail.sections[0].link, "branches/all");
   assert.equal(rows[1].detail.note, undefined);
   assert.deepEqual(tipLists(rows[2]), [
     ["Merged on GitHub", ["m1"], 0],
@@ -565,9 +568,11 @@ test("issue and pull request tooltips list the latest items with their state", (
             meta: ["dana"],
             time: daysAgo(1),
             badges: [{ text: "bug", color: "d73a4a" }, { text: "x", color: null }],
+            link: "issues/12",
           },
         ],
         more: 6,
+        link: "issues",
       },
     ],
   });
@@ -603,7 +608,12 @@ test("the security tooltip groups alerts by source and severity", () => {
   assert.deepEqual(codeScanning.items, [
     { text: "XSS", meta: ["src/x.js"], badges: [{ text: "Medium", tone: "medium" }] },
   ]);
-  assert.deepEqual(secretScanning, { title: "Secret scanning · 1", items: [{ text: "GitHub Token" }], more: 0 });
+  assert.deepEqual(secretScanning, {
+    title: "Secret scanning · 1",
+    items: [{ text: "GitHub Token" }],
+    more: 0,
+    link: "security/secret-scanning",
+  });
   assert.equal(row.detail.note, "Severities count the first 4 Dependabot alerts.");
 });
 
@@ -676,8 +686,8 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
               vulnerabilityAlerts: {
                 totalCount: 2,
                 nodes: [
-                  { securityVulnerability: { severity: "MODERATE", package: { name: "lodash" } } },
-                  { securityVulnerability: null },
+                  { number: 5, securityVulnerability: { severity: "MODERATE", package: { name: "lodash" } } },
+                  { number: -1, securityVulnerability: null },
                 ],
               },
             },
@@ -689,13 +699,13 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
     if (args[3].includes("code-scanning")) {
       return {
         error: null,
-        stdout: JSON.stringify([{ rule: { severity: "error", description: "SQL injection" }, most_recent_instance: { location: { path: "db.js" } } }]),
+        stdout: JSON.stringify([{ number: 8, rule: { severity: "error", description: "SQL injection" }, most_recent_instance: { location: { path: "db.js" } } }]),
         stderr: "",
       };
     }
     return {
       error: null,
-      stdout: JSON.stringify([{ secret_type: "token", secret_type_display_name: "GitHub Token", secret: "ghp_SECRETVALUE" }]),
+      stdout: JSON.stringify([{ number: 3, secret_type: "token", secret_type_display_name: "GitHub Token", secret: "ghp_SECRETVALUE" }]),
       stderr: "",
     };
   };
@@ -711,11 +721,11 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
   ]);
   assert.deepEqual(status.pulls.items, [{ number: 9, title: "p", author: "me", time: null, draft: true, review: null }]);
   assert.deepEqual(status.dependabot.alerts, [
-    { severity: "medium", package: "lodash" },
-    { severity: null, package: "" },
+    { number: 5, severity: "medium", package: "lodash" },
+    { number: null, severity: null, package: "" },
   ]);
-  assert.deepEqual(status.codeScanning.alerts, [{ severity: "high", rule: "SQL injection", path: "db.js" }]);
-  assert.deepEqual(status.secretScanning.alerts, [{ type: "GitHub Token" }]);
+  assert.deepEqual(status.codeScanning.alerts, [{ number: 8, severity: "high", rule: "SQL injection", path: "db.js" }]);
+  assert.deepEqual(status.secretScanning.alerts, [{ number: 3, type: "GitHub Token" }]);
   assert.equal(JSON.stringify(buildRows(status)).includes("ghp_SECRETVALUE"), false);
 });
 
@@ -761,9 +771,9 @@ test("a check reads GitHub and local branches into the Branches group", async ()
     ],
   );
 
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-local" }));
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-dead" }));
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "constructor" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "branches-local" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "branches-dead" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "constructor" }));
   assert.deepEqual(state.opened, ["https://github.com/o/r/branches"]);
 });
 
@@ -819,8 +829,8 @@ test("staleness follows the tracked GitHub branch, not the local name", () => {
     NOW,
   );
   assert.deepEqual(summary.stale.branches, [
-    { name: "worktree-agent-1", time: daysAgo(61), days: 61 },
-    { name: "shared-name", time: daysAgo(50), days: 50 },
+    { name: "worktree-agent-1", time: daysAgo(61), days: 61, github: false },
+    { name: "shared-name", time: daysAgo(50), days: 50, github: false },
   ]);
 });
 
@@ -866,7 +876,7 @@ test("an unknown merge state or a branch outside the list is neither dead nor st
     },
     NOW,
   );
-  assert.deepEqual(summary.stale.branches, [{ name: "feature/old", time: daysAgo(40), days: 40 }]);
+  assert.deepEqual(summary.stale.branches, [{ name: "feature/old", time: daysAgo(40), days: 40, github: true }]);
   assert.equal(buildRows({ branches: summary }).find((row) => row.kind === "branches-stale").count, "1+");
 });
 
@@ -900,7 +910,7 @@ test("an unreadable pull request or a missing GitHub list marks the counts as pa
     },
     NOW,
   );
-  assert.deepEqual(noList.stale.branches, [{ name: "alone", time: daysAgo(40), days: 40 }]);
+  assert.deepEqual(noList.stale.branches, [{ name: "alone", time: daysAgo(40), days: 40, github: false }]);
   assert.equal(noList.stale.capped, true);
 });
 
@@ -918,16 +928,177 @@ test("a removed worktree falls back to the project folder", async () => {
 
 test("open accepts only known pages of the repository shown", async () => {
   const { service, state, check } = createHarness();
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "issues" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "issues" }));
   assert.deepEqual(state.opened, []);
   await check();
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "issues" }));
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "https://evil.example" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "issues" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "https://evil.example" }));
   await service.handle("s1", "not json");
   assert.deepEqual(state.opened, ["https://github.com/o/r/issues"]);
   service.forget("s1");
-  await service.handle("s1", JSON.stringify({ type: "open", kind: "pulls" }));
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", kind: "pulls" }));
   assert.equal(state.opened.length, 1);
+});
+
+test("tooltip items and lists link to their own GitHub pages", () => {
+  const rows = buildRows({
+    issues: { value: 9, capped: false, items: [{ number: 12, title: "a", labels: [] }] },
+    pulls: { value: 1, capped: false, items: [{ number: 58, title: "b" }] },
+    dependabot: { value: 2, capped: false, alerts: [{ number: 4, severity: "high", package: "x" }, { number: null, severity: "low", package: "y" }] },
+    codeScanning: { value: 1, capped: false, alerts: [{ number: 8, severity: "high", rule: "r" }] },
+    secretScanning: { value: 1, capped: false, alerts: [{ number: 3, type: "t" }] },
+    branches: summarizeBranches(
+      {
+        defaultBranch: "main",
+        remote: {
+          total: 3,
+          capped: false,
+          nodes: [
+            { name: "main", time: daysAgo(1), merged: false },
+            { name: "feature/תיקון#1%", time: daysAgo(40), merged: false },
+            { name: "done", time: daysAgo(2), merged: true },
+          ],
+        },
+        local: [
+          { name: "work", upstream: "feature/תיקון#1%", time: daysAgo(41), track: "ahead 1" },
+          { name: "gone", upstream: "gone", time: daysAgo(1), track: "gone" },
+          { name: "spike", upstream: null, time: daysAgo(50), track: "" },
+        ],
+      },
+      NOW,
+    ),
+  });
+  const links = (kind) => rows.find((row) => row.kind === kind).detail.sections.map((section) => [
+    section.link || null,
+    section.items.map((item) => item.link || null),
+  ]);
+  assert.deepEqual(links("issues"), [["issues", ["issues/12"]]]);
+  assert.deepEqual(links("pulls"), [["pulls", ["pull/58"]]]);
+  assert.deepEqual(links("security"), [
+    // An alert without a number has no page to open.
+    ["security/dependabot", ["security/dependabot/4", null]],
+    ["security/code-scanning", ["security/code-scanning/8"]],
+    ["security/secret-scanning", ["security/secret-scanning/3"]],
+  ]);
+  // Each part of a branch name is encoded, and the slashes between them stay.
+  assert.deepEqual(links("branches-remote"), [["branches/all", ["tree/done", "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
+  // A local branch links to the GitHub branch it tracks, unless it is gone.
+  // Local branches have no list on GitHub.
+  assert.deepEqual(links("branches-local"), [[null, [null, "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25", null]]]);
+  // The deleted branch is local only, so it has no page.
+  assert.deepEqual(links("branches-dead"), [
+    ["branches/all", ["tree/done"]],
+    [null, [null]],
+  ]);
+  // A stale branch on GitHub links to it, and a local one does not.
+  assert.deepEqual(links("branches-stale"), [["branches/all", [null, "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
+});
+
+test("a branch name that is not a safe path has no link", () => {
+  const remote = (names) => summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: { total: names.length, capped: false, nodes: names.map((name) => ({ name, time: daysAgo(1), merged: false })) },
+      local: [],
+    },
+    NOW,
+  );
+  const [row] = buildRows({ branches: remote(["a/../b", "./x", "a//b", "bad\uD800", "ok/name"]) });
+  assert.deepEqual(
+    row.detail.sections[0].items.map((item) => [item.text, item.link || null]),
+    [["a/../b", null], ["./x", null], ["a//b", null], ["bad\uD800", null], ["ok/name", "tree/ok/name"]],
+  );
+});
+
+test("the stale list links to GitHub only when every branch left out is there", () => {
+  const stale = (localNames) => buildRows({
+    branches: summarizeBranches(
+      {
+        defaultBranch: "main",
+        remote: {
+          total: 9,
+          capped: false,
+          nodes: Array.from({ length: 9 }, (_, i) => ({ name: `r${i}`, time: daysAgo(40 + i), merged: false })),
+        },
+        local: localNames.map((name) => ({ name, upstream: null, time: daysAgo(35) })),
+      },
+      NOW,
+    ),
+  }).find((row) => row.kind === "branches-stale").detail.sections[0];
+  // Nine branches on GitHub, eight shown: the one left out is on GitHub.
+  assert.equal(stale([]).link, "branches/all");
+  // The oldest come first, so the two newer local branches are left out,
+  // and GitHub does not list them.
+  const mixed = stale(["l1", "l2"]);
+  assert.equal(mixed.more, 3);
+  assert.equal(mixed.link, undefined);
+});
+
+test("a list line links to GitHub only when every item left out has a page there", () => {
+  const alerts = (numbers) => buildRows({
+    codeScanning: { value: numbers.length, capped: false, alerts: numbers.map((number) => ({ number, severity: "high", rule: "r" })) },
+  })[0].detail.sections[0];
+  // Five shown, and the sixth has a number.
+  assert.equal(alerts([1, 2, 3, 4, 5, 6]).link, "security/code-scanning");
+  // The sixth has no number, so the list line does not promise it.
+  const unnumbered = alerts([1, 2, 3, 4, 5, null]);
+  assert.equal(unnumbered.more, 1);
+  assert.equal(unnumbered.link, undefined);
+});
+
+test("the links change only after the page received the rows that hold them", async () => {
+  const { service, state, check } = createHarness();
+  state.time = NOW;
+  const refs = (name) => ({
+    totalCount: 2,
+    nodes: [
+      { name: "main", target: { oid: "a1", committedDate: new Date(daysAgo(1)).toISOString() }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+      { name, target: { oid: "b2", committedDate: new Date(daysAgo(1)).toISOString() }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+    ],
+  });
+  state.refs = refs("feature/old");
+  await check();
+  const open = (link) => service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", link }));
+  // The page navigates away while the next rows are sent, so it keeps the
+  // earlier ones.
+  state.refs = refs("feature/new");
+  state.time += FRESH_MS + 1;
+  state.failPush = true;
+  await assert.rejects(check("focus"));
+  await open("tree/feature/old");
+  await open("tree/feature/new");
+  assert.deepEqual(state.opened, ["https://github.com/o/r/tree/feature/old"]);
+});
+
+test("a link opens only when the page was sent it for the thread shown", async () => {
+  const { service, state, check } = createHarness();
+  state.time = NOW;
+  state.refs = {
+    totalCount: 2,
+    nodes: [
+      { name: "main", target: { oid: "a1", committedDate: new Date(daysAgo(1)).toISOString() }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+      { name: "feature/x", target: { oid: "b2", committedDate: new Date(daysAgo(1)).toISOString() }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+    ],
+  };
+  const open = (link, repo = "o/r") => service.handle("s1", JSON.stringify({ type: "open", link, repo }));
+  await open("tree/feature/x");
+  assert.deepEqual(state.opened, []);
+  await check();
+  for (const link of ["tree/feature/x", "branches/all", "tree/other", "../../evil", "https://evil.example", "issues/1"]) {
+    await open(link);
+  }
+  await service.handle("s1", JSON.stringify({ type: "open", repo: "o/r", link: 5 }));
+  // A click on a link of the repository shown before is ignored, and so is
+  // a row click without the repository.
+  await open("tree/feature/x", "other/repo");
+  await open("tree/feature/x", null);
+  await service.handle("s1", JSON.stringify({ type: "open", kind: "issues" }));
+  assert.deepEqual(state.opened, ["https://github.com/o/r/tree/feature/x", "https://github.com/o/r/branches/all"]);
+  // Another thread starts with no links until its rows arrive.
+  state.folder = () => null;
+  await check("navigate", `t3code://app/${environmentId}/other-thread`);
+  await open("tree/feature/x");
+  assert.equal(state.opened.length, 2);
 });
 
 test("the page script parses and renders text without HTML parsing", () => {

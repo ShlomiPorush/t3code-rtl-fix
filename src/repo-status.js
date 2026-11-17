@@ -24,6 +24,12 @@ const STYLE_ID = "t3-rtl-fix-repo-status-style";
 const TIP_CLASS = "t3-rtl-repo-status-tip";
 // A pointer that rests on a row this long opens its tooltip.
 const TIP_DELAY_MS = 250;
+// While one tooltip is open, a pointer that rests on another row this long
+// moves the tooltip there.
+const TIP_SWITCH_DELAY_MS = 120;
+// A pointer that leaves a row or its tooltip closes the tooltip after this
+// long, unless it reaches the tooltip or the row first.
+const TIP_HIDE_DELAY_MS = 200;
 
 // A thread change or a return to the window reuses counts younger than this.
 const FRESH_MS = 60 * 1000;
@@ -86,7 +92,7 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
     }
     vulnerabilityAlerts(states: OPEN, first: ${DEPENDABOT_PAGE_SIZE}) {
       totalCount
-      nodes { securityVulnerability { severity package { name } } }
+      nodes { number securityVulnerability { severity package { name } } }
     }
     defaultBranchRef { name }
     refs(refPrefix: "refs/heads/", first: ${BRANCH_PAGE_SIZE}) {
@@ -147,6 +153,48 @@ function repositoryUrl(repo, kind) {
   return `https://github.com/${repo.owner}/${repo.name}/${page}`;
 }
 
+// The items and lists in a tooltip link to pages of the repository shown.
+// A link is the part of the address after the repository, such as
+// "issues/12". The launcher opens only the links of the rows it sent.
+function numberLink(page, number) {
+  return Number.isInteger(number) && number > 0 ? `${page}/${number}` : null;
+}
+
+function branchLink(name) {
+  if (typeof name !== "string" || !name) return null;
+  const parts = name.split("/");
+  // Git refuses such names, so they come only from a broken answer. A dot
+  // part would move the address out of the branch path.
+  if (parts.some((part) => part === "" || part === "." || part === "..")) return null;
+  try {
+    return `tree/${parts.map(encodeURIComponent).join("/")}`;
+  } catch {
+    // A lone surrogate cannot be encoded.
+    return null;
+  }
+}
+
+function withLink(item, link) {
+  return link ? { ...item, link } : item;
+}
+
+function linksOf(rows) {
+  const links = new Set();
+  for (const row of rows) {
+    for (const section of row.detail?.sections || []) {
+      if (section.link) links.add(section.link);
+      for (const item of section.items || []) {
+        if (item.link) links.add(item.link);
+      }
+    }
+  }
+  return links;
+}
+
+function linkUrl(repo, link) {
+  return `https://github.com/${repo.owner}/${repo.name}/${link}`;
+}
+
 // Newest first. A branch without a readable time goes last.
 function byNewest(a, b) {
   const rank = (branch) => (Number.isFinite(branch.time) ? branch.time : -Infinity);
@@ -194,7 +242,7 @@ function summarizeBranches({ defaultBranch, remote, local }, now) {
     if (!Number.isFinite(time)) return;
     const copy = copies.get(key);
     if (copy) copy.time = Math.max(copy.time, time);
-    else copies.set(key, { name, time, skip });
+    else copies.set(key, { name, time, skip, github: key.startsWith("remote:") });
   };
   for (const node of remoteNodes) {
     addCopy(`remote:${node.name}`, node.name, node.time, node.merged !== false);
@@ -218,7 +266,7 @@ function summarizeBranches({ defaultBranch, remote, local }, now) {
   const stale = [...copies.values()]
     .filter((copy) => copy.time < staleBefore && !copy.skip)
     .sort((a, b) => a.time - b.time)
-    .map(({ name, time }) => ({ name, time, days: Math.floor((now - time) / DAY_MS) }));
+    .map(({ name, time, github }) => ({ name, time, days: Math.floor((now - time) / DAY_MS), github }));
 
   // The total counts every branch on GitHub, the default branch among them.
   const remoteTotal = remote ? Math.max(remote.total - (defaultBranch ? 1 : 0), 0) : 0;
@@ -267,11 +315,16 @@ function countText(count) {
 }
 
 // A tooltip section shows the first items of a list and how many more there
-// are. total is the full count, which can be larger than the list read.
-function listSection(list, total, limit, toItem, title) {
-  const items = Array.isArray(list) ? list.slice(0, limit) : [];
+// are. total is the full count, which can be larger than the list read. link
+// names the page with the whole list, which the "more" line opens.
+function listSection(list, total, limit, toItem, title, link) {
+  const read = Array.isArray(list) ? list : [];
+  const items = read.slice(0, limit);
   const section = { items: items.map(toItem), more: Math.max(total - items.length, 0) };
   if (title) section.title = title;
+  // The page with the whole list must hold the items left out, so each of
+  // them needs a page of its own there, such as an alert with a number.
+  if (link && read.slice(limit).every((entry) => toItem(entry).link)) section.link = link;
   return section;
 }
 
@@ -305,13 +358,13 @@ function issueDetail(issues) {
     title: "Issues",
     summary: `${countText(issues)} open`,
     sections: [
-      listSection(issues.items, issues.value, DETAIL_ITEMS, (issue) => ({
+      listSection(issues.items, issues.value, DETAIL_ITEMS, (issue) => withLink({
         lead: `#${issue.number}`,
         text: issue.title,
         meta: compact([issue.author]),
         time: issue.time,
         badges: (issue.labels || []).map((label) => ({ text: label.name, color: label.color })),
-      })),
+      }, numberLink("issues", issue.number)), null, "issues"),
     ],
   };
 }
@@ -321,7 +374,7 @@ function pullDetail(pulls) {
     title: "Pull requests",
     summary: `${countText(pulls)} open`,
     sections: [
-      listSection(pulls.items, pulls.value, DETAIL_ITEMS, (pull) => ({
+      listSection(pulls.items, pulls.value, DETAIL_ITEMS, (pull) => withLink({
         lead: `#${pull.number}`,
         text: pull.title,
         meta: compact([pull.author]),
@@ -330,7 +383,7 @@ function pullDetail(pulls) {
           pull.draft ? { text: "Draft", tone: "muted" } : null,
           REVIEW_BADGES[pull.review] || null,
         ]),
-      })),
+      }, numberLink("pull", pull.number)), null, "pulls"),
     ],
   };
 }
@@ -341,10 +394,10 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
   if (dependabot) {
     const alerts = dependabot.alerts || [];
     sections.push({
-      ...listSection([...alerts].sort(bySeverity), dependabot.value, DETAIL_ITEMS, (alert) => ({
+      ...listSection([...alerts].sort(bySeverity), dependabot.value, DETAIL_ITEMS, (alert) => withLink({
         text: alert.package || "Unknown package",
         badges: compact([severityBadge(alert.severity)]),
-      }), `Dependabot · ${countText(dependabot)}`),
+      }, numberLink("security/dependabot", alert.number)), `Dependabot · ${countText(dependabot)}`, "security/dependabot"),
       chips: alerts.length > 1 ? severityChips(alerts) : [],
     });
     if (alerts.length < dependabot.value) {
@@ -354,18 +407,18 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
   if (codeScanning) {
     const alerts = codeScanning.alerts || [];
     sections.push({
-      ...listSection([...alerts].sort(bySeverity), codeScanning.value, DETAIL_ITEMS, (alert) => ({
+      ...listSection([...alerts].sort(bySeverity), codeScanning.value, DETAIL_ITEMS, (alert) => withLink({
         text: alert.rule || "Unnamed rule",
         meta: compact([alert.path]),
         badges: compact([severityBadge(alert.severity)]),
-      }), `Code scanning · ${countText(codeScanning)}`),
+      }, numberLink("security/code-scanning", alert.number)), `Code scanning · ${countText(codeScanning)}`, "security/code-scanning"),
       chips: alerts.length > 1 ? severityChips(alerts) : [],
     });
   }
   if (secretScanning) {
-    sections.push(listSection(secretScanning.alerts, secretScanning.value, DETAIL_ITEMS, (alert) => ({
+    sections.push(listSection(secretScanning.alerts, secretScanning.value, DETAIL_ITEMS, (alert) => withLink({
       text: alert.type || "Unknown secret type",
-    }), `Secret scanning · ${countText(secretScanning)}`));
+    }, numberLink("security/secret-scanning", alert.number)), `Secret scanning · ${countText(secretScanning)}`, "security/secret-scanning"));
   }
   const detail = { title: "Security alerts", summary: `${countText(total)} open`, sections };
   if (notes.length) detail.note = notes.join(" ");
@@ -381,7 +434,17 @@ function localBadge(branch) {
 }
 
 const branchItem = (branch) => ({ text: branch.name, time: branch.time });
+// A branch on GitHub links to its files there.
+const githubBranchItem = (branch) => withLink(branchItem(branch), branchLink(branch.name));
+const ALL_BRANCHES = "branches/all";
 const UNKNOWN_NOTE = "Some branches could not be checked, so there may be more.";
+
+// A local branch links to the GitHub branch it tracks, unless that branch is
+// gone.
+function localLink(branch) {
+  if (!branch.upstream || branch.deleted || branch.track === "gone") return null;
+  return branchLink(branch.upstream);
+}
 
 function branchDetails(branches) {
   const details = {};
@@ -392,9 +455,9 @@ function branchDetails(branches) {
       summary: `${countText(remote)} on GitHub`,
       sections: [
         listSection(remote.branches, remote.value, BRANCH_ITEMS, (branch) => ({
-          ...branchItem(branch),
+          ...githubBranchItem(branch),
           badges: branch.merged ? [{ text: "Merged", tone: "success" }] : [],
-        })),
+        }), null, ALL_BRANCHES),
       ],
     };
     if (remote.partial) details.remote.note = `Only the first ${BRANCH_PAGE_SIZE} branches on GitHub were read.`;
@@ -405,10 +468,10 @@ function branchDetails(branches) {
       title: "Local branches",
       summary: `${countText(local)} in this folder`,
       sections: [
-        listSection(local.branches, local.value, BRANCH_ITEMS, (branch) => ({
+        listSection(local.branches, local.value, BRANCH_ITEMS, (branch) => withLink({
           ...branchItem(branch),
           badges: [localBadge(branch)],
-        })),
+        }, localLink(branch))),
       ],
       note: "Ahead and behind come from the last fetch.",
     };
@@ -420,7 +483,7 @@ function branchDetails(branches) {
       summary: `${countText(dead)} to clean up`,
       sections: [
         dead.merged.length
-          ? listSection(dead.merged, dead.merged.length, BRANCH_ITEMS, branchItem, "Merged on GitHub")
+          ? listSection(dead.merged, dead.merged.length, BRANCH_ITEMS, githubBranchItem, "Merged on GitHub", ALL_BRANCHES)
           : null,
         dead.deleted.length
           ? listSection(dead.deleted, dead.deleted.length, BRANCH_ITEMS, branchItem, "Deleted on GitHub")
@@ -434,7 +497,16 @@ function branchDetails(branches) {
     details.stale = {
       title: "Stale branches",
       summary: `No commits for ${STALE_DAYS}+ days`,
-      sections: [listSection(stale.branches, stale.branches.length, BRANCH_ITEMS, branchItem)],
+      sections: [
+        listSection(
+          stale.branches,
+          stale.branches.length,
+          BRANCH_ITEMS,
+          (branch) => (branch.github ? githubBranchItem(branch) : branchItem(branch)),
+          null,
+          ALL_BRANCHES,
+        ),
+      ],
     };
     if (stale.capped) details.stale.note = UNKNOWN_NOTE;
   }
@@ -541,6 +613,11 @@ function nodesOf(connection) {
   return Array.isArray(connection?.nodes) ? connection.nodes.filter(Boolean) : [];
 }
 
+// An alert's number names its page on GitHub.
+function alertNumber(value) {
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function readSeverity(value) {
   const name = typeof value === "string" ? value.toLowerCase() : "";
   const severity = SEVERITY_ALIASES[name] || name;
@@ -586,6 +663,7 @@ function readDependabot(connection) {
   const count = totalCount(connection);
   if (!count) return null;
   count.alerts = nodesOf(connection).map((alert) => ({
+    number: alertNumber(alert.number),
     severity: readSeverity(alert.securityVulnerability?.severity),
     package: text(alert.securityVulnerability?.package?.name, 100),
   }));
@@ -596,11 +674,13 @@ function readDependabot(connection) {
 // holds the secret it found, which never leaves this function.
 const ALERT_READERS = {
   "code-scanning": (alert) => ({
+    number: alertNumber(alert?.number),
     severity: readSeverity(alert?.rule?.security_severity_level || alert?.rule?.severity),
     rule: text(alert?.rule?.description || alert?.rule?.name || alert?.rule?.id, 200),
     path: text(alert?.most_recent_instance?.location?.path, 200),
   }),
   "secret-scanning": (alert) => ({
+    number: alertNumber(alert?.number),
     type: text(alert?.secret_type_display_name || alert?.secret_type, 100),
   }),
 };
@@ -899,6 +979,7 @@ function createRepoStatusService({
     if (session.threadId !== threadId) {
       session.threadId = threadId;
       session.repo = null;
+      session.links = new Set();
     }
     // A newer check may replace this one at any await.
     const current = () => session.path === pagePath;
@@ -917,6 +998,8 @@ function createRepoStatusService({
     if (!current()) return;
     session.repo = rows.length > 0 ? repo : null;
     await push(sessionId, { path: pagePath, repo: session.repo?.slug || null, rows });
+    // A page that did not receive the rows still shows the earlier links.
+    if (current()) session.links = linksOf(rows);
   }
 
   async function handle(sessionId, payload) {
@@ -927,7 +1010,14 @@ function createRepoStatusService({
       return;
     }
     if (message.type === "open") {
-      const url = repositoryUrl(sessions.get(sessionId)?.repo, message.kind);
+      const session = sessions.get(sessionId);
+      // A click on a row or link shown before another thread's counts
+      // arrived names the earlier repository, and is ignored.
+      if (!session?.repo || message.repo !== session.repo.slug) return;
+      // A link is opened only when it is one of the links sent to the page.
+      const url = typeof message.link === "string"
+        ? session.links.has(message.link) ? linkUrl(session.repo, message.link) : null
+        : repositoryUrl(session.repo, message.kind);
       if (url) await open(url);
     }
   }
@@ -1092,6 +1182,7 @@ const PAGE_CSS = `
   min-width: 240px;
   max-width: min(360px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
+  scrollbar-width: thin;
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -1112,9 +1203,11 @@ const PAGE_CSS = `
 .${TIP_CLASS}:not([data-open]) {
   display: none;
 }
+/* The pointer can move into an open tooltip to click its links. */
 .${TIP_CLASS}[data-shown] {
   opacity: 1;
   transform: none;
+  pointer-events: auto;
 }
 @media (prefers-reduced-motion: reduce) {
   .${TIP_CLASS} { transition: none; transform: none; }
@@ -1246,6 +1339,31 @@ const PAGE_CSS = `
   padding-top: 2px;
   font-size: 11px;
 }
+.${TIP_CLASS} a.t3-rtl-tip-item {
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.${TIP_CLASS} a.t3-rtl-tip-item:hover,
+.${TIP_CLASS} a.t3-rtl-tip-item:focus-visible {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  outline: none;
+}
+.${TIP_CLASS} a.t3-rtl-tip-more {
+  justify-self: start;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.${TIP_CLASS} a.t3-rtl-tip-more:hover,
+.${TIP_CLASS} a.t3-rtl-tip-more:focus-visible {
+  color: inherit;
+  text-decoration: underline;
+  outline: none;
+}
 .${TIP_CLASS} .t3-rtl-tip-note {
   padding: 7px 12px 8px;
   border-top: 1px solid var(--border, rgb(0 0 0 / 0.12));
@@ -1267,6 +1385,8 @@ function buildRepoStatusPageSource() {
   const refreshInterval = ${REFRESH_INTERVAL_MS};
   const tipClass = ${JSON.stringify(TIP_CLASS)};
   const tipDelay = ${TIP_DELAY_MS};
+  const tipSwitchDelay = ${TIP_SWITCH_DELAY_MS};
+  const tipHideDelay = ${TIP_HIDE_DELAY_MS};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
 
@@ -1322,11 +1442,18 @@ function buildRepoStatusPageSource() {
 
   // One tooltip serves every row. It sits in the top layer when the browser
   // supports popovers, so no dialog or panel of T3 Code covers it. Text from
-  // GitHub is set only as text.
+  // GitHub is set only as text. Its items and "more" lines are links, which
+  // the launcher opens in the browser.
   let tip = null;
   let tipAnchor = null;
-  let tipTimer = 0;
+  let showTimer = 0;
+  let hideTimer = 0;
   let tipHiddenAt = 0;
+  // The repository of the row whose tooltip is shown. A row keeps the one it
+  // was built for, even after newer counts arrive and before it is replaced.
+  let tipRepo = "";
+  // Set while focus returns to a row, so its tooltip does not open again.
+  let returning = false;
 
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -1360,8 +1487,20 @@ function buildRepoStatusPageSource() {
     return node;
   };
 
+  // The address is for the link's role only. A click asks the launcher to
+  // open the link, and the launcher builds the address itself.
+  const linkTo = (node, link) => {
+    node.href = "https://github.com/" + tipRepo + "/" + link;
+    node.dataset.link = link;
+    node.dataset.repo = tipRepo;
+    // The arrow keys move between the links, so Tab skips them.
+    node.tabIndex = -1;
+  };
+
   const tipItem = (item) => {
-    const node = make("div", "t3-rtl-tip-item");
+    const linked = typeof item.link === "string" && item.link !== "";
+    const node = make(linked ? "a" : "div", "t3-rtl-tip-item");
+    if (linked) linkTo(node, item.link);
     if (item.lead) {
       node.dataset.lead = "";
       node.appendChild(make("span", "t3-rtl-tip-lead", item.lead));
@@ -1385,40 +1524,89 @@ function buildRepoStatusPageSource() {
     return node;
   };
 
+  const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("a[data-link]")) : []);
+
+  const focusLink = (index) => {
+    const links = tipLinks();
+    if (!links.length) return false;
+    links[((index % links.length) + links.length) % links.length].focus();
+    return true;
+  };
+
   const ensureTip = () => {
     if (tip && tip.isConnected) return tip;
     tip = make("div", tipClass);
     tip.id = tipClass;
-    tip.setAttribute("role", "tooltip");
+    // It holds links, so it is a small dialog rather than a tooltip.
+    tip.setAttribute("role", "dialog");
     if (typeof tip.showPopover === "function") tip.setAttribute("popover", "manual");
+    tip.addEventListener("pointerenter", () => {
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
+    });
+    tip.addEventListener("pointerleave", scheduleHide);
+    // A click on a link keeps the focus where it was, such as the composer.
+    tip.addEventListener("mousedown", (event) => event.preventDefault());
+    const activate = (event) => {
+      const link = event.target.closest && event.target.closest("a[data-link]");
+      if (!link || !tip.contains(link)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === "auxclick" && event.button !== 1) return;
+      notify({ type: "open", link: link.dataset.link, repo: link.dataset.repo });
+      if (tip.contains(document.activeElement)) returnFocus();
+      else hideTip();
+    };
+    tip.addEventListener("click", activate);
+    tip.addEventListener("auxclick", activate);
+    tip.addEventListener("keydown", (event) => {
+      const links = tipLinks();
+      const index = links.indexOf(document.activeElement);
+      if (index === -1) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusLink(index + (event.key === "ArrowDown" ? 1 : -1));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        focusLink(event.key === "Home" ? 0 : -1);
+      } else if (event.key === "Tab") {
+        // The browser then moves on from the row, as if the tooltip had
+        // not been entered.
+        returnFocus();
+      }
+    });
+    tip.addEventListener("focusout", (event) => {
+      if (!tip.contains(event.relatedTarget) && event.relatedTarget !== tipAnchor) hideTip();
+    });
     document.body.appendChild(tip);
     return tip;
   };
 
-  // limit caps the items of each section. The items left out add to its
-  // "more" count. A bare tooltip also leaves out the chips and the note.
-  const fillTip = (detail, limit = Infinity, bare = false) => {
+  const fillTip = (detail) => {
     const box = ensureTip();
     box.replaceChildren();
+    box.setAttribute("aria-label", detail.title || "");
     const head = make("div", "t3-rtl-tip-head");
     head.append(make("span", "t3-rtl-tip-title", detail.title), make("span", "t3-rtl-tip-summary", detail.summary));
     box.appendChild(head);
     for (const section of detail.sections || []) {
       const part = make("div", "t3-rtl-tip-section");
       if (section.title) part.appendChild(make("div", "t3-rtl-tip-section-title", section.title));
-      if (!bare && section.chips && section.chips.length) {
+      if (section.chips && section.chips.length) {
         const chips = make("div", "t3-rtl-tip-chips");
         for (const chip of section.chips) chips.appendChild(badge(chip));
         part.appendChild(chips);
       }
-      const items = section.items || [];
-      const shown = items.slice(0, limit);
-      for (const item of shown) part.appendChild(tipItem(item));
-      const more = (section.more || 0) + items.length - shown.length;
-      if (more > 0) part.appendChild(make("div", "t3-rtl-tip-more", "and " + more + " more"));
+      for (const item of section.items || []) part.appendChild(tipItem(item));
+      if (section.more > 0) {
+        // The line opens the whole list when GitHub has a page for it.
+        const line = make(section.link ? "a" : "div", "t3-rtl-tip-more", "and " + section.more + " more");
+        if (section.link) linkTo(line, section.link);
+        part.appendChild(line);
+      }
       box.appendChild(part);
     }
-    if (!bare && detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
+    if (detail.note) box.appendChild(make("div", "t3-rtl-tip-note", detail.note));
   };
 
   // Beside the row, on the side with room, else below or above it, and
@@ -1455,9 +1643,11 @@ function buildRepoStatusPageSource() {
   };
 
   const showTip = (anchor, detail) => {
-    clearTimeout(tipTimer);
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
     if (!anchor.isConnected || !detail) return;
     if (tipAnchor && tipAnchor !== anchor) tipAnchor.removeAttribute("aria-describedby");
+    tipRepo = anchor.dataset.repo;
     fillTip(detail);
     tipAnchor = anchor;
     tip.setAttribute("data-open", "");
@@ -1468,13 +1658,15 @@ function buildRepoStatusPageSource() {
         // A fixed tooltip with a high z-index still shows.
       }
     }
-    // The tooltip cannot scroll, so in a short window it shows fewer items
-    // of each section until it fits, down to the counts alone.
-    const longest = Math.max(0, ...(detail.sections || []).map((section) => (section.items || []).length));
-    for (let limit = longest - 1; limit >= 0 && tip.scrollHeight > tip.clientHeight; limit -= 1) {
-      fillTip(detail, limit);
-    }
-    if (tip.scrollHeight > tip.clientHeight) fillTip(detail, 0, true);
+    // Beside the row the whole window height is free. Below or above it, only
+    // the larger space is, so the tooltip, which takes clicks, never covers
+    // its row. The sides match placeTip.
+    const room = anchor.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const beside = room.left - 16 - width >= 0 || room.right + 16 + width <= innerWidth;
+    tip.style.maxHeight = beside ? "" : Math.max(0, Math.max(room.top, innerHeight - room.bottom) - 16) + "px";
+    // In a short window the tooltip scrolls, so every item stays in reach.
+    tip.style.overflowY = tip.scrollHeight > tip.clientHeight ? "auto" : "";
     placeTip();
     anchor.setAttribute("aria-describedby", tip.id);
     requestAnimationFrame(() => {
@@ -1483,7 +1675,8 @@ function buildRepoStatusPageSource() {
   };
 
   const hideTip = () => {
-    clearTimeout(tipTimer);
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
     if (!tipAnchor) return;
     tipAnchor.removeAttribute("aria-describedby");
     tipAnchor = null;
@@ -1493,28 +1686,79 @@ function buildRepoStatusPageSource() {
     if (popoverOpen(tip)) tip.hidePopover();
   };
 
-  // Moving from one row to the next switches the tooltip at once.
-  const scheduleTip = (anchor, detail) => {
-    clearTimeout(tipTimer);
-    const delay = tipAnchor || Date.now() - tipHiddenAt < 300 ? 0 : tipDelay;
-    tipTimer = setTimeout(() => showTip(anchor, detail), delay);
+  // Closes the tooltip and moves the focus from its links back to the row.
+  const returnFocus = () => {
+    const anchor = tipAnchor;
+    hideTip();
+    if (!anchor || !anchor.isConnected) return;
+    returning = true;
+    try {
+      anchor.focus();
+    } finally {
+      returning = false;
+    }
   };
+
+  // A pointer that leaves the row has a moment to reach the tooltip. While
+  // a tooltip is open, another row takes it over only after the pointer
+  // rests there, so a pointer on its way into the tooltip can cross a row.
+  const scheduleTip = (anchor, detail) => {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+    // Keyboard focus on a link keeps its tooltip on its row.
+    if (tipAnchor === anchor || (tip && tip.contains(document.activeElement))) return;
+    const delay = tipAnchor ? tipSwitchDelay : Date.now() - tipHiddenAt < 300 ? 0 : tipDelay;
+    showTimer = setTimeout(() => showTip(anchor, detail), delay);
+  };
+
+  function scheduleHide() {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+    if (!tipAnchor) return;
+    hideTimer = setTimeout(() => {
+      // Keyboard focus on a link keeps the tooltip open.
+      if (tip && tip.contains(document.activeElement)) return;
+      hideTip();
+    }, tipHideDelay);
+  }
 
   const attachTip = (element, detail) => {
     element.addEventListener("pointerenter", () => scheduleTip(element, detail));
-    element.addEventListener("pointerleave", hideTip);
+    element.addEventListener("pointerleave", scheduleHide);
     element.addEventListener("focus", () => {
-      if (element.matches(":focus-visible")) showTip(element, detail);
+      if (!returning && element.matches(":focus-visible")) showTip(element, detail);
     });
-    element.addEventListener("blur", hideTip);
+    element.addEventListener("blur", (event) => {
+      // Only the row's own tooltip closes, and focus that moves to a link
+      // in it keeps it open.
+      if (tipAnchor !== element || (tip && tip.contains(event.relatedTarget))) return;
+      hideTip();
+    });
     element.addEventListener("click", hideTip);
+    // The Down arrow moves from the row to the first link in its tooltip.
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (tipAnchor !== element) showTip(element, detail);
+      if (focusLink(0)) event.preventDefault();
+    });
+  };
+
+  // Closing the tooltip while a link has the focus returns it to the row.
+  const closeTip = () => {
+    if (tip && tip.contains(document.activeElement)) returnFocus();
+    else hideTip();
   };
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideTip();
+    if (event.key !== "Escape") return;
+    // Escape leaves the tooltip only, not a panel of T3 Code around it.
+    if (tip && tip.contains(document.activeElement)) event.stopImmediatePropagation();
+    closeTip();
   }, true);
-  window.addEventListener("scroll", hideTip, true);
-  window.addEventListener("resize", hideTip);
+  window.addEventListener("scroll", (event) => {
+    if (!(tip && tip.contains(event.target))) closeTip();
+  }, true);
+  window.addEventListener("resize", closeTip);
 
   // The card holds a scroll area around one element with its sections. The
   // section goes after the last of them.
@@ -1559,6 +1803,7 @@ function buildRepoStatusPageSource() {
       element.className = "t3-rtl-repo-status-row";
       if (linked) element.type = "button";
       element.dataset.kind = row.kind;
+      element.dataset.repo = data.repo || "";
       if (row.tone) element.dataset.tone = row.tone;
       element.appendChild(icon(row.kind));
       const label = document.createElement("span");
@@ -1576,7 +1821,7 @@ function buildRepoStatusPageSource() {
         element.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          notify({ type: "open", kind: row.kind });
+          notify({ type: "open", kind: row.kind, repo: data.repo });
         });
       }
       section.appendChild(element);
@@ -1586,6 +1831,7 @@ function buildRepoStatusPageSource() {
 
   const render = () => {
     renderQueued = false;
+    const focusedKind = tipAnchor && tip && tip.contains(document.activeElement) ? tipAnchor.dataset.kind : null;
     const rows = current && Array.isArray(current.rows) ? current.rows : [];
     const signature = rows.length ? JSON.stringify([current.repo, rows]) : "";
     const keep = new Set();
@@ -1606,7 +1852,22 @@ function buildRepoStatusPageSource() {
       if (!keep.has(section)) section.remove();
     }
     // A rebuilt or removed section takes the row of an open tooltip with it.
-    if (tipAnchor && !tipAnchor.isConnected) hideTip();
+    if (tipAnchor && !tipAnchor.isConnected) {
+      hideTip();
+      // The same row, or the first one when the refresh removed it.
+      const row = focusedKind && (
+        document.querySelector("[" + attribute + "] [data-kind=" + JSON.stringify(focusedKind) + "]") ||
+        document.querySelector("[" + attribute + "] button.t3-rtl-repo-status-row, [" + attribute + "] .t3-rtl-repo-status-row[tabindex]")
+      );
+      if (row) {
+        returning = true;
+        try {
+          row.focus();
+        } finally {
+          returning = false;
+        }
+      }
+    }
   };
 
   const scheduleRender = () => {

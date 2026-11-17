@@ -102,6 +102,13 @@ Point at a row, or move to it with the keyboard, to see its details:
   branches also show whether they are ahead of or behind their branch on
   GitHub, as of the last fetch.
 
+Move the pointer into the details and click an item to open its page on
+GitHub: an issue, a pull request, an alert, or a branch. A local branch opens
+the branch it tracks on GitHub. A line such as "and 2 more" opens the whole
+list. With the keyboard, press the Down arrow on a row to reach its links, the
+Up and Down arrows to move between them, Enter to open one, and Escape to
+return to the row. In a short window, scroll the details to reach every item.
+
 - **Remote**: branches on GitHub. Click to open the branches page on GitHub.
 - **Local**: branches in the project folder.
 - **Dead**: branches on GitHub whose pull request merged with the branch's
@@ -292,8 +299,10 @@ debugging port, and the RTL fix does not send data over the network.
 For the repository status section, the launcher adds a DevTools binding to
 the T3 Code page. The page reports the address of the open thread through it,
 and the launcher answers with the counts. The launcher runs `git` and `gh`
-without a shell, and the page receives only the repository name and the
-counts. The only network requests are the ones `gh` makes to GitHub.
+without a shell, and the page receives only the repository name, the counts,
+and their details. When a row or a link is clicked, the launcher opens only a GitHub page
+of that repository that it sent to the page itself. The only network requests
+are the ones `gh` makes to GitHub.
 
 ## Repository layout
 

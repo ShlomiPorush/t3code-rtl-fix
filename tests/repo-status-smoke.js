@@ -256,6 +256,7 @@ async function run() {
   }
 
   await checkTooltip(sessionId);
+  await checkTooltipLinks(sessionId);
   await checkShortWindow(sessionId);
 
   // Another thread without a GitHub repository hides the section at once.
@@ -275,6 +276,8 @@ async function run() {
   await send("Page.reload", {}, sessionId);
   await waitFor(sessionId, `!!window.__t3RtlFixRepoStatusWatcher && !!document.getElementById("content")`, "the reloaded script");
   await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section after a reload");
+
+  await checkNewerCounts(sessionId);
 
   // With branch rows only, the Branches title has no line above it.
   await evaluate(sessionId, `window.__t3RtlFixRepoStatusUpdate({
@@ -343,7 +346,7 @@ async function checkTooltip(sessionId) {
   const expected = {
     shown: true,
     topLayer: true,
-    role: "tooltip",
+    role: "dialog",
     describedBy: true,
     head: ["Issues", "3 open"],
     text: "תיקון כיוון בטבלאות",
@@ -386,55 +389,246 @@ async function checkTooltip(sessionId) {
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
 }
 
-// In a short window the tooltip shows fewer items and counts the rest.
-// The fixture folder has eight local branches.
+async function center(sessionId, selector) {
+  const box = JSON.parse(await evaluate(
+    sessionId,
+    `JSON.stringify(document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect())`,
+  ));
+  return { box, x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function clickAt(sessionId, point) {
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", { type, x: point.x, y: point.y, button: "left", clickCount: 1 }, sessionId);
+  }
+}
+
+async function pressKey(sessionId, key, code, keyCode, text) {
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: keyCode, ...(text ? { text } : {}) }, sessionId);
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode }, sessionId);
+}
+
+async function openedAfter(sessionId, count, description) {
+  for (let attempt = 0; attempt < 50 && opened.length < count; attempt += 1) await wait(100);
+  await Promise.all(handled);
+  if (opened.length < count) throw new Error(`Timed out waiting for ${description}`);
+  return opened[count - 1];
+}
+
+const TIP_SHOWN = `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`;
+
+// The pointer can move from a row into its tooltip and click an item or the
+// line that counts the rest. The keyboard reaches the links with the Down
+// arrow.
+async function checkTooltipLinks(sessionId) {
+  await hoverRow(sessionId, "issues");
+  await waitFor(sessionId, TIP_SHOWN, "the Issues tooltip");
+  const links = await evaluate(sessionId, `JSON.stringify([...document.querySelectorAll(".t3-rtl-repo-status-tip a[data-link]")]
+    .map((link) => [link.className, link.dataset.link, link.getAttribute("href"), link.tabIndex]))`);
+  const expectedLinks = JSON.stringify([
+    ["t3-rtl-tip-item", "issues/7", "https://github.com/o/r/issues/7", -1],
+    ["t3-rtl-tip-more", "issues", "https://github.com/o/r/issues", -1],
+  ]);
+  if (links !== expectedLinks) throw new Error(`Unexpected tooltip links: ${links}`);
+
+  // On its way, the pointer crosses the gap between the row and the tooltip.
+  const item = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+  const tipBox = (await center(sessionId, ".t3-rtl-repo-status-tip")).box;
+  const rowBox = (await center(sessionId, '[data-t3-rtl-repo-status] [data-kind="issues"]')).box;
+  if (rowBox.left - tipBox.right < 4) throw new Error("The tooltip has no gap before its row");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: (tipBox.right + rowBox.left) / 2, y: item.y }, sessionId);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+  await wait(500);
+  if (!(await evaluate(sessionId, TIP_SHOWN))) throw new Error("The tooltip closed when the pointer moved into it");
+  const before = opened.length;
+  // A click keeps the focus where it was, such as in the composer.
+  await evaluate(sessionId, `(() => {
+    const field = document.createElement("textarea");
+    field.id = "composer";
+    document.body.appendChild(field);
+    field.focus();
+    return 1;
+  })()`);
+  await clickAt(sessionId, item);
+  const url = await openedAfter(sessionId, before + 1, "the issue to open");
+  if (url !== "https://github.com/o/r/issues/7") throw new Error(`Unexpected issue page: ${url}`);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after a click on an item");
+  if (!(await evaluate(sessionId, `document.activeElement?.id === "composer"`))) {
+    throw new Error("A click on an item moved the focus");
+  }
+  await evaluate(sessionId, `document.getElementById("composer").remove(), 1`);
+
+  // The line that counts the rest opens the whole list.
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await hoverRow(sessionId, "issues");
+  await waitFor(sessionId, TIP_SHOWN, "the Issues tooltip again");
+  const more = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-more");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: more.x, y: more.y }, sessionId);
+  await clickAt(sessionId, more);
+  const list = await openedAfter(sessionId, before + 2, "the issue list to open");
+  if (list !== "https://github.com/o/r/issues") throw new Error(`Unexpected list page: ${list}`);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after a click on the list line");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+
+  // The Down arrow moves from the row to its first link, Enter opens it, and
+  // the focus returns to the row.
+  const row = `document.querySelector('[data-t3-rtl-repo-status] [data-kind="branches-remote"]')`;
+  await evaluate(sessionId, `${row}.focus(), 1`);
+  await pressKey(sessionId, "ArrowDown", "ArrowDown", 40);
+  await waitFor(sessionId, `document.activeElement?.dataset?.link === "tree/feature/x"`, "the focus on the first branch link");
+  await hoverRow(sessionId, "issues");
+  await wait(500);
+  if (!(await evaluate(sessionId, `document.activeElement?.dataset?.link === "tree/feature/x" && document.querySelector(".t3-rtl-repo-status-tip .t3-rtl-tip-title").textContent === "Remote branches"`))) {
+    throw new Error("The pointer on another row took the tooltip from the keyboard");
+  }
+  await pressKey(sessionId, "Enter", "Enter", 13, "\r");
+  const branch = await openedAfter(sessionId, before + 3, "the branch to open");
+  if (branch !== "https://github.com/o/r/tree/feature/x") throw new Error(`Unexpected branch page: ${branch}`);
+  await waitFor(sessionId, `${row} === document.activeElement && !document.querySelector(".t3-rtl-repo-status-tip[data-open]")`, "the focus to return to the row after Enter");
+
+  // Escape leaves the links and closes the tooltip.
+  await pressKey(sessionId, "ArrowDown", "ArrowDown", 40);
+  await waitFor(sessionId, `!!document.activeElement?.dataset?.link`, "the focus on a link again");
+  await pressKey(sessionId, "Escape", "Escape", 27);
+  await waitFor(sessionId, `${row} === document.activeElement && !document.querySelector(".t3-rtl-repo-status-tip[data-open]")`, "the focus to return to the row on Escape");
+  await evaluate(sessionId, `${row}.blur(), 1`);
+  if (opened.length !== before + 3) throw new Error(`Unexpected extra pages: ${JSON.stringify(opened)}`);
+}
+
+// Newer counts can arrive while a tooltip is in use. A row still shown from
+// the earlier counts opens links of its own repository, and a rebuilt
+// section takes the focus from the tooltip's links back to the same row.
+async function checkNewerCounts(sessionId) {
+  const update = (repo, count) => `window.__t3RtlFixRepoStatusUpdate({
+    path: location.href,
+    repo: ${JSON.stringify(repo)},
+    rows: [{ group: "branches", kind: "branches-remote", label: "Remote", count: ${JSON.stringify(count)}, detail: {
+      title: "Remote branches",
+      summary: ${JSON.stringify(count)} + " on GitHub",
+      sections: [{ items: [{ text: "feature/x", link: "tree/feature/x" }], more: 0 }],
+    } }],
+  })`;
+  await waitFor(sessionId, `!!document.querySelector('[data-t3-rtl-repo-status] [data-kind="branches-remote"]')`, "the Remote row");
+  const repo = await evaluate(sessionId, `(() => {
+    const row = document.querySelector('[data-t3-rtl-repo-status] [data-kind="branches-remote"]');
+    if (document.querySelector(".t3-rtl-repo-status-tip[data-open]")) return "a tooltip was already open";
+    // The new counts are received, and the row is replaced a frame later.
+    ${update("x/y", "1")};
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    return document.activeElement?.dataset?.repo;
+  })()`);
+  if (repo !== "o/r") throw new Error(`A row from the earlier counts linked to ${repo}`);
+  // The rebuilt section returns the focus to its Remote row.
+  await waitFor(
+    sessionId,
+    `document.activeElement?.dataset?.kind === "branches-remote" && document.activeElement.dataset.repo === "x/y" &&
+      !document.querySelector(".t3-rtl-repo-status-tip[data-open]")`,
+    "the focus to move to the rebuilt row",
+  );
+  // A refresh without that row moves the focus to the first row left.
+  const pushed = await evaluate(sessionId, `(() => {
+    document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    const link = document.activeElement?.dataset?.link;
+    window.__t3RtlFixRepoStatusUpdate({ path: location.href, repo: "x/y", rows: [
+      { kind: "issues", label: "Issues", count: "1", detail: { title: "Issues", summary: "1 open", sections: [] } },
+    ] });
+    return link;
+  })()`);
+  if (pushed !== "tree/feature/x") throw new Error(`The focus did not reach the link: ${pushed}`);
+  await waitFor(sessionId, `document.activeElement?.dataset?.kind === "issues"`, "the focus to move to the first row");
+  await evaluate(sessionId, `document.activeElement.blur(), 1`);
+}
+
+// The tooltip state in a short window: every item is in it, and it scrolls
+// inside the window. Scrolling to its end shows its last item.
+const SCROLLED_TIP = `JSON.stringify((() => {
+  const tip = document.querySelector(".t3-rtl-repo-status-tip");
+  const box = tip.getBoundingClientRect();
+  const scrolls = tip.scrollHeight > tip.clientHeight && getComputedStyle(tip).overflowY === "auto";
+  tip.scrollTop = tip.scrollHeight;
+  const items = tip.querySelectorAll(".t3-rtl-tip-item");
+  const last = items[items.length - 1]?.getBoundingClientRect();
+  return {
+    title: tip.querySelector(".t3-rtl-tip-title").textContent,
+    scrolls,
+    inWindow: box.top >= 0 && box.bottom <= innerHeight,
+    lastInView: !!last && last.bottom <= tip.getBoundingClientRect().bottom + 1,
+    sections: [...tip.querySelectorAll(".t3-rtl-tip-section")].map((section) => [
+      section.querySelector(".t3-rtl-tip-section-title")?.textContent || "",
+      section.querySelectorAll(".t3-rtl-tip-item").length,
+      section.querySelector(".t3-rtl-tip-more")?.textContent,
+      section.querySelector(".t3-rtl-tip-more")?.tagName,
+    ]),
+  };
+})())`;
+
+// In a short window the tooltip keeps every item and scrolls, so each one
+// stays in reach. The fixture folder has eight local branches.
 async function checkShortWindow(sessionId) {
   await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 320, deviceScaleFactor: 1, mobile: false }, sessionId);
   // The resize closes any tooltip, so the hover waits for it.
   await wait(300);
   await hoverRow(sessionId, "branches-local");
   await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the Local tooltip in a short window");
-  const state = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
-    const tip = document.querySelector(".t3-rtl-repo-status-tip");
-    const box = tip.getBoundingClientRect();
-    return {
-      title: tip.querySelector(".t3-rtl-tip-title").textContent,
-      fits: tip.scrollHeight <= tip.clientHeight && box.top >= 0 && box.bottom <= innerHeight,
-      shown: tip.querySelectorAll(".t3-rtl-tip-item").length,
-      more: tip.querySelector(".t3-rtl-tip-more")?.textContent,
-    };
-  })())`));
+  const state = JSON.parse(await evaluate(sessionId, SCROLLED_TIP));
+  // Scrolling the tooltip keeps it open.
+  await wait(200);
+  state.openAfterScroll = await evaluate(sessionId, TIP_SHOWN);
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
   if (
-    state.title !== "Local branches" || !state.fits || state.shown >= 8 || state.shown < 1 ||
-    state.more !== `and ${8 - state.shown} more`
+    state.title !== "Local branches" || !state.scrolls || !state.inWindow || !state.lastInView ||
+    !state.openAfterScroll || JSON.stringify(state.sections) !== JSON.stringify([["", 8, null, null]])
   ) {
     throw new Error(`Unexpected tooltip in a short window: ${JSON.stringify(state)}`);
   }
 
-  // Three sources of alerts do not fit even with one item each, so only
-  // their counts show, and every source keeps its title.
+  // Three sources of alerts keep every alert, and every source its title.
   await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 260, deviceScaleFactor: 1, mobile: false }, sessionId);
   await wait(300);
   await hoverRow(sessionId, "security");
   await waitFor(sessionId, `!!document.querySelector(".t3-rtl-repo-status-tip[data-shown]")`, "the security tooltip in a short window");
-  const security = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
-    const tip = document.querySelector(".t3-rtl-repo-status-tip");
-    const box = tip.getBoundingClientRect();
-    return {
-      fits: tip.scrollHeight <= tip.clientHeight && box.top >= 0 && box.bottom <= innerHeight,
-      sections: [...tip.querySelectorAll(".t3-rtl-tip-section")].map((section) => [
-        section.querySelector(".t3-rtl-tip-section-title").textContent,
-        section.querySelectorAll(".t3-rtl-tip-item").length,
-        section.querySelector(".t3-rtl-tip-more")?.textContent,
-      ]),
-    };
-  })())`));
+  const security = JSON.parse(await evaluate(sessionId, SCROLLED_TIP));
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
-  const counted = security.sections.every(([, shown, more]) => shown > 0 || /^and \d+ more$/.test(more || ""));
-  if (!security.fits || security.sections.length !== 3 || !counted) {
+  // Without room beside the row, the tooltip sits above or below it and
+  // leaves the row clickable.
+  await send("Emulation.setDeviceMetricsOverride", { width: 500, height: 260, deviceScaleFactor: 1, mobile: false }, sessionId);
+  await wait(300);
+  await hoverRow(sessionId, "security");
+  await waitFor(sessionId, TIP_SHOWN, "the security tooltip in a narrow window");
+  const narrow = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
+    const tip = document.querySelector(".t3-rtl-repo-status-tip").getBoundingClientRect();
+    const row = document.querySelector('[data-t3-rtl-repo-status] [data-kind="security"]');
+    const box = row.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    const node = document.querySelector(".t3-rtl-repo-status-tip");
+    return {
+      reachable: node.scrollHeight <= node.clientHeight || getComputedStyle(node).overflowY === "auto",
+      apart: tip.bottom <= box.top || tip.top >= box.bottom,
+      rowClickable: row.contains(hit),
+      inWindow: tip.top >= 0 && tip.bottom <= innerHeight,
+    };
+  })())`));
+  // Scrolling the tooltip keeps it open.
+  await evaluate(sessionId, `document.querySelector(".t3-rtl-repo-status-tip").scrollTop = 20, 1`);
+  await wait(200);
+  narrow.openAfterScroll = await evaluate(sessionId, TIP_SHOWN);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
+  if (!narrow.apart || !narrow.rowClickable || !narrow.inWindow || !narrow.reachable || !narrow.openAfterScroll) {
+    throw new Error(`The tooltip covers its row in a narrow window: ${JSON.stringify(narrow)}`);
+  }
+  // The Dependabot alerts are counts only, so their line links to the list.
+  const expectedSections = [
+    ["Dependabot · 2", 0, "and 2 more", "A"],
+    ["Code scanning · 5", 5, null, null],
+    ["Secret scanning · 5", 5, null, null],
+  ];
+  if (
+    !security.scrolls || !security.inWindow || !security.lastInView ||
+    JSON.stringify(security.sections) !== JSON.stringify(expectedSections)
+  ) {
     throw new Error(`Unexpected security tooltip in a short window: ${JSON.stringify(security)}`);
   }
 }
