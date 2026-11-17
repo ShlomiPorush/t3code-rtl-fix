@@ -139,6 +139,20 @@ test("composer notice descriptions such as the quoted text of a reply follow the
   assert.match(source, /\[data-slot=\\"popover-popup\\"\]\[aria-label=\\"Notice details\\"\]/);
 });
 
+test("secret request cards and their answered rows follow their text", () => {
+  const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(source, /form\[data-v2-item-type=\\"secret_request\\"\] > div:first-child > :is\(label, p\)/);
+  assert.match(
+    source,
+    /\[data-v2-item-type=\\"secret_request\\"\]\[class~=\\"group\/timeline-row\\"\] div\.min-w-0\.flex-1\.text-secondary-label/,
+  );
+  assert.match(css, /form\[data-v2-item-type="secret_request"\] > div:first-child > :is\(label, p\)\s*\{[^}]*text-align: start/);
+  assert.match(css, /\[data-v2-item-type="secret_request"\]\[class~="group\/timeline-row"\]:has\([^{]*:dir\(rtl\)\s*\)\s*\{[^}]*direction: rtl/);
+  assert.match(css, /\[class~="group\/timeline-row"\] div\.text-secondary-label\s*\{[^}]*text-align: start/);
+});
+
 test("queued prompts and plan titles follow the current T3 Code markup", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");

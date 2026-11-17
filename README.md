@@ -65,6 +65,10 @@ need to open DevTools and paste CSS manually.
   answer, and the expanded question and answer align right. The agent's
   latest thought, shown while it works, follows its first letter too, and an
   expanded thought follows the message rule.
+- When the agent asks for a secret, the name and the reason on its card follow
+  the message rule, while the field, its buttons, and the note below them
+  keep their layout. Once the secret is saved or declined, a row whose name
+  is in Hebrew or Arabic is mirrored, with its icon on the right.
 - Subagent and delegated task cards show their title and result summary in the
   direction of their text.
 - Thread titles in the sidebar and the open thread header follow the direction

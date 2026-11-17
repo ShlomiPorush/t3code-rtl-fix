@@ -61,6 +61,15 @@ const WORK_LOG_SUMMARY_SELECTOR = [
 // and an English tooltip with a Hebrew word stays left to right.
 const TOOLTIP_SELECTOR = '[data-slot="tooltip-popup"]';
 const WORK_LOG_ANSWER_SELECTOR = '[class~="group/timeline-row"] .space-y-1 > p';
+// When the agent asks for a secret, the thread shows a card with the name and
+// the reason the agent wrote, which follow the message rule. The field, its
+// buttons, and the note below them keep T3 Code's layout. Once the secret is
+// saved or declined, the card becomes a row with the name and the outcome,
+// which follows the message rule and is mirrored like a work log row.
+const SECRET_REQUEST_TEXT_SELECTOR = [
+  'form[data-v2-item-type="secret_request"] > div:first-child > :is(label, p)',
+  '[data-v2-item-type="secret_request"][class~="group/timeline-row"] div.min-w-0.flex-1.text-secondary-label',
+].join(", ");
 // An expanded thought in the work log is Markdown, like a message.
 const REASONING_MARKDOWN_ROOT_SELECTOR = '[data-v2-item-type="reasoning"] .chat-markdown';
 // The card of a subagent or delegated task: its title and the one-line
@@ -139,6 +148,7 @@ const DIRECTION_ROOT_SELECTOR = [
   QUEUED_PROMPT_SELECTOR,
   THREAD_QUEUE_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
+  SECRET_REQUEST_TEXT_SELECTOR,
   REASONING_MARKDOWN_ROOT_SELECTOR,
   SUBAGENT_TEXT_SELECTOR,
   HOVER_CARD_TEXT_SELECTOR,
@@ -271,6 +281,7 @@ const AUTO_DIRECTION_SELECTOR = [
   THREAD_QUEUE_PROMPT_SELECTOR,
   THREAD_TITLE_SELECTOR,
   WORK_LOG_ANSWER_SELECTOR,
+  SECRET_REQUEST_TEXT_SELECTOR,
   PREVIEW_ANNOTATION_CARD_TEXT_SELECTOR,
   REASONING_MARKDOWN_ROOT_SELECTOR,
   `${REASONING_MARKDOWN_ROOT_SELECTOR} p`,
