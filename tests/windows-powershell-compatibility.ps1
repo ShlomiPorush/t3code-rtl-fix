@@ -182,7 +182,7 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "repo-status.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {

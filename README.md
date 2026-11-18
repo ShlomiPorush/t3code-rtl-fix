@@ -77,6 +77,41 @@ need to open DevTools and paste CSS manually.
   and page title in the card that opens from an annotation chip.
 - T3 Code itself is not patched or repackaged.
 
+## Repository status
+
+The thread details card shows a section with the open issues, open pull
+requests, and open security alerts of the open thread's GitHub repository.
+Security alerts add up Dependabot, code scanning, and secret scanning alerts,
+and the row's tooltip lists each of them. Click a row to open that page on
+GitHub in your browser.
+
+A row appears only when its count is above zero. The section stays hidden when
+every count is zero, when the project has no GitHub `origin` remote, or when
+GitHub cannot be read.
+
+- The counts come from the [GitHub CLI](https://cli.github.com/). Install it
+  and sign in with `gh auth login`. The fix never reads or stores the token.
+- The launcher finds the thread's folder in T3 Code's database, which it opens
+  read only. When the thread's worktree is no longer a Git repository, it uses
+  the project folder.
+- The counts refresh when you open another thread or return to the window, if
+  they are older than a minute, and every 5 minutes while T3 Code is visible.
+- A count that GitHub does not allow for your account, such as Dependabot
+  alerts without access, is left out.
+- Code scanning and secret scanning show at most `100+`.
+- On macOS, the section needs Node.js 22.12 or newer, or T3 Code's own runtime.
+  With an older Node.js, the launcher turns it off and the RTL fix still works.
+
+To turn the section off, create `settings.json` beside `rtl.css` in the
+installed folder with this content, then fully quit and reopen T3 Code:
+
+```json
+{ "repoStatus": false }
+```
+
+The installer never writes this file, so an update keeps your choice. Problems
+are written once each to `launcher.log` in the same folder.
+
 ## Requirements
 
 - Windows or macOS
@@ -225,7 +260,13 @@ that the installer of the fix changed, so the uninstaller still restores all
 of them.
 
 The connection uses inherited process pipes. It does not open a local TCP
-debugging port and does not send data over the network.
+debugging port, and the RTL fix does not send data over the network.
+
+For the repository status section, the launcher adds a DevTools binding to
+the T3 Code page. The page reports the address of the open thread through it,
+and the launcher answers with the counts. The launcher runs `git` and `gh`
+without a shell, and the page receives only the repository name and the
+counts. The only network requests are the ones `gh` makes to GitHub.
 
 ## Repository layout
 

@@ -312,6 +312,7 @@ test("every shipped source file contains only English UI text", () => {
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
     path.join("src", "annotation-direction.js"),
+    path.join("src", "repo-status.js"),
     path.join("src", "rtl.css"),
   ];
   for (const file of files) {

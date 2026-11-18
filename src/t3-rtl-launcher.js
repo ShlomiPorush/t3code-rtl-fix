@@ -14,6 +14,7 @@ const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
 const logPath = path.join(__dirname, "launcher.log");
 const windowsLauncherPath = path.join(__dirname, "launch-t3-rtl.vbs");
+const settingsPath = path.join(__dirname, "settings.json");
 
 
 function log(message) {
@@ -70,6 +71,33 @@ try {
 }
 
 const injectionSource = buildInjectionSource(css);
+
+// Optional settings.json beside the launcher, such as { "repoStatus": false }.
+// The installer never writes it, so a reinstall keeps the user's choice.
+function readSettings() {
+  try {
+    const text = fs.readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+    return settings && typeof settings === "object" ? settings : {};
+  } catch (error) {
+    if (error.code !== "ENOENT") log(`Could not read ${settingsPath}: ${error.message}`);
+    return {};
+  }
+}
+
+// The repository status section is an extra. It loads on its own, so a
+// failure in it leaves the RTL fix running.
+let repoStatus = null;
+let repoStatusBinding = null;
+if (readSettings().repoStatus !== false) {
+  try {
+    const { REPO_STATUS_BINDING, createRepoStatusService } = require("./repo-status");
+    repoStatusBinding = REPO_STATUS_BINDING;
+    repoStatus = createRepoStatusService({ send: (...args) => send(...args), log });
+  } catch (error) {
+    log(`Repository status is off: ${error.message}`);
+  }
+}
 
 const child = spawn(appPath, ["--remote-debugging-pipe"], {
   env: t3Environment,
@@ -156,6 +184,13 @@ async function attachAndInject(targetInfo) {
       sessionId,
     );
     log(`RTL fix injected into ${targetInfo.url}`);
+    if (repoStatus) {
+      try {
+        await repoStatus.attach(sessionId);
+      } catch (error) {
+        log(`Repository status could not be added: ${error.message}`);
+      }
+    }
   } catch (error) {
     sessionsByTarget.delete(targetId);
     log(`Injection failed for target ${targetId}: ${error.message}`);
@@ -165,6 +200,24 @@ async function attachAndInject(targetInfo) {
 }
 
 function handleMessage(message) {
+  if (
+    repoStatus &&
+    message.method === "Runtime.bindingCalled" &&
+    message.params?.name === repoStatusBinding
+  ) {
+    repoStatus.handle(message.sessionId, message.params?.payload).catch((error) => {
+      log(`Repository status failed: ${error.message}`);
+    });
+    return;
+  }
+
+  if (repoStatus && message.method === "Page.domContentEventFired") {
+    repoStatus.reattach(message.sessionId).catch((error) => {
+      log(`Repository status could not be added after a reload: ${error.message}`);
+    });
+    return;
+  }
+
   if (
     message.method === "Runtime.bindingCalled" &&
     message.params?.name === ANNOTATION_BINDING
@@ -212,7 +265,9 @@ function handleMessage(message) {
   }
 
   if (message.method === "Target.targetDestroyed") {
-    annotationSessionsLogged.delete(sessionsByTarget.get(message.params?.targetId));
+    const destroyedSession = sessionsByTarget.get(message.params?.targetId);
+    annotationSessionsLogged.delete(destroyedSession);
+    repoStatus?.forget(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
   }
 }
