@@ -129,6 +129,16 @@ test("the composer placeholder and its predicted prompt follow their text", () =
   assert.match(css, new RegExp(`${placeholder}\\s*> span\\.ml-2\\s*\\{[^}]*margin-inline-start`));
 });
 
+test("composer notice descriptions such as the quoted text of a reply follow their text", () => {
+  const source = buildInjectionSource("body { color: red; }");
+
+  assert.match(
+    source,
+    /\[data-slot=\\"composer-banner-content\\"\] > span\.contents > span\.grow\.truncate\.text-muted-foreground/,
+  );
+  assert.match(source, /\[data-slot=\\"popover-popup\\"\]\[aria-label=\\"Notice details\\"\]/);
+});
+
 test("queued prompts and plan titles follow the current T3 Code markup", () => {
   const css = fs.readFileSync(path.join(root, "src", "rtl.css"), "utf8");
   const source = buildInjectionSource("body { color: red; }");

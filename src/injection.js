@@ -104,6 +104,16 @@ const CITATION_CARD_TEXT_SELECTOR = [
 // is unique to this placeholder in T3 Code's markup.
 const COMPOSER_PLACEHOLDER_SELECTOR =
   "div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder";
+// The notices above the composer show a title and a one-line description.
+// While a reply to quoted text is drafted, the notice titled Replying to
+// shows the quoted text as its description, so each description follows the
+// message rule. The row with its icon and dismiss button keeps T3 Code's
+// layout. A truncated title or description opens a Notice details popup with
+// the full text, which follows the same rule.
+const COMPOSER_BANNER_TEXT_SELECTOR = [
+  '[data-slot="composer-banner-content"] > span.contents > span.grow.truncate.text-muted-foreground',
+  '[data-slot="popover-popup"][aria-label="Notice details"]',
+].join(", ");
 const TABLE_CONTAINER_SELECTOR = ".chat-markdown-table-container";
 const TABLE_VIEWPORT_SELECTOR = `${TABLE_CONTAINER_SELECTOR} [data-slot="scroll-area-viewport"]`;
 const COMPOSER_ROOT_SELECTOR = ".composer-tiptap";
@@ -135,6 +145,7 @@ const DIRECTION_ROOT_SELECTOR = [
   TOAST_TEXT_SELECTOR,
   CITATION_CARD_SELECTOR,
   COMPOSER_PLACEHOLDER_SELECTOR,
+  COMPOSER_BANNER_TEXT_SELECTOR,
 ].join(", ");
 // T3 Code 0.1.2 gives every top-level Markdown block its own dir from a
 // majority vote of its words, so these blocks need the fix's rule too, or an
@@ -283,6 +294,7 @@ const AUTO_DIRECTION_SELECTOR = [
   TOAST_TEXT_SELECTOR,
   CITATION_CARD_TEXT_SELECTOR,
   COMPOSER_PLACEHOLDER_SELECTOR,
+  COMPOSER_BANNER_TEXT_SELECTOR,
 ].join(", ");
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',

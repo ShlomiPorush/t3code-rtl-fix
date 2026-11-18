@@ -52,6 +52,11 @@ need to open DevTools and paste CSS manually.
 - With prompt suggestions on, a predicted next prompt shown in the empty
   composer follows the direction of its text. A Hebrew or Arabic prediction
   sits on the right, and the Tab key hint after it keeps its order.
+- While a reply to quoted text is drafted, the quote shown after "Replying to"
+  above the composer follows the direction of its text, and so does every
+  other notice description there and its Notice details popup. A Hebrew or
+  Arabic quote reads from the right and is cut at its end. The notice's icon,
+  title, and dismiss button keep their layout.
 - The agent's work log follows the direction of its text. Asked questions and
   their answers follow the message rule, and row summaries follow their first
   letter so commands that start in English stay left to right. A row whose
