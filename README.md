@@ -84,13 +84,40 @@ need to open DevTools and paste CSS manually.
 ## Repository status
 
 The thread details card shows a section with the open issues, open pull
-requests, and open security alerts of the open thread's GitHub repository.
-Security alerts add up Dependabot, code scanning, and secret scanning alerts,
-and the row's tooltip lists each of them. Click a row to open that page on
-GitHub in your browser.
+requests, and open security alerts of the open thread's GitHub repository. A
+new thread shows the section of its project's repository before its first
+message.
+Security alerts add up Dependabot, code scanning, and secret scanning alerts.
+Click a row to open that page on GitHub in your browser.
 
 Below them, a **Branches** group counts the repository's branches. The default
-branch is never counted, and each row's tooltip lists the branch names.
+branch is never counted.
+
+Point at a row, or move to it with the keyboard, to see its details:
+
+- **Issues** and **Pull requests**: the most recently updated, with author,
+  age, and labels, or the draft and review state.
+- **Security alerts**: the alerts of each source by severity, with the
+  affected package, rule, or secret type. The secret itself is never read
+  into the section.
+- **Branches**: the branch names with the age of their newest commit. Local
+  branches also show whether they are ahead of or behind their branch on
+  GitHub, as of the last fetch.
+
+Each list shows up to 100 items. Scroll the details to reach them all. When
+GitHub has a page with the whole list, a list with more than five items ends
+with a line that opens it, such as "View all 12 on GitHub", or "and 40 more"
+past 100 items. Local branches have no such page.
+
+Move the pointer into the details and click an item to open its page on
+GitHub: an issue, a pull request, an alert, or a branch. A local branch opens
+the branch it tracks on GitHub. With the keyboard, press the Down arrow on a
+row to reach its links, the Up and Down arrows to move between them, Enter to
+open one, and Escape to return to the row.
+
+Drag an item into the message box to quote it. The quote is its number and
+title, or its name, followed by its address on GitHub when it has one, such as
+`#7 Fix the table direction https://github.com/owner/repo/issues/7`.
 
 - **Remote**: branches on GitHub. Click to open the branches page on GitHub.
 - **Local**: branches in the project folder.
@@ -110,7 +137,9 @@ GitHub cannot be read.
   and sign in with `gh auth login`. The fix never reads or stores the token.
 - The launcher finds the thread's folder in T3 Code's database, which it opens
   read only. When the thread's worktree is no longer a Git repository, it uses
-  the project folder.
+  the project folder. A new thread is not in the database before its first
+  message, so the page reads its project from T3 Code's drafts in the page's
+  local storage, and the launcher finds that project's folder.
 - The counts refresh when you open another thread or return to the window, if
   they are older than a minute, and every 5 minutes while T3 Code is visible.
 - A count that GitHub does not allow for your account, such as Dependabot
@@ -282,8 +311,10 @@ debugging port, and the RTL fix does not send data over the network.
 For the repository status section, the launcher adds a DevTools binding to
 the T3 Code page. The page reports the address of the open thread through it,
 and the launcher answers with the counts. The launcher runs `git` and `gh`
-without a shell, and the page receives only the repository name and the
-counts. The only network requests are the ones `gh` makes to GitHub.
+without a shell, and the page receives only the repository name, the counts,
+and their details. When a row or a link is clicked, the launcher opens only a GitHub page
+of that repository that it sent to the page itself. The only network requests
+are the ones `gh` makes to GitHub.
 
 ## Repository layout
 
