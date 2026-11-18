@@ -13,6 +13,7 @@ const {
   summarizeBranches,
   createRepoStatusService,
   fetchCounts,
+  lookupProjectFolder,
   lookupThreadFolder,
   opensSqliteReadOnly,
   parseGitHubRemote,
@@ -50,6 +51,10 @@ test("the thread is read from the page address", () => {
   assert.equal(parseThreadLocation("t3code://app/settings"), null);
   assert.equal(parseThreadLocation("t3code://app/a%20b/c"), null);
   assert.equal(parseThreadLocation("not a url"), null);
+  // A new thread has a draft route until its first message.
+  assert.deepEqual(parseThreadLocation("t3code://app/draft/5fa95862-beec"), { draftId: "5fa95862-beec" });
+  assert.deepEqual(parseThreadLocation("t3code://app/#/draft/d1?x=1"), { draftId: "d1" });
+  assert.equal(parseThreadLocation("t3code://app/draft/a%20b"), null);
 });
 
 test("only GitHub remotes name a repository", () => {
@@ -200,20 +205,21 @@ test("the thread folder comes from T3 Code's database", (t) => {
 
   // Older T3 Code releases keep threads in state.sqlite.
   create("state.sqlite", `
-    CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, workspace_root TEXT NOT NULL);
+    CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, workspace_root TEXT NOT NULL, deleted_at TEXT);
     CREATE TABLE projection_threads (thread_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, worktree_path TEXT);
-    INSERT INTO projection_projects VALUES ('p1', 'C:\\old-repo');
+    INSERT INTO projection_projects VALUES ('p1', 'C:\\old-repo', NULL);
     INSERT INTO projection_threads VALUES ('t1', 'p1', NULL), ('t2', 'p1', 'C:\\old-worktree');
   `);
   assert.deepEqual(lookupThreadFolder(directory, "t1"), ["C:\\old-repo"]);
   assert.deepEqual(lookupThreadFolder(directory, "t2"), ["C:\\old-worktree", "C:\\old-repo"]);
+  assert.deepEqual(lookupProjectFolder(directory, "p1"), ["C:\\old-repo"]);
 
   // Current releases write statev2.sqlite and leave state.sqlite behind.
   const payload = (id, worktreePath) => JSON.stringify({ id, worktreePath }).replace(/'/g, "''");
   create("statev2.sqlite", `
-    CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, workspace_root TEXT NOT NULL);
+    CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, workspace_root TEXT NOT NULL, deleted_at TEXT);
     CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, payload_json TEXT NOT NULL);
-    INSERT INTO projection_projects VALUES ('p1', 'C:\\repo');
+    INSERT INTO projection_projects VALUES ('p1', 'C:\\repo', NULL), ('p2', 'C:\\removed', '2026-01-01');
     INSERT INTO orchestration_v2_projection_threads VALUES
       ('t1', 'p1', '${payload("t1", null)}'),
       ('mcp:launch:78de3208', 'p1', '${payload("mcp:launch:78de3208", "C:\\worktree")}');
@@ -221,6 +227,10 @@ test("the thread folder comes from T3 Code's database", (t) => {
   assert.deepEqual(lookupThreadFolder(directory, "t1"), ["C:\\repo"]);
   assert.deepEqual(lookupThreadFolder(directory, "mcp:launch:78de3208"), ["C:\\worktree", "C:\\repo"]);
   assert.equal(lookupThreadFolder(directory, "t2"), null);
+  // A new thread has only its project. A removed project has no folder.
+  assert.deepEqual(lookupProjectFolder(directory, "p1"), ["C:\\repo"]);
+  assert.equal(lookupProjectFolder(directory, "p2"), null);
+  assert.equal(lookupProjectFolder(directory, "p3"), null);
 });
 
 function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.git" } = {}) {
@@ -234,6 +244,9 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     opened: [],
     logs: [],
     folderLookups: 0,
+    remotes: {},
+    projects: {},
+    projectLookups: [],
     holdGit: false,
     holdGraphql: false,
     releases: [],
@@ -247,7 +260,7 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
       if (args[1] === "C:\\gone") return { error: new Error("not a git repository"), stdout: "", stderr: "fatal" };
       if (args[2] === "for-each-ref") return { error: null, stdout: state.localBranches, stderr: "" };
       if (state.holdGit) await hold();
-      return { error: null, stdout: `${remote}\n`, stderr: "" };
+      return { error: null, stdout: `${state.remotes[args[1]] || remote}\n`, stderr: "" };
     }
     if (args[3] === "graphql") {
       state.graphqlCalls += 1;
@@ -275,9 +288,10 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     state.sent.push([sessionId, method]);
     if (method !== "Runtime.evaluate" || !params.expression.includes("receive(")) return {};
     if (state.failPush) throw new Error("the page navigated");
-    const match = /receive\((.*)\);/.exec(params.expression);
+    const match = /receive\((.*)\) === true;/.exec(params.expression);
     state.pushes.push({ sessionId, data: JSON.parse(match[1]) });
-    return {};
+    // A page on another thread or project does not take the rows.
+    return { result: { value: !state.rejectPush } };
   };
   const service = createRepoStatusService({
     send,
@@ -288,10 +302,14 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
       state.folderLookups += 1;
       return typeof state.folder === "function" ? state.folder(id) : state.folder;
     },
+    findProjectFolder: (id) => {
+      state.projectLookups.push(id);
+      return state.projects[id] || null;
+    },
     open: async (url) => state.opened.push(url),
   });
-  const check = (reason = "navigate", href = threadHref) =>
-    service.handle("s1", JSON.stringify({ type: "check", path: href, reason }));
+  const check = (reason = "navigate", href = threadHref, project) =>
+    service.handle("s1", JSON.stringify({ type: "check", path: href, reason, project }));
   const last = () => state.pushes.at(-1).data;
   return { service, state, check, last };
 }
@@ -499,10 +517,10 @@ test("branch rows form one group with branches in their tooltips", () => {
     issues: count(1),
     branches: {
       remote: {
-        value: 12,
+        value: 120,
         capped: false,
         partial: false,
-        branches: Array.from({ length: 12 }, (_, i) => ({ name: `b${i}`, time: daysAgo(i), merged: i === 0 })),
+        branches: Array.from({ length: 120 }, (_, i) => ({ name: `b${i}`, time: daysAgo(i), merged: i === 0 })),
       },
       local: { value: 0, capped: false, branches: [] },
       dead: {
@@ -516,11 +534,12 @@ test("branch rows form one group with branches in their tooltips", () => {
   });
   assert.deepEqual(rows.map((row) => [row.group || "", row.kind, row.label, row.count]), [
     ["", "issues", "Issues", "1"],
-    ["branches", "branches-remote", "Remote", "12"],
+    ["branches", "branches-remote", "Remote", "120"],
     ["branches", "branches-dead", "Dead", "2"],
     ["branches", "branches-stale", "Stale", "1+"],
   ]);
-  assert.deepEqual(tipLists(rows[1]), [["", ["b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"], 4]]);
+  // A tooltip lists up to 100 branches, and the line opens the rest.
+  assert.deepEqual(tipLists(rows[1]), [["", Array.from({ length: 100 }, (_, i) => `b${i}`), 20]]);
   assert.deepEqual(rows[1].detail.sections[0].items[0], {
     text: "b0",
     time: daysAgo(0),
@@ -612,7 +631,6 @@ test("the security tooltip groups alerts by source and severity", () => {
     title: "Secret scanning · 1",
     items: [{ text: "GitHub Token" }],
     more: 0,
-    link: "security/secret-scanning",
   });
   assert.equal(row.detail.note, "Severities count the first 4 Dependabot alerts.");
 });
@@ -972,26 +990,28 @@ test("tooltip items and lists link to their own GitHub pages", () => {
     section.link || null,
     section.items.map((item) => item.link || null),
   ]);
+  // Eight issues are left out, so the line opens the list.
   assert.deepEqual(links("issues"), [["issues", ["issues/12"]]]);
-  assert.deepEqual(links("pulls"), [["pulls", ["pull/58"]]]);
+  // A list of five or fewer, all shown, has no line.
+  assert.deepEqual(links("pulls"), [[null, ["pull/58"]]]);
   assert.deepEqual(links("security"), [
     // An alert without a number has no page to open.
-    ["security/dependabot", ["security/dependabot/4", null]],
-    ["security/code-scanning", ["security/code-scanning/8"]],
-    ["security/secret-scanning", ["security/secret-scanning/3"]],
+    [null, ["security/dependabot/4", null]],
+    [null, ["security/code-scanning/8"]],
+    [null, ["security/secret-scanning/3"]],
   ]);
   // Each part of a branch name is encoded, and the slashes between them stay.
-  assert.deepEqual(links("branches-remote"), [["branches/all", ["tree/done", "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
+  assert.deepEqual(links("branches-remote"), [[null, ["tree/done", "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
   // A local branch links to the GitHub branch it tracks, unless it is gone.
   // Local branches have no list on GitHub.
   assert.deepEqual(links("branches-local"), [[null, [null, "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25", null]]]);
   // The deleted branch is local only, so it has no page.
   assert.deepEqual(links("branches-dead"), [
-    ["branches/all", ["tree/done"]],
+    [null, ["tree/done"]],
     [null, [null]],
   ]);
   // A stale branch on GitHub links to it, and a local one does not.
-  assert.deepEqual(links("branches-stale"), [["branches/all", [null, "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
+  assert.deepEqual(links("branches-stale"), [[null, [null, "tree/feature/%D7%AA%D7%99%D7%A7%D7%95%D7%9F%231%25"]]]);
 });
 
 test("a branch name that is not a safe path has no link", () => {
@@ -1010,7 +1030,7 @@ test("a branch name that is not a safe path has no link", () => {
   );
 });
 
-test("the stale list links to GitHub only when every branch left out is there", () => {
+test("the stale list links to GitHub only when every branch it stands for is there", () => {
   const stale = (localNames) => buildRows({
     branches: summarizeBranches(
       {
@@ -1025,12 +1045,14 @@ test("the stale list links to GitHub only when every branch left out is there", 
       NOW,
     ),
   }).find((row) => row.kind === "branches-stale").detail.sections[0];
-  // Nine branches on GitHub, eight shown: the one left out is on GitHub.
-  assert.equal(stale([]).link, "branches/all");
-  // The oldest come first, so the two newer local branches are left out,
-  // and GitHub does not list them.
+  // Nine branches, all on GitHub, so the line opens the list there.
+  const remoteOnly = stale([]);
+  assert.equal(remoteOnly.items.length, 9);
+  assert.equal(remoteOnly.more, 0);
+  assert.equal(remoteOnly.link, "branches/all");
+  // Two local branches are not on GitHub, so its list does not hold them.
   const mixed = stale(["l1", "l2"]);
-  assert.equal(mixed.more, 3);
+  assert.equal(mixed.items.length, 11);
   assert.equal(mixed.link, undefined);
 });
 
@@ -1038,12 +1060,19 @@ test("a list line links to GitHub only when every item left out has a page there
   const alerts = (numbers) => buildRows({
     codeScanning: { value: numbers.length, capped: false, alerts: numbers.map((number) => ({ number, severity: "high", rule: "r" })) },
   })[0].detail.sections[0];
-  // Five shown, and the sixth has a number.
-  assert.equal(alerts([1, 2, 3, 4, 5, 6]).link, "security/code-scanning");
-  // The sixth has no number, so the list line does not promise it.
-  const unnumbered = alerts([1, 2, 3, 4, 5, null]);
-  assert.equal(unnumbered.more, 1);
-  assert.equal(unnumbered.link, undefined);
+  const numbered = (length) => Array.from({ length }, (_, i) => i + 1);
+  // Six shown, each with a number, so the line opens them all.
+  const six = alerts(numbered(6));
+  assert.deepEqual([six.items.length, six.more, six.link], [6, 0, "security/code-scanning"]);
+  // Five or fewer have no line.
+  assert.equal(alerts(numbered(5)).link, undefined);
+  // One without a number has no page there, so the line does not promise it.
+  assert.equal(alerts([...numbered(5), null]).link, undefined);
+  // Past 100, the line stands only for the items left out.
+  const shownUnnumbered = alerts([null, ...numbered(101).slice(1)]);
+  assert.deepEqual([shownUnnumbered.items.length, shownUnnumbered.more, shownUnnumbered.link], [100, 1, "security/code-scanning"]);
+  const leftOutUnnumbered = alerts([...numbered(100), null]);
+  assert.deepEqual([leftOutUnnumbered.more, leftOutUnnumbered.link], [1, undefined]);
 });
 
 test("the links change only after the page received the rows that hold them", async () => {
@@ -1070,6 +1099,65 @@ test("the links change only after the page received the rows that hold them", as
   assert.deepEqual(state.opened, ["https://github.com/o/r/tree/feature/old"]);
 });
 
+test("a check replaced by a newer one for the same thread sends nothing", async () => {
+  const { state, check } = createHarness();
+  await check();
+  const before = state.pushes.length;
+  // Both checks wait for the same lookup, and the earlier one ends first.
+  state.time += FRESH_MS + 5 * 60 * 1000 + 1;
+  state.holdGit = true;
+  const first = check("focus");
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = check("focus");
+  await new Promise((resolve) => setImmediate(resolve));
+  state.holdGit = false;
+  for (const release of state.releases) release();
+  await Promise.all([first, second]);
+  assert.equal(state.pushes.length, before + 1);
+});
+
+test("the repository and its links change only together", async () => {
+  // The page navigates away while its rows are sent, or takes the message
+  // but not the rows, so it still shows the earlier ones.
+  for (const failure of ["failPush", "rejectPush"]) {
+    const { service, state, check } = createHarness();
+    await check();
+    const open = (repo) => service.handle("s1", JSON.stringify({ type: "open", link: "issues", repo }));
+    // The thread's folder now has another origin.
+    state.folder = "C:\\next";
+    state.remotes = { "C:\\next": "https://github.com/n/m.git" };
+    state.time += 5 * 60 * 1000 + 1;
+    state[failure] = true;
+    if (failure === "failPush") await assert.rejects(check("focus"));
+    else await check("focus");
+    await open("n/m");
+    await open("o/r");
+    assert.deepEqual(state.opened, ["https://github.com/o/r/issues"], failure);
+  }
+});
+
+test("a removed project stops showing in a new thread at once", async () => {
+  const { state, check, last } = createHarness();
+  state.projects = { p1: ["C:\\project"] };
+  const draft = "t3code://app/draft/d1";
+  await check("navigate", draft, "p1");
+  assert.equal(last().repo, "o/r");
+  state.projects = {};
+  await check("focus", draft, "p1");
+  assert.deepEqual(state.projectLookups, ["p1", "p1"]);
+  assert.deepEqual(last().rows, []);
+});
+
+test("a list read from one page of a longer one has a line without a count", () => {
+  const alerts = Array.from({ length: 100 }, (_, i) => ({ number: i + 1, severity: "high", rule: "r" }));
+  const [row] = buildRows({ codeScanning: { value: 100, capped: true, alerts } });
+  const [section] = row.detail.sections;
+  assert.equal(row.count, "100+");
+  assert.deepEqual([section.items.length, section.more, section.partial, section.link], [100, 0, true, "security/code-scanning"]);
+  const [exact] = buildRows({ codeScanning: { value: 100, capped: false, alerts } })[0].detail.sections;
+  assert.equal(exact.partial, undefined);
+});
+
 test("a link opens only when the page was sent it for the thread shown", async () => {
   const { service, state, check } = createHarness();
   state.time = NOW;
@@ -1093,11 +1181,55 @@ test("a link opens only when the page was sent it for the thread shown", async (
   await open("tree/feature/x", "other/repo");
   await open("tree/feature/x", null);
   await service.handle("s1", JSON.stringify({ type: "open", kind: "issues" }));
-  assert.deepEqual(state.opened, ["https://github.com/o/r/tree/feature/x", "https://github.com/o/r/branches/all"]);
+  // One branch has no list line, so the list is not one of the links.
+  assert.deepEqual(state.opened, ["https://github.com/o/r/tree/feature/x"]);
   // Another thread starts with no links until its rows arrive.
   state.folder = () => null;
   await check("navigate", `t3code://app/${environmentId}/other-thread`);
   await open("tree/feature/x");
+  assert.equal(state.opened.length, 1);
+});
+
+test("a new thread shows the status of its project's repository", async () => {
+  const { state, check, last } = createHarness();
+  state.projects = { p1: ["C:\\project"] };
+  const draft = "t3code://app/draft/d1";
+  await check("navigate", draft, "p1");
+  assert.deepEqual(state.projectLookups, ["p1"]);
+  assert.equal(state.folderLookups, 0);
+  assert.equal(last().project, "p1");
+  assert.equal(last().repo, "o/r");
+  assert.deepEqual(last().rows.map((row) => row.kind), ["issues"]);
+  // Without a project, or with an unsafe one, nothing is looked up.
+  await check("navigate", draft);
+  await check("navigate", draft, "a b");
+  assert.deepEqual(state.projectLookups, ["p1"]);
+  assert.deepEqual(last(), { path: draft, project: "a b", repo: null, rows: [] });
+  // A project that is not in the database shows no section.
+  await check("navigate", draft, "p2");
+  assert.deepEqual(last().rows, []);
+});
+
+test("a new thread whose project changes drops the links of the earlier one", async () => {
+  const { service, state, check, last } = createHarness();
+  state.projects = { p1: ["C:\\project"], p2: ["C:\\other"] };
+  const draft = "t3code://app/draft/d1";
+  await check("navigate", draft, "p1");
+  const open = () => service.handle("s1", JSON.stringify({ type: "open", kind: "issues", repo: "o/r" }));
+  await open();
+  assert.equal(state.opened.length, 1);
+  // The project changes on the same address. Until its rows arrive, a click
+  // on a row shown for the earlier project opens nothing.
+  state.holdGit = true;
+  const pending = check("navigate", draft, "p2");
+  await new Promise((resolve) => setImmediate(resolve));
+  await open();
+  assert.equal(state.opened.length, 1);
+  state.holdGit = false;
+  for (const release of state.releases) release();
+  await pending;
+  assert.equal(last().project, "p2");
+  await open();
   assert.equal(state.opened.length, 2);
 });
 

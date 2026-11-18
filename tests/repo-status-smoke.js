@@ -46,6 +46,24 @@ const fixture = `<!doctype html><html><head><title>fixture</title>
       </div>
     </div>
   </aside>
+  <script>
+    const card = document.querySelector("[data-thread-details-card]");
+    window.__cardClosed = [];
+    window.__cardEscapes = 0;
+    window.__cardMenus = 0;
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") window.__cardEscapes += 1;
+    });
+    card.addEventListener("contextmenu", () => {
+      window.__cardMenus += 1;
+    });
+    card.addEventListener("focusout", (event) => {
+      if (window.__watchCard && !(event.relatedTarget && card.contains(event.relatedTarget))) window.__cardClosed.push("focus-out");
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (window.__watchCard && !card.contains(event.target)) window.__cardClosed.push("outside-press");
+    }, true);
+  </script>
 </body></html>`;
 
 const server = http.createServer((request, response) => {
@@ -61,6 +79,7 @@ let nextId = 1;
 let incoming = Buffer.alloc(0);
 let service;
 const opened = [];
+const drags = [];
 
 function send(method, params = {}, sessionId) {
   const id = nextId++;
@@ -81,6 +100,10 @@ function onData(chunk) {
     const message = JSON.parse(raw);
     if (message.method === "Runtime.bindingCalled" && message.params?.name === REPO_STATUS_BINDING) {
       handled.push(service.handle(message.sessionId, message.params.payload));
+      continue;
+    }
+    if (message.method === "Input.dragIntercepted") {
+      drags.push(message.params.data);
       continue;
     }
     if (message.method === "Page.domContentEventFired") {
@@ -157,9 +180,12 @@ const fakeRun = async (file, args) => {
       stderr: "",
     };
   }
-  // Five alerts of each scanning kind, so the security tooltip is tall.
-  const alerts = Array.from({ length: 5 }, (_, i) => (args[3].includes("code-scanning")
-    ? { rule: { security_severity_level: ["high", "low"][i % 2], description: `Rule ${i}` }, most_recent_instance: { location: { path: `src/${i}.js` } } }
+  // Seven code scanning alerts and five secrets, so the security tooltip is
+  // tall. Only the code scanning alerts have numbers, so only their list
+  // opens on GitHub.
+  const codeScanning = args[3].includes("code-scanning");
+  const alerts = Array.from({ length: codeScanning ? 7 : 5 }, (_, i) => (codeScanning
+    ? { number: i + 1, rule: { security_severity_level: ["high", "low"][i % 2], description: `Rule ${i}` }, most_recent_instance: { location: { path: `src/${i}.js` } } }
     : { secret_type_display_name: `Token ${i}` }));
   return { error: null, stdout: JSON.stringify(alerts), stderr: "" };
 };
@@ -197,6 +223,7 @@ async function run() {
     send,
     run: fakeRun,
     findThreadFolder: (threadId) => (threadId === threadWithRepo ? "C:\\repo" : null),
+    findProjectFolder: (projectId) => (projectId === "p1" ? "C:\\repo" : null),
     open: async (url) => opened.push(url),
   });
 
@@ -222,7 +249,7 @@ async function run() {
     items: [
       ["BUTTON", "issues", "Issues3", 0, false],
       ["BUTTON", "pulls", "Pull requests1", 0, false],
-      ["BUTTON", "security", "Security alerts12", 0, false],
+      ["BUTTON", "security", "Security alerts14", 0, false],
       ["group", "Branches", true, "solid"],
       ["BUTTON", "branches-remote", "Remote1", 0, false],
       // Local branches have no GitHub page, so their row is not a button,
@@ -257,6 +284,9 @@ async function run() {
 
   await checkTooltip(sessionId);
   await checkTooltipLinks(sessionId);
+  await checkDrag(sessionId);
+  await checkPlainItemClick(sessionId);
+  await checkCardStaysOpen(sessionId);
   await checkShortWindow(sessionId);
 
   // Another thread without a GitHub repository hides the section at once.
@@ -277,6 +307,7 @@ async function run() {
   await waitFor(sessionId, `!!window.__t3RtlFixRepoStatusWatcher && !!document.getElementById("content")`, "the reloaded script");
   await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section after a reload");
 
+  await checkDraft(sessionId);
   await checkNewerCounts(sessionId);
 
   // With branch rows only, the Branches title has no line above it.
@@ -495,6 +526,270 @@ async function checkTooltipLinks(sessionId) {
   if (opened.length !== before + 3) throw new Error(`Unexpected extra pages: ${JSON.stringify(opened)}`);
 }
 
+// An item dragged from the tooltip into the composer quotes it as plain
+// text, and the focus and the tooltip end as after a click.
+async function checkDrag(sessionId) {
+  await evaluate(sessionId, `(() => {
+    const field = document.createElement("textarea");
+    field.id = "composer";
+    field.style.cssText = "position: fixed; left: 10px; bottom: 10px; width: 300px; height: 80px;";
+    document.body.appendChild(field);
+    field.focus();
+    return 1;
+  })()`);
+  const target = await center(sessionId, "#composer");
+  await send("Input.setInterceptDrags", { enabled: true }, sessionId);
+  try {
+    for (const [kind, selector, quote] of [
+      ["issues", ".t3-rtl-repo-status-tip a.t3-rtl-tip-item", "#7 תיקון כיוון בטבלאות https://github.com/o/r/issues/7"],
+      // A branch without a page on GitHub is quoted by its name.
+      ["branches-local", ".t3-rtl-repo-status-tip .t3-rtl-tip-item:not(a)", "spike"],
+    ]) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+      await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close before a drag");
+      await hoverRow(sessionId, kind);
+      await waitFor(sessionId, TIP_SHOWN, `the ${kind} tooltip`);
+      const item = await center(sessionId, selector);
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+      await wait(300);
+      const before = drags.length;
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: item.x, y: item.y, button: "left", clickCount: 1 }, sessionId);
+      // The pointer leaves the tooltip on its way to the composer.
+      for (const step of [0.1, 0.4, 0.7, 1]) {
+        await send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: item.x + (target.x - item.x) * step,
+          y: item.y + (target.y - item.y) * step,
+          button: "left",
+          buttons: 1,
+        }, sessionId);
+      }
+      for (let attempt = 0; attempt < 30 && drags.length === before; attempt += 1) await wait(100);
+      const data = drags[before];
+      if (!data) throw new Error(`No drag started from the ${kind} tooltip`);
+      const types = data.items.map((entry) => entry.mimeType);
+      if (JSON.stringify(types) !== JSON.stringify(["text/plain"]) || data.items[0].data !== quote) {
+        throw new Error(`Unexpected drag data: ${JSON.stringify(data)}`);
+      }
+      // The tooltip stays open while the pointer is outside it.
+      await wait(400);
+      if (!(await evaluate(sessionId, TIP_SHOWN))) throw new Error("The tooltip closed during a drag");
+      await evaluate(sessionId, `(() => { const field = document.getElementById("composer"); field.value = ""; field.setSelectionRange(0, 0); return 1; })()`);
+      for (const type of ["dragEnter", "dragOver", "drop"]) {
+        await send("Input.dispatchDragEvent", { type, x: target.x, y: target.y, data }, sessionId);
+      }
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", clickCount: 1 }, sessionId);
+      await waitFor(sessionId, `document.getElementById("composer").value === ${JSON.stringify(quote)}`, `the ${kind} quote in the composer`);
+      await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after the drop");
+      await waitFor(sessionId, `document.activeElement?.id === "composer"`, "the focus in the composer after the drop");
+    }
+    // Newer counts rebuild the section during a drag, and the drag is then
+    // cancelled. The focus returns to the composer, and the tooltip closes
+    // and still opens and closes later.
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+    await hoverRow(sessionId, "issues");
+    await waitFor(sessionId, TIP_SHOWN, "the Issues tooltip before a cancelled drag");
+    const item = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+    await wait(300);
+    const before = drags.length;
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: item.x, y: item.y, button: "left", clickCount: 1 }, sessionId);
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, button: "left", buttons: 1 }, sessionId);
+    for (let attempt = 0; attempt < 30 && drags.length === before; attempt += 1) await wait(100);
+    if (!drags[before]) throw new Error("No drag started before the refresh");
+    await evaluate(sessionId, `window.__t3RtlFixRepoStatusUpdate({ path: location.href, project: null, repo: "o/r", rows: [
+      { kind: "issues", label: "Issues", count: "4", detail: { title: "Issues", summary: "4 open", sections: [] } },
+    ] }), 1`);
+    await wait(300);
+    await send("Input.dispatchDragEvent", { type: "dragCancel", x: target.x, y: target.y, data: drags[before] }, sessionId);
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", clickCount: 1 }, sessionId);
+    await waitFor(sessionId, `document.activeElement?.id === "composer"`, "the focus in the composer after a cancelled drag");
+    await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after a cancelled drag");
+    await hoverRow(sessionId, "issues");
+    await waitFor(sessionId, TIP_SHOWN, "the tooltip of the rebuilt row");
+    await pressKey(sessionId, "Escape", "Escape", 27);
+    await waitFor(sessionId, TIP_HIDDEN, "Escape to close the tooltip after a cancelled drag");
+  } finally {
+    await send("Input.setInterceptDrags", { enabled: false }, sessionId);
+  }
+  // The real counts come back.
+  await evaluate(sessionId, `window.__t3RtlFixRepoStatusCheck("navigate"), 1`);
+  await waitFor(sessionId, `!!document.querySelector('[data-t3-rtl-repo-status] [data-kind="branches-local"]')`, "the real rows after the drag");
+  await evaluate(sessionId, `document.getElementById("composer").remove(), 1`);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+}
+
+// A click on an item without a link keeps the focus on the row that had it,
+// and its tooltip open.
+async function checkPlainItemClick(sessionId) {
+  const row = `document.querySelector('[data-t3-rtl-repo-status] [data-kind="branches-local"]')`;
+  await evaluate(sessionId, `${row}.focus(), 1`);
+  await pressKey(sessionId, "ArrowDown", "ArrowDown", 40);
+  await waitFor(sessionId, TIP_SHOWN, "the Local tooltip from the keyboard");
+  const item = await center(sessionId, ".t3-rtl-repo-status-tip .t3-rtl-tip-item:not(a)");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+  await clickAt(sessionId, item);
+  await wait(300);
+  const state = await evaluate(sessionId, `JSON.stringify([${row} === document.activeElement, ${TIP_SHOWN}])`);
+  if (state !== "[true,true]") throw new Error(`A click on a plain item moved the focus or closed the tooltip: ${state}`);
+  // The arrow keys reach every item, links or not, and End the last one.
+  await evaluate(sessionId, `${row}.focus(), 1`);
+  await pressKey(sessionId, "ArrowDown", "ArrowDown", 40);
+  await waitFor(sessionId, `document.activeElement?.dataset?.quote === "spike"`, "the focus on the first plain item");
+  await pressKey(sessionId, "End", "End", 35);
+  await waitFor(sessionId, `document.activeElement?.dataset?.quote === "spike-7"`, "the focus on the last plain item");
+  await pressKey(sessionId, "Escape", "Escape", 27);
+  await waitFor(sessionId, `${row} === document.activeElement`, "the focus back on the row from a plain item");
+  await evaluate(sessionId, `${row}.blur(), 1`);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after the plain item");
+  // With no focus before it, a click on a plain item keeps the tooltip open.
+  await evaluate(sessionId, "document.activeElement?.blur(), 1");
+  await hoverRow(sessionId, "branches-local");
+  await waitFor(sessionId, TIP_SHOWN, "the Local tooltip by pointer");
+  const plain = await center(sessionId, ".t3-rtl-repo-status-tip .t3-rtl-tip-item:not(a)");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: plain.x, y: plain.y }, sessionId);
+  await clickAt(sessionId, plain);
+  await wait(400);
+  if (!(await evaluate(sessionId, TIP_SHOWN))) throw new Error("A click on a plain item with no focus closed the tooltip");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close when the pointer leaves the plain item");
+  await evaluate(sessionId, "document.activeElement?.blur(), 1");
+}
+
+// T3 Code's card closes on focus that leaves it or a press outside it, when
+// it is a popover. A click on an item and the start of a drag happen inside
+// it, so it stays open.
+async function checkCardStaysOpen(sessionId) {
+  const row = `document.querySelector('[data-t3-rtl-repo-status] [data-kind="issues"]')`;
+  await evaluate(sessionId, `(window.__cardClosed = [], window.__watchCard = true, ${row}.focus(), 1)`);
+  try {
+    await hoverRow(sessionId, "branches-remote");
+    await waitFor(sessionId, `document.querySelector(".t3-rtl-repo-status-tip[data-shown] .t3-rtl-tip-title")?.textContent === "Remote branches"`, "the Remote tooltip");
+    const before = opened.length;
+    const item = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+    await clickAt(sessionId, item);
+    await openedAfter(sessionId, before + 1, "the branch to open from the card");
+    await waitFor(sessionId, `${row} === document.activeElement`, "the focus back on the row");
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+    await hoverRow(sessionId, "branches-remote");
+    await waitFor(sessionId, TIP_SHOWN, "the Remote tooltip again");
+    const again = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: again.x, y: again.y }, sessionId);
+    await send("Input.setInterceptDrags", { enabled: true }, sessionId);
+    const start = drags.length;
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: again.x, y: again.y, button: "left", clickCount: 1 }, sessionId);
+    await wait(300);
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 20, y: 300, button: "left", buttons: 1 }, sessionId);
+    for (let attempt = 0; attempt < 30 && drags.length === start; attempt += 1) await wait(100);
+    if (!drags[start]) throw new Error("No drag started from the card");
+    const closed = await evaluate(sessionId, "JSON.stringify(window.__cardClosed)");
+    await send("Input.dispatchDragEvent", { type: "dragCancel", x: 20, y: 300, data: drags[start] }, sessionId);
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: 20, y: 300, button: "left", clickCount: 1 }, sessionId);
+    await send("Input.setInterceptDrags", { enabled: false }, sessionId);
+    if (closed !== "[]") throw new Error(`The card would close: ${closed}`);
+    await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after the cancelled drag");
+    // With the focus on the row, the first Escape closes only the tooltip,
+    // and the next one reaches the card.
+    await evaluate(sessionId, `(window.__cardEscapes = 0, window.__cardMenus = 0, ${row}.focus(), 1)`);
+    await hoverRow(sessionId, "branches-local");
+    await waitFor(sessionId, TIP_SHOWN, "the Local tooltip with the focus on a row");
+    const plain = await center(sessionId, ".t3-rtl-repo-status-tip .t3-rtl-tip-item:not(a)");
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: plain.x, y: plain.y }, sessionId);
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: plain.x, y: plain.y, button: "right", clickCount: 1 }, sessionId);
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: plain.x, y: plain.y, button: "right", clickCount: 1 }, sessionId);
+    await wait(200);
+    await evaluate(sessionId, `${row}.focus(), 1`);
+    await pressKey(sessionId, "Escape", "Escape", 27);
+    await waitFor(sessionId, TIP_HIDDEN, "Escape to close the tooltip");
+    await pressKey(sessionId, "Escape", "Escape", 27);
+    const reached = await evaluate(sessionId, "JSON.stringify([window.__cardEscapes, window.__cardMenus])");
+    if (reached !== "[1,0]") throw new Error(`Escape or the menu reached the card: ${reached}`);
+  } finally {
+    await evaluate(sessionId, `(window.__watchCard = false, document.activeElement?.blur(), 1)`);
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  }
+}
+
+// A new thread has a draft route until its first message. Its project comes
+// from T3 Code's drafts in local storage, and changes there show at once.
+async function checkDraft(sessionId) {
+  const drafts = (projectId) => `localStorage.setItem("t3code:composer-drafts:v1", ${JSON.stringify(JSON.stringify({
+    state: { draftsByThreadKey: {}, draftThreadsByThreadKey: { d1: { threadId: "t-new", projectId } } },
+    version: 1,
+  }))})`;
+  // From a thread without a section, so the section shown is the draft's.
+  await evaluate(sessionId, `history.pushState({}, "", "/${environmentId}/${threadWithoutRepo}"), 1`);
+  await waitFor(sessionId, `!document.querySelector("[data-t3-rtl-repo-status]")`, "the section to hide before the draft");
+  await evaluate(sessionId, `(${drafts("p1")}, history.pushState({}, "", "/draft/d1"), 1)`);
+  await waitFor(
+    sessionId,
+    `document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-head")?.textContent === "o/r" && location.pathname === "/draft/d1"`,
+    "the section of a new thread",
+  );
+  // A check for another project can answer just before the project comes
+  // back. The page then asks again for its own project.
+  const otherRows = `window.__t3RtlFixRepoStatusUpdate({ path: location.href, project: "p2", repo: "x/y", rows: [
+    { kind: "issues", label: "Issues", count: "1", detail: { title: "Issues", summary: "1 open", sections: [] } },
+  ] })`;
+  const watchOther = (onSeen) => `window.__sawOther = false;
+    const seen = new MutationObserver(() => {
+      if (document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-head")?.textContent === "x/y") {
+        window.__sawOther = true;
+        seen.disconnect();
+        ${onSeen}
+      }
+    });
+    seen.observe(document.body, { childList: true, subtree: true, characterData: true });
+    setTimeout(() => seen.disconnect(), 1500);`;
+  // Rows that arrive for the project just left are not drawn.
+  await evaluate(sessionId, `(() => {
+    ${watchOther("")}
+    ${drafts("p2")};
+    ${otherRows};
+    ${drafts("p1")};
+    return 1;
+  })()`);
+  await wait(1200);
+  if (await evaluate(sessionId, "window.__sawOther")) throw new Error("Rows of the project just left were drawn");
+  let shownOther = false;
+  for (let attempt = 0; attempt < 5 && !shownOther; attempt += 1) {
+    // The project goes back as soon as the other rows are drawn, before the
+    // page samples it again.
+    await evaluate(sessionId, `(() => {
+      ${watchOther(drafts("p1") + ";")}
+      ${drafts("p2")};
+      ${otherRows};
+      return 1;
+    })()`);
+    await wait(300);
+    shownOther = await evaluate(sessionId, "window.__sawOther");
+    if (!shownOther) {
+      await waitFor(sessionId, `document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-head")?.textContent === "o/r"`, "the draft's rows before a retry");
+    }
+  }
+  if (!shownOther) throw new Error("The rows of the other project never showed");
+  await waitFor(
+    sessionId,
+    `document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-head")?.textContent === "o/r"`,
+    "the rows of the draft's own project",
+  );
+  // Another project without a repository hides it.
+  await evaluate(sessionId, `(${drafts("p2")}, 1)`);
+  await waitFor(sessionId, `!document.querySelector("[data-t3-rtl-repo-status]")`, "the section to hide for another project");
+  // Drafts in another shape show nothing, and break nothing.
+  await evaluate(sessionId, `(localStorage.setItem("t3code:composer-drafts:v1", "{not json"), 1)`);
+  await wait(1500);
+  if (await evaluate(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`)) {
+    throw new Error("Unreadable drafts showed a section");
+  }
+  await evaluate(sessionId, `(${drafts("p1")}, 1)`);
+  await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section to return for the project");
+  await evaluate(sessionId, `(localStorage.removeItem("t3code:composer-drafts:v1"), history.pushState({}, "", "/${environmentId}/${threadWithRepo}"), 1)`);
+  await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]") && !location.pathname.startsWith("/draft")`, "the thread's section");
+}
+
 // Newer counts can arrive while a tooltip is in use. A row still shown from
 // the earlier counts opens links of its own repository, and a rebuilt
 // section takes the focus from the tooltip's links back to the same row.
@@ -620,9 +915,10 @@ async function checkShortWindow(sessionId) {
     throw new Error(`The tooltip covers its row in a narrow window: ${JSON.stringify(narrow)}`);
   }
   // The Dependabot alerts are counts only, so their line links to the list.
+  // The code scanning alerts are all shown, and a line opens them on GitHub.
   const expectedSections = [
     ["Dependabot · 2", 0, "and 2 more", "A"],
-    ["Code scanning · 5", 5, null, null],
+    ["Code scanning · 7", 7, "View all 7 on GitHub", "A"],
     ["Secret scanning · 5", 5, null, null],
   ];
   if (

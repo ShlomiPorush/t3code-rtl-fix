@@ -62,11 +62,13 @@ const BRANCH_PAGE_SIZE = 100;
 // branch's current tip.
 const MERGED_PULLS_PER_BRANCH = 10;
 const STALE_DAYS = 30;
+// T3 Code keeps the new threads that have no message yet under this key.
+const DRAFTS_KEY = "t3code:composer-drafts:v1";
 const DAY_MS = 24 * 60 * 60 * 1000;
-// The tooltip of a row lists this many issues, pull requests, or alerts.
-const DETAIL_ITEMS = 5;
-// The tooltip of a branch row lists this many branches.
-const BRANCH_ITEMS = 8;
+// A tooltip list holds up to one page of the GitHub API, and scrolls.
+const LIST_ITEMS = 100;
+// A list longer than this ends with a line that opens it on GitHub.
+const LIST_LINE_MIN = 5;
 // Dependabot severities are counted from one page of alerts.
 const DEPENDABOT_PAGE_SIZE = 100;
 const LABEL_COLOR = /^[0-9a-f]{6}$/i;
@@ -82,11 +84,11 @@ const REVIEW_BADGES = {
 
 const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    issues(states: OPEN, first: ${DETAIL_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    issues(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       nodes { number title updatedAt author { login } labels(first: 3) { nodes { name color } } }
     }
-    pullRequests(states: OPEN, first: ${DETAIL_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    pullRequests(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       nodes { number title updatedAt isDraft reviewDecision author { login } }
     }
@@ -109,7 +111,8 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-// T3 Code routes a thread as /<environmentId>/<threadId>.
+// T3 Code routes a thread as /<environmentId>/<threadId>, and a new thread
+// before its first message as /draft/<draftId>.
 function parseThreadPath(pathname) {
   if (typeof pathname !== "string") return null;
   const segments = pathname.split("/").filter(Boolean);
@@ -123,6 +126,7 @@ function parseThreadPath(pathname) {
     return null;
   }
   if (!SAFE_ID.test(environmentId) || !SAFE_ID.test(threadId)) return null;
+  if (segments[0] === "draft") return { draftId: threadId };
   return { environmentId, threadId };
 }
 
@@ -316,15 +320,24 @@ function countText(count) {
 
 // A tooltip section shows the first items of a list and how many more there
 // are. total is the full count, which can be larger than the list read. link
-// names the page with the whole list, which the "more" line opens.
-function listSection(list, total, limit, toItem, title, link) {
+// names the page with the whole list, which the last line of a long list
+// opens.
+// partial marks a list read from one page of a longer one, whose full count
+// is unknown.
+function listSection(list, total, toItem, title, link, partial = false) {
   const read = Array.isArray(list) ? list : [];
-  const items = read.slice(0, limit);
+  const items = read.slice(0, LIST_ITEMS);
   const section = { items: items.map(toItem), more: Math.max(total - items.length, 0) };
   if (title) section.title = title;
-  // The page with the whole list must hold the items left out, so each of
-  // them needs a page of its own there, such as an alert with a number.
-  if (link && read.slice(limit).every((entry) => toItem(entry).link)) section.link = link;
+  if (partial) section.partial = true;
+  // The line stands for the items left out, or for the whole list when none
+  // are. The page it opens must hold each of them, so each needs a page of
+  // its own there, such as an alert with a number.
+  const hasLine = section.more > 0 || partial || items.length > LIST_LINE_MIN;
+  if (link && hasLine) {
+    const covered = section.more > 0 ? read.slice(LIST_ITEMS).map(toItem) : section.items;
+    if (covered.every((item) => item.link)) section.link = link;
+  }
   return section;
 }
 
@@ -358,7 +371,7 @@ function issueDetail(issues) {
     title: "Issues",
     summary: `${countText(issues)} open`,
     sections: [
-      listSection(issues.items, issues.value, DETAIL_ITEMS, (issue) => withLink({
+      listSection(issues.items, issues.value, (issue) => withLink({
         lead: `#${issue.number}`,
         text: issue.title,
         meta: compact([issue.author]),
@@ -374,7 +387,7 @@ function pullDetail(pulls) {
     title: "Pull requests",
     summary: `${countText(pulls)} open`,
     sections: [
-      listSection(pulls.items, pulls.value, DETAIL_ITEMS, (pull) => withLink({
+      listSection(pulls.items, pulls.value, (pull) => withLink({
         lead: `#${pull.number}`,
         text: pull.title,
         meta: compact([pull.author]),
@@ -394,7 +407,7 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
   if (dependabot) {
     const alerts = dependabot.alerts || [];
     sections.push({
-      ...listSection([...alerts].sort(bySeverity), dependabot.value, DETAIL_ITEMS, (alert) => withLink({
+      ...listSection([...alerts].sort(bySeverity), dependabot.value, (alert) => withLink({
         text: alert.package || "Unknown package",
         badges: compact([severityBadge(alert.severity)]),
       }, numberLink("security/dependabot", alert.number)), `Dependabot · ${countText(dependabot)}`, "security/dependabot"),
@@ -407,18 +420,18 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
   if (codeScanning) {
     const alerts = codeScanning.alerts || [];
     sections.push({
-      ...listSection([...alerts].sort(bySeverity), codeScanning.value, DETAIL_ITEMS, (alert) => withLink({
+      ...listSection([...alerts].sort(bySeverity), codeScanning.value, (alert) => withLink({
         text: alert.rule || "Unnamed rule",
         meta: compact([alert.path]),
         badges: compact([severityBadge(alert.severity)]),
-      }, numberLink("security/code-scanning", alert.number)), `Code scanning · ${countText(codeScanning)}`, "security/code-scanning"),
+      }, numberLink("security/code-scanning", alert.number)), `Code scanning · ${countText(codeScanning)}`, "security/code-scanning", codeScanning.capped),
       chips: alerts.length > 1 ? severityChips(alerts) : [],
     });
   }
   if (secretScanning) {
-    sections.push(listSection(secretScanning.alerts, secretScanning.value, DETAIL_ITEMS, (alert) => withLink({
+    sections.push(listSection(secretScanning.alerts, secretScanning.value, (alert) => withLink({
       text: alert.type || "Unknown secret type",
-    }, numberLink("security/secret-scanning", alert.number)), `Secret scanning · ${countText(secretScanning)}`, "security/secret-scanning"));
+    }, numberLink("security/secret-scanning", alert.number)), `Secret scanning · ${countText(secretScanning)}`, "security/secret-scanning", secretScanning.capped));
   }
   const detail = { title: "Security alerts", summary: `${countText(total)} open`, sections };
   if (notes.length) detail.note = notes.join(" ");
@@ -454,7 +467,7 @@ function branchDetails(branches) {
       title: "Remote branches",
       summary: `${countText(remote)} on GitHub`,
       sections: [
-        listSection(remote.branches, remote.value, BRANCH_ITEMS, (branch) => ({
+        listSection(remote.branches, remote.value, (branch) => ({
           ...githubBranchItem(branch),
           badges: branch.merged ? [{ text: "Merged", tone: "success" }] : [],
         }), null, ALL_BRANCHES),
@@ -468,7 +481,7 @@ function branchDetails(branches) {
       title: "Local branches",
       summary: `${countText(local)} in this folder`,
       sections: [
-        listSection(local.branches, local.value, BRANCH_ITEMS, (branch) => withLink({
+        listSection(local.branches, local.value, (branch) => withLink({
           ...branchItem(branch),
           badges: [localBadge(branch)],
         }, localLink(branch))),
@@ -483,10 +496,10 @@ function branchDetails(branches) {
       summary: `${countText(dead)} to clean up`,
       sections: [
         dead.merged.length
-          ? listSection(dead.merged, dead.merged.length, BRANCH_ITEMS, githubBranchItem, "Merged on GitHub", ALL_BRANCHES)
+          ? listSection(dead.merged, dead.merged.length, githubBranchItem, "Merged on GitHub", ALL_BRANCHES)
           : null,
         dead.deleted.length
-          ? listSection(dead.deleted, dead.deleted.length, BRANCH_ITEMS, branchItem, "Deleted on GitHub")
+          ? listSection(dead.deleted, dead.deleted.length, branchItem, "Deleted on GitHub")
           : null,
       ].filter(Boolean),
     };
@@ -501,7 +514,6 @@ function branchDetails(branches) {
         listSection(
           stale.branches,
           stale.branches.length,
-          BRANCH_ITEMS,
           (branch) => (branch.github ? githubBranchItem(branch) : branchItem(branch)),
           null,
           ALL_BRANCHES,
@@ -835,6 +847,7 @@ const THREAD_DATABASES = [
             FROM orchestration_v2_projection_threads t
             LEFT JOIN projection_projects p ON p.project_id = t.project_id
             WHERE t.thread_id = ?`,
+    project: "SELECT workspace_root AS root FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
   },
   {
     file: "state.sqlite",
@@ -842,6 +855,7 @@ const THREAD_DATABASES = [
             FROM projection_threads t
             JOIN projection_projects p ON p.project_id = t.project_id
             WHERE t.thread_id = ?`,
+    project: "SELECT workspace_root AS root FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
   },
 ];
 
@@ -855,8 +869,9 @@ function opensSqliteReadOnly(version) {
 }
 
 // Opens T3 Code's database read only for one lookup, so the launcher never
-// holds it open while T3 Code migrates or checkpoints it.
-function lookupThreadFolder(databaseDirectory, threadId) {
+// holds it open while T3 Code migrates or checkpoints it. kind names the
+// query: "query" for a thread, "project" for a project.
+function lookupFolders(databaseDirectory, kind, id) {
   const source = THREAD_DATABASES.map((candidate) => ({
     ...candidate,
     path: path.join(databaseDirectory, candidate.file),
@@ -870,7 +885,7 @@ function lookupThreadFolder(databaseDirectory, threadId) {
   const { DatabaseSync } = require("node:sqlite");
   const database = new DatabaseSync(source.path, { readOnly: true });
   try {
-    const row = database.prepare(source.query).get(threadId);
+    const row = database.prepare(source[kind]).get(id);
     if (!row) return null;
     // A worktree that was removed after its branch merged can leave its
     // folder behind, so the project folder is the fallback.
@@ -879,6 +894,16 @@ function lookupThreadFolder(databaseDirectory, threadId) {
   } finally {
     database.close();
   }
+}
+
+function lookupThreadFolder(databaseDirectory, threadId) {
+  return lookupFolders(databaseDirectory, "query", threadId);
+}
+
+// A new thread is not in the database before its first message. Its project
+// is, and a worktree picked for it belongs to the same repository.
+function lookupProjectFolder(databaseDirectory, projectId) {
+  return lookupFolders(databaseDirectory, "project", projectId);
 }
 
 function openExternal(run, url) {
@@ -896,6 +921,7 @@ function createRepoStatusService({
   now = Date.now,
   databaseDirectory = defaultDatabaseDirectory(),
   findThreadFolder = (threadId) => lookupThreadFolder(databaseDirectory, threadId),
+  findProjectFolder = (projectId) => lookupProjectFolder(databaseDirectory, projectId),
   open = (url) => openExternal(run, url),
 } = {}) {
   const sessions = new Map();
@@ -935,12 +961,15 @@ function createRepoStatusService({
     return promise;
   }
 
-  async function resolveRepository(threadId) {
+  // target is a thread, or the project of a new thread.
+  async function resolveRepository(target) {
     const found = await cached(
       folders,
-      threadId,
-      LOCATION_CACHE_MS,
-      () => findThreadFolder(threadId),
+      JSON.stringify([target.kind, target.id]),
+      // A thread keeps its folder. The page names any project for a new
+      // thread, so the project is checked each time.
+      target.kind === "project" ? 0 : LOCATION_CACHE_MS,
+      () => (target.kind === "project" ? findProjectFolder(target.id) : findThreadFolder(target.id)),
       false,
     );
     for (const folder of [].concat(found || [])) {
@@ -955,9 +984,12 @@ function createRepoStatusService({
     return null;
   }
 
+  // Resolves to whether the page took the rows. A page that moved to another
+  // thread or project keeps the rows it shows.
   async function push(sessionId, data) {
-    const expression = `(() => { const receive = window[${JSON.stringify(RECEIVER)}]; if (typeof receive === "function") receive(${JSON.stringify(data)}); })()`;
-    await send("Runtime.evaluate", { expression }, sessionId);
+    const expression = `(() => { const receive = window[${JSON.stringify(RECEIVER)}]; return typeof receive === "function" && receive(${JSON.stringify(data)}) === true; })()`;
+    const response = await send("Runtime.evaluate", { expression, returnByValue: true }, sessionId);
+    return response?.result?.value === true;
   }
 
   function loadCounts(repo, reason) {
@@ -969,25 +1001,37 @@ function createRepoStatusService({
     );
   }
 
-  async function check(sessionId, pagePath, reason) {
+  // A new thread names its project, which the page reads from T3 Code's
+  // drafts. The project of a draft can change while its address stays.
+  function targetOf(pagePath, project) {
     const thread = parseThreadLocation(pagePath);
+    if (thread?.threadId) return { kind: "thread", id: thread.threadId };
+    if (thread?.draftId && typeof project === "string" && SAFE_ID.test(project)) {
+      return { kind: "project", id: project };
+    }
+    return null;
+  }
+
+  async function check(sessionId, pagePath, reason, project) {
+    const target = targetOf(pagePath, project);
     const session = sessions.get(sessionId) || {};
     sessions.set(sessionId, session);
-    session.path = pagePath;
+    const request = (session.request || 0) + 1;
+    session.request = request;
     // The rows shown stay clickable while the same thread refreshes.
-    const threadId = thread?.threadId ?? null;
-    if (session.threadId !== threadId) {
-      session.threadId = threadId;
+    const key = target ? JSON.stringify([target.kind, target.id]) : null;
+    if (session.target !== key) {
+      session.target = key;
       session.repo = null;
       session.links = new Set();
     }
     // A newer check may replace this one at any await.
-    const current = () => session.path === pagePath;
+    const current = () => session.request === request;
     let rows = [];
     let repo = null;
-    if (thread) {
+    if (target) {
       try {
-        repo = await resolveRepository(thread.threadId);
+        repo = await resolveRepository(target);
         if (!current()) return;
         if (repo) rows = buildRows(await loadCounts(repo, reason));
       } catch (error) {
@@ -996,17 +1040,23 @@ function createRepoStatusService({
       }
     }
     if (!current()) return;
-    session.repo = rows.length > 0 ? repo : null;
-    await push(sessionId, { path: pagePath, repo: session.repo?.slug || null, rows });
-    // A page that did not receive the rows still shows the earlier links.
-    if (current()) session.links = linksOf(rows);
+    const shown = rows.length > 0 ? repo : null;
+    const accepted = await push(sessionId, { path: pagePath, project: project ?? null, repo: shown?.slug || null, rows });
+    // The links are those of the rows the page shows. A page that did not
+    // take the rows still shows the earlier ones, and rows it took stay
+    // shown even when a newer check has started.
+    if (accepted) {
+      session.repo = shown;
+      session.links = linksOf(rows);
+    }
   }
 
   async function handle(sessionId, payload) {
     const message = parseJson(payload);
     if (!message || typeof message !== "object") return;
     if (message.type === "check" && typeof message.path === "string") {
-      await check(sessionId, message.path.slice(0, 2048), String(message.reason || ""));
+      const project = typeof message.project === "string" ? message.project.slice(0, 256) : null;
+      await check(sessionId, message.path.slice(0, 2048), String(message.reason || ""), project);
       return;
     }
     if (message.type === "open") {
@@ -1339,16 +1389,22 @@ const PAGE_CSS = `
   padding-top: 2px;
   font-size: 11px;
 }
-.${TIP_CLASS} a.t3-rtl-tip-item {
+.${TIP_CLASS} .t3-rtl-tip-item {
   margin: 0 -6px;
   padding: 3px 6px;
   border-radius: 6px;
+}
+.${TIP_CLASS} a.t3-rtl-tip-item {
   color: inherit;
   text-decoration: none;
   cursor: pointer;
 }
+/* An item that is not a link can still be dragged into the composer. */
+.${TIP_CLASS} div.t3-rtl-tip-item[draggable="true"] {
+  cursor: grab;
+}
 .${TIP_CLASS} a.t3-rtl-tip-item:hover,
-.${TIP_CLASS} a.t3-rtl-tip-item:focus-visible {
+.${TIP_CLASS} .t3-rtl-tip-item:focus-visible {
   background: color-mix(in srgb, currentColor 8%, transparent);
   outline: none;
 }
@@ -1387,10 +1443,13 @@ function buildRepoStatusPageSource() {
   const tipDelay = ${TIP_DELAY_MS};
   const tipSwitchDelay = ${TIP_SWITCH_DELAY_MS};
   const tipHideDelay = ${TIP_HIDE_DELAY_MS};
+  const draftsKey = ${JSON.stringify(DRAFTS_KEY)};
+  const listLineMin = ${LIST_LINE_MIN};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
 
   let current = null;
+  let currentSignature = "";
   let lastHref = location.href;
   let renderQueued = false;
 
@@ -1410,7 +1469,34 @@ function buildRepoStatusPageSource() {
     const call = window[binding];
     if (typeof call === "function") call(JSON.stringify(message));
   };
-  const request = (reason) => notify({ type: "check", path: location.href, reason });
+
+  // A new thread is not in T3 Code's database before its first message, so
+  // its project comes from the drafts T3 Code keeps in local storage. Any
+  // other shape of them shows no section.
+  let draftsRaw = null;
+  let drafts = null;
+  const draftProject = () => {
+    try {
+      const segments = routeKey(location.href).split("/");
+      if (segments[0] !== "draft" || !segments[1]) return null;
+      const draftId = decodeURIComponent(segments[1]);
+      // The drafts hold every unsent prompt, so they are parsed only when
+      // they change.
+      const raw = localStorage.getItem(draftsKey);
+      if (raw !== draftsRaw) {
+        draftsRaw = raw;
+        drafts = null;
+        drafts = JSON.parse(raw || "null");
+      }
+      const threads = drafts && drafts.state && drafts.state.draftThreadsByThreadKey;
+      const draft = threads && Object.hasOwn(threads, draftId) ? threads[draftId] : null;
+      return draft && typeof draft.projectId === "string" && draft.projectId ? draft.projectId : null;
+    } catch {
+      return null;
+    }
+  };
+  let lastProject = draftProject();
+  const request = (reason) => notify({ type: "check", path: location.href, project: draftProject(), reason });
   Object.defineProperty(window, ${JSON.stringify(CHECK)}, { value: request });
 
   const ensureStyle = () => {
@@ -1454,6 +1540,12 @@ function buildRepoStatusPageSource() {
   let tipRepo = "";
   // Set while focus returns to a row, so its tooltip does not open again.
   let returning = false;
+  // A press on an item, which can start a drag, moves the focus to it. The
+  // focus from before the press, such as the composer, returns after the
+  // click or the drag.
+  let pressFocus = null;
+  let dragging = false;
+  let restoring = false;
 
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -1501,6 +1593,13 @@ function buildRepoStatusPageSource() {
     const linked = typeof item.link === "string" && item.link !== "";
     const node = make(linked ? "a" : "div", "t3-rtl-tip-item");
     if (linked) linkTo(node, item.link);
+    // An item dragged into the composer quotes it, with its address.
+    node.draggable = true;
+    node.tabIndex = -1;
+    node.dataset.quote = [item.lead, item.text, linked ? node.href : ""]
+      .map((part) => (part == null ? "" : String(part).trim()))
+      .filter(Boolean)
+      .join(" ");
     if (item.lead) {
       node.dataset.lead = "";
       node.appendChild(make("span", "t3-rtl-tip-lead", item.lead));
@@ -1524,7 +1623,7 @@ function buildRepoStatusPageSource() {
     return node;
   };
 
-  const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("a[data-link]")) : []);
+  const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("[data-quote], a[data-link]")) : []);
 
   const focusLink = (index) => {
     const links = tipLinks();
@@ -1545,29 +1644,75 @@ function buildRepoStatusPageSource() {
       clearTimeout(hideTimer);
     });
     tip.addEventListener("pointerleave", scheduleHide);
-    // A click on a link keeps the focus where it was, such as the composer.
-    tip.addEventListener("mousedown", (event) => event.preventDefault());
+    // A press keeps the focus where it was, such as the composer, except on
+    // an item, where the press may start a drag.
+    tip.addEventListener("mousedown", (event) => {
+      const item = event.button === 0 && event.target.closest && event.target.closest("[data-quote]");
+      if (!item) {
+        event.preventDefault();
+        return;
+      }
+      const active = document.activeElement;
+      pressFocus = active && active !== document.body && !tip.contains(active) ? active : null;
+    });
     const activate = (event) => {
       const link = event.target.closest && event.target.closest("a[data-link]");
-      if (!link || !tip.contains(link)) return;
+      if (!link || !tip.contains(link)) {
+        if (event.type === "click" && event.detail > 0) restorePress();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (event.type === "auxclick" && event.button !== 1) return;
       notify({ type: "open", link: link.dataset.link, repo: link.dataset.repo });
-      if (tip.contains(document.activeElement)) returnFocus();
-      else hideTip();
+      if (event.detail > 0) {
+        const anchor = tipAnchor;
+        hideTip();
+        restorePress(anchor);
+      } else if (tip.contains(document.activeElement)) {
+        returnFocus();
+      } else {
+        hideTip();
+      }
     };
+    tip.addEventListener("contextmenu", (event) => event.stopPropagation());
     tip.addEventListener("click", activate);
     tip.addEventListener("auxclick", activate);
+    // The quote goes as plain text, so the composer inserts it as typed.
+    tip.addEventListener("dragstart", (event) => {
+      const item = event.target.closest && event.target.closest("[data-quote]");
+      if (!item || !tip.contains(item) || !event.dataTransfer) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.clearData();
+      event.dataTransfer.setData("text/plain", item.dataset.quote);
+      event.dataTransfer.effectAllowed = "copy";
+      dragging = true;
+      clearTimeout(hideTimer);
+    });
+    tip.addEventListener("dragend", () => {
+      dragging = false;
+      const anchor = tipAnchor;
+      hideTip();
+      // Counts that arrived during the drag show now.
+      scheduleRender();
+      // A drop elsewhere takes the focus there. A cancelled drag returns it.
+      const active = document.activeElement;
+      if (!active || active === document.body || tip.contains(active)) restorePress(anchor);
+      else pressFocus = null;
+    });
     tip.addEventListener("keydown", (event) => {
       const links = tipLinks();
       const index = links.indexOf(document.activeElement);
       if (index === -1) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
+        event.stopPropagation();
         focusLink(index + (event.key === "ArrowDown" ? 1 : -1));
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
+        event.stopPropagation();
         focusLink(event.key === "Home" ? 0 : -1);
       } else if (event.key === "Tab") {
         // The browser then moves on from the row, as if the tooltip had
@@ -1576,6 +1721,7 @@ function buildRepoStatusPageSource() {
       }
     });
     tip.addEventListener("focusout", (event) => {
+      if (restoring) return;
       if (!tip.contains(event.relatedTarget) && event.relatedTarget !== tipAnchor) hideTip();
     });
     document.body.appendChild(tip);
@@ -1598,9 +1744,13 @@ function buildRepoStatusPageSource() {
         part.appendChild(chips);
       }
       for (const item of section.items || []) part.appendChild(tipItem(item));
-      if (section.more > 0) {
-        // The line opens the whole list when GitHub has a page for it.
-        const line = make(section.link ? "a" : "div", "t3-rtl-tip-more", "and " + section.more + " more");
+      // The last line opens the whole list when GitHub has a page for it.
+      const count = (section.items || []).length;
+      if (section.more > 0 || (section.link && (section.partial || count > listLineMin))) {
+        const text = section.more > 0
+          ? "and " + section.more + " more"
+          : section.partial ? "View all on GitHub" : "View all " + count + " on GitHub";
+        const line = make(section.link ? "a" : "div", "t3-rtl-tip-more", text);
         if (section.link) linkTo(line, section.link);
         part.appendChild(line);
       }
@@ -1645,12 +1795,15 @@ function buildRepoStatusPageSource() {
   const showTip = (anchor, detail) => {
     clearTimeout(showTimer);
     clearTimeout(hideTimer);
-    if (!anchor.isConnected || !detail) return;
+    if (!anchor.isConnected || !detail || dragging) return;
     if (tipAnchor && tipAnchor !== anchor) tipAnchor.removeAttribute("aria-describedby");
     tipRepo = anchor.dataset.repo;
     fillTip(detail);
     tipAnchor = anchor;
     tip.setAttribute("data-open", "");
+    // In the top layer it still shows above the card and everything else.
+    const card = anchor.closest("[data-thread-details-card]") || document.body;
+    if (tip.parentElement !== card) card.prepend(tip);
     if (tip.hasAttribute("popover") && !popoverOpen(tip)) {
       try {
         tip.showPopover();
@@ -1686,6 +1839,21 @@ function buildRepoStatusPageSource() {
     if (popoverOpen(tip)) tip.hidePopover();
   };
 
+  // Returns the focus from before a press in the tooltip, or leaves it
+  // nowhere rather than on a hidden link.
+  function restorePress(anchor = tipAnchor) {
+    const target = pressFocus && pressFocus.isConnected ? pressFocus : anchor;
+    pressFocus = null;
+    // The tooltip stays open under the pointer.
+    restoring = true;
+    try {
+      if (target && target.isConnected) target.focus({ preventScroll: true });
+      else if (tip && tip.contains(document.activeElement)) document.activeElement.blur();
+    } finally {
+      restoring = false;
+    }
+  }
+
   // Closes the tooltip and moves the focus from its links back to the row.
   const returnFocus = () => {
     const anchor = tipAnchor;
@@ -1714,10 +1882,11 @@ function buildRepoStatusPageSource() {
   function scheduleHide() {
     clearTimeout(showTimer);
     clearTimeout(hideTimer);
-    if (!tipAnchor) return;
+    // A drag out of the tooltip keeps it open until the drop.
+    if (!tipAnchor || dragging) return;
     hideTimer = setTimeout(() => {
       // Keyboard focus on a link keeps the tooltip open.
-      if (tip && tip.contains(document.activeElement)) return;
+      if (dragging || (tip && tip.contains(document.activeElement))) return;
       hideTip();
     }, tipHideDelay);
   }
@@ -1745,14 +1914,17 @@ function buildRepoStatusPageSource() {
 
   // Closing the tooltip while a link has the focus returns it to the row.
   const closeTip = () => {
+    // A drag ends on its own, and the scrolling it causes keeps the tooltip.
+    if (dragging) return;
     if (tip && tip.contains(document.activeElement)) returnFocus();
     else hideTip();
   };
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    // Escape leaves the tooltip only, not a panel of T3 Code around it.
-    if (tip && tip.contains(document.activeElement)) event.stopImmediatePropagation();
+    // Escape closes the tooltip only, not the card or a panel around it.
+    if (!tipAnchor) return;
+    event.stopImmediatePropagation();
     closeTip();
   }, true);
   window.addEventListener("scroll", (event) => {
@@ -1766,7 +1938,7 @@ function buildRepoStatusPageSource() {
     let node = card.querySelector('[data-slot="scroll-area-viewport"]') || card;
     const start = node;
     for (let depth = 0; node && depth < 8; depth += 1) {
-      const children = Array.from(node.children).filter((child) => !child.hasAttribute(attribute));
+      const children = Array.from(node.children).filter((child) => !child.hasAttribute(attribute) && !child.classList.contains(tipClass));
       if (children.length !== 1) return children.length > 1 ? node : start;
       node = children[0];
     }
@@ -1832,8 +2004,13 @@ function buildRepoStatusPageSource() {
   const render = () => {
     renderQueued = false;
     const focusedKind = tipAnchor && tip && tip.contains(document.activeElement) ? tipAnchor.dataset.kind : null;
+    const focusedCard = focusedKind ? tip.closest("[data-thread-details-card]") : null;
+    if (current && current.project != null && current.project !== draftProject()) {
+      current = null;
+      request("navigate");
+    }
     const rows = current && Array.isArray(current.rows) ? current.rows : [];
-    const signature = rows.length ? JSON.stringify([current.repo, rows]) : "";
+    const signature = rows.length ? currentSignature : "";
     const keep = new Set();
     if (signature) {
       ensureStyle();
@@ -1852,12 +2029,13 @@ function buildRepoStatusPageSource() {
       if (!keep.has(section)) section.remove();
     }
     // A rebuilt or removed section takes the row of an open tooltip with it.
-    if (tipAnchor && !tipAnchor.isConnected) {
+    if (tipAnchor && !tipAnchor.isConnected && !dragging) {
       hideTip();
       // The same row, or the first one when the refresh removed it.
+      const scope = focusedCard && focusedCard.isConnected ? focusedCard : document;
       const row = focusedKind && (
-        document.querySelector("[" + attribute + "] [data-kind=" + JSON.stringify(focusedKind) + "]") ||
-        document.querySelector("[" + attribute + "] button.t3-rtl-repo-status-row, [" + attribute + "] .t3-rtl-repo-status-row[tabindex]")
+        scope.querySelector("[" + attribute + "] [data-kind=" + JSON.stringify(focusedKind) + "]") ||
+        scope.querySelector("[" + attribute + "] button.t3-rtl-repo-status-row, [" + attribute + "] .t3-rtl-repo-status-row[tabindex]")
       );
       if (row) {
         returning = true;
@@ -1877,9 +2055,12 @@ function buildRepoStatusPageSource() {
   };
 
   window[receiver] = (data) => {
-    if (!data || routeKey(data.path) !== routeKey(location.href)) return;
+    if (!data || routeKey(data.path) !== routeKey(location.href)) return false;
+    if ((data.project ?? null) !== draftProject()) return false;
     current = data;
+    currentSignature = JSON.stringify([data.repo, data.rows]);
     scheduleRender();
+    return true;
   };
 
   const observer = new MutationObserver(() => {
@@ -1892,9 +2073,13 @@ function buildRepoStatusPageSource() {
   else document.addEventListener("DOMContentLoaded", startObserving, { once: true });
 
   setInterval(() => {
-    if (location.href === lastHref) return;
-    const threadChanged = routeKey(location.href) !== routeKey(lastHref);
+    const project = draftProject();
+    const otherProject = !!current && (current.project ?? null) !== project;
+    if (location.href === lastHref && project === lastProject && !otherProject) return;
+    // A new thread whose project changed shows another repository.
+    const threadChanged = routeKey(location.href) !== routeKey(lastHref) || project !== lastProject || otherProject;
     lastHref = location.href;
+    lastProject = project;
     if (threadChanged) {
       current = null;
       scheduleRender();
@@ -1923,6 +2108,7 @@ module.exports = {
   summarizeBranches,
   createRepoStatusService,
   fetchCounts,
+  lookupProjectFolder,
   lookupThreadFolder,
   opensSqliteReadOnly,
   parseGitHubRemote,
