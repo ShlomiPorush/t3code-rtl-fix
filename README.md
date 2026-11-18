@@ -89,6 +89,19 @@ Security alerts add up Dependabot, code scanning, and secret scanning alerts,
 and the row's tooltip lists each of them. Click a row to open that page on
 GitHub in your browser.
 
+Below them, a **Branches** group counts the repository's branches. The default
+branch is never counted, and each row's tooltip lists the branch names.
+
+- **Remote**: branches on GitHub. Click to open the branches page on GitHub.
+- **Local**: branches in the project folder.
+- **Dead**: branches on GitHub whose pull request merged with the branch's
+  current commit, and local branches whose branch on GitHub was deleted.
+- **Stale**: branches that are not dead and have no commit in the last 30
+  days, locally or on GitHub.
+
+The section reads at most 100 branches from GitHub. With more, the Dead and
+Stale counts end with `+`, and local branches are not marked as deleted.
+
 A row appears only when its count is above zero. The section stays hidden when
 every count is zero, when the project has no GitHub `origin` remote, or when
 GitHub cannot be read.

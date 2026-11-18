@@ -10,6 +10,7 @@ const {
   REFRESH_INTERVAL_MS,
   buildRepoStatusPageSource,
   buildRows,
+  summarizeBranches,
   createRepoStatusService,
   fetchCounts,
   lookupThreadFolder,
@@ -129,7 +130,10 @@ test("counts are read from a GraphQL answer that also carries errors", async () 
     }
     return { error: null, stdout: "[{},{}]", stderr: "" };
   };
-  const status = await fetchCounts(run, parseGitHubRemote("https://github.com/o/r"));
+  const { branches, ...status } = await fetchCounts(run, parseGitHubRemote("https://github.com/o/r"));
+  // Without a folder and without branches in the answer, no branch row shows.
+  assert.equal(branches.remote, null);
+  assert.equal(branches.local, null);
   assert.deepEqual(status, {
     issues: count(4),
     pulls: count(1),
@@ -225,12 +229,15 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     holdGraphql: false,
     releases: [],
     sent: [],
+    localBranches: "",
+    refs: null,
   };
   const hold = () => new Promise((resolve) => state.releases.push(resolve));
   const run = async (file, args) => {
     if (file === "git") {
-      if (state.holdGit) await hold();
       if (args[1] === "C:\\gone") return { error: new Error("not a git repository"), stdout: "", stderr: "fatal" };
+      if (args[2] === "for-each-ref") return { error: null, stdout: state.localBranches, stderr: "" };
+      if (state.holdGit) await hold();
       return { error: null, stdout: `${remote}\n`, stderr: "" };
     }
     if (args[3] === "graphql") {
@@ -245,6 +252,8 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
               issues: { totalCount: state.issues },
               pullRequests: { totalCount: 0 },
               vulnerabilityAlerts: { totalCount: 0 },
+              defaultBranchRef: { name: "main" },
+              refs: state.refs,
             },
           },
         }),
@@ -403,6 +412,264 @@ test("all-zero counts, a missing thread, and other remotes hide the section", as
   await settings.check("navigate", "t3code://app/settings");
   assert.deepEqual(settings.last().rows, []);
   assert.equal(settings.state.folderLookups, 0);
+});
+
+const NOW = Date.parse("2026-11-17T12:00:00Z");
+const daysAgo = (days) => NOW - days * 24 * 60 * 60 * 1000;
+
+test("branches are sorted into remote, local, dead, and stale", () => {
+  const summary = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: {
+        total: 5,
+        capped: false,
+        nodes: [
+          { name: "main", time: daysAgo(1), merged: false },
+          { name: "feature/active", time: daysAgo(2), merged: false },
+          { name: "feature/merged", time: daysAgo(3), merged: true },
+          { name: "feature/old", time: daysAgo(45), merged: false },
+          { name: "feature/old-remote-new-local", time: daysAgo(60), merged: false },
+        ],
+      },
+      local: [
+        { name: "main", upstream: "main", time: daysAgo(1) },
+        { name: "feature/active", upstream: "feature/active", time: daysAgo(2) },
+        { name: "feature/gone", upstream: "feature/gone", time: daysAgo(90) },
+        { name: "spike", upstream: null, time: daysAgo(40) },
+        { name: "feature/old-remote-new-local", upstream: "feature/old-remote-new-local", time: daysAgo(5) },
+      ],
+    },
+    NOW,
+  );
+  assert.equal(summary.remote.value, 4);
+  assert.deepEqual(summary.local.names, ["feature/active", "feature/gone", "spike", "feature/old-remote-new-local"]);
+  assert.deepEqual(summary.dead.merged, ["feature/merged"]);
+  assert.deepEqual(summary.dead.deleted, ["feature/gone"]);
+  assert.equal(summary.dead.value, 2);
+  // A dead branch is not also stale, and the newest copy of a branch decides.
+  assert.deepEqual(summary.stale.branches, [
+    { name: "feature/old", days: 45 },
+    { name: "spike", days: 40 },
+  ]);
+});
+
+test("a partial list of GitHub branches does not mark local branches as deleted", () => {
+  const summary = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: { total: 250, capped: true, nodes: [{ name: "feature/a", time: daysAgo(1), merged: true }] },
+      local: [{ name: "feature/not-in-page", upstream: "feature/not-in-page", time: daysAgo(1) }],
+    },
+    NOW,
+  );
+  assert.equal(summary.remote.value, 249);
+  assert.deepEqual(summary.dead.deleted, []);
+  assert.deepEqual(summary.dead.merged, ["feature/a"]);
+  assert.equal(summary.dead.capped, true);
+  assert.equal(buildRows({ branches: summary }).find((row) => row.kind === "branches-dead").count, "1+");
+});
+
+test("branch rows form one group with names in their tooltips", () => {
+  const rows = buildRows({
+    issues: count(1),
+    branches: {
+      remote: { value: 12, capped: false, names: Array.from({ length: 12 }, (_, i) => `b${i}`) },
+      local: { value: 0, capped: false, names: [] },
+      dead: { value: 2, capped: false, merged: ["m1"], deleted: ["d1"] },
+      stale: { value: 1, capped: false, branches: [{ name: "old", days: 40 }] },
+    },
+  });
+  assert.deepEqual(rows.map((row) => [row.group || "", row.kind, row.label, row.count]), [
+    ["", "issues", "Issues", "1"],
+    ["branches", "branches-remote", "Remote", "12"],
+    ["branches", "branches-dead", "Dead", "2"],
+    ["branches", "branches-stale", "Stale", "1"],
+  ]);
+  assert.equal(rows[1].title, "b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, and 2 more");
+  assert.equal(rows[2].title, "Merged on GitHub: m1\nDeleted on GitHub: d1");
+  assert.equal(rows[3].title, "old (40 days)");
+});
+
+test("a check reads GitHub and local branches into the Branches group", async () => {
+  const { service, state, check, last } = createHarness();
+  state.time = NOW;
+  state.refs = {
+    totalCount: 4,
+    nodes: [
+      { name: "main", target: { oid: "a1", committedDate: new Date(daysAgo(1)).toISOString() }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+      { name: "feature/done", target: { oid: "b2", committedDate: new Date(daysAgo(2)).toISOString() }, associatedPullRequests: { totalCount: 1, nodes: [{ headRefOid: "b2" }] } },
+      { name: "feature/reused", target: { oid: "c3", committedDate: new Date(daysAgo(2)).toISOString() }, associatedPullRequests: { totalCount: 1, nodes: [{ headRefOid: "old" }] } },
+      // The second merged pull request holds the tip.
+      { name: "feature/twice", target: { oid: "d4", committedDate: new Date(daysAgo(2)).toISOString() }, associatedPullRequests: { totalCount: 2, nodes: [{ headRefOid: "older" }, { headRefOid: "d4" }] } },
+    ],
+  };
+  const seconds = (time) => Math.floor(time / 1000);
+  state.localBranches = [
+    `main\0origin\0refs/heads/main\0${seconds(daysAgo(1))}`,
+    `feature/gone\0origin\0refs/heads/feature/gone\0${seconds(daysAgo(3))}`,
+    `feature/mirror\0upstream\0refs/heads/feature/mirror\0${seconds(daysAgo(3))}`,
+    // A custom fetch mapping does not change the name on GitHub.
+    `work\0origin\0refs/heads/feature/reused\0${seconds(daysAgo(3))}`,
+  ].join("\r\n") + "\r\n";
+  await check();
+  assert.deepEqual(last().rows.map((row) => [row.kind, row.count]), [
+    ["issues", "2"],
+    ["branches-remote", "3"],
+    ["branches-local", "3"],
+    ["branches-dead", "3"],
+  ]);
+  assert.equal(
+    last().rows[3].title,
+    "Merged on GitHub: feature/done, feature/twice\nDeleted on GitHub: feature/gone",
+  );
+
+  await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-local" }));
+  await service.handle("s1", JSON.stringify({ type: "open", kind: "branches-dead" }));
+  await service.handle("s1", JSON.stringify({ type: "open", kind: "constructor" }));
+  assert.deepEqual(state.opened, ["https://github.com/o/r/branches"]);
+});
+
+test("a branch GitHub could not resolve keeps the other rows", async () => {
+  const { state, check, last } = createHarness();
+  state.time = NOW;
+  state.refs = { totalCount: 2, nodes: [null, { name: "feature/a", target: null, associatedPullRequests: null }] };
+  state.localBranches = `feature/maybe-gone\0origin\0refs/heads/feature/maybe-gone\0${Math.floor(daysAgo(1) / 1000)}\n`;
+  await check();
+  // The list is incomplete, so the local branch is not marked deleted.
+  assert.deepEqual(last().rows.map((row) => row.kind), ["issues", "branches-remote", "branches-local"]);
+
+  const broken = createHarness();
+  broken.state.refs = { totalCount: 1, nodes: "not a list" };
+  await broken.check();
+  assert.deepEqual(broken.last().rows.map((row) => row.kind), ["issues"]);
+});
+
+test("two clones of one repository keep their own local branches", async () => {
+  const { state, check, last } = createHarness();
+  state.folder = (id) => (id === threadId ? "C:\\clone-a" : "C:\\clone-b");
+  const otherHref = `t3code://app/${environmentId}/other-thread`;
+  state.localBranches = `only-in-a\0\0\0${Math.floor(state.time / 1000)}\n`;
+  await check();
+  assert.equal(last().rows.find((row) => row.kind === "branches-local").title, "only-in-a");
+  state.localBranches = `only-in-b\0\0\0${Math.floor(state.time / 1000)}\n`;
+  await check("navigate", otherHref);
+  assert.equal(last().rows.find((row) => row.kind === "branches-local").title, "only-in-b");
+});
+
+test("staleness follows the tracked GitHub branch, not the local name", () => {
+  const summary = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: {
+        total: 3,
+        capped: false,
+        nodes: [
+          { name: "main", time: daysAgo(1), merged: false },
+          { name: "feature/x", time: daysAgo(40), merged: false },
+          { name: "shared-name", time: daysAgo(2), merged: false },
+        ],
+      },
+      local: [
+        // Tracks feature/x and has a recent commit, so feature/x is in use.
+        { name: "work", upstream: "feature/x", time: daysAgo(1) },
+        // Shares a name with a GitHub branch but tracks nothing.
+        { name: "shared-name", upstream: null, time: daysAgo(50) },
+        // Tracks the default branch, so it is stale under its own name.
+        { name: "worktree-agent-1", upstream: "main", time: daysAgo(61) },
+      ],
+    },
+    NOW,
+  );
+  assert.deepEqual(summary.stale.branches, [
+    { name: "worktree-agent-1", days: 61 },
+    { name: "shared-name", days: 50 },
+  ]);
+});
+
+test("an unknown merge state or a branch outside the list is neither dead nor stale", async () => {
+  const { state, check, last } = createHarness();
+  state.time = NOW;
+  const old = new Date(daysAgo(60)).toISOString();
+  state.refs = {
+    // Two of three branches, so the list is partial.
+    totalCount: 3,
+    nodes: [
+      { name: "main", target: { oid: "a1", committedDate: old }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+      // Twelve merged pull requests, ten read, none holds the tip.
+      {
+        name: "feature/busy",
+        target: { oid: "tip", committedDate: old },
+        associatedPullRequests: { totalCount: 12, nodes: Array.from({ length: 10 }, (_, i) => ({ headRefOid: `old${i}` })) },
+      },
+    ],
+  };
+  // Tracks a GitHub branch that is not in the partial list.
+  state.localBranches = `elsewhere\0origin\0refs/heads/feature/elsewhere\0${Math.floor(daysAgo(45) / 1000)}\n`;
+  await check();
+  const rows = Object.fromEntries(last().rows.map((row) => [row.kind, row.count]));
+  assert.equal(rows["branches-dead"], undefined);
+  assert.equal(rows["branches-stale"], undefined);
+  assert.equal(rows["branches-remote"], "2");
+  assert.equal(rows["branches-local"], "1");
+
+  // With one stale branch shown, the count says that more may exist.
+  const summary = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: {
+        total: 2,
+        capped: false,
+        nodes: [
+          { name: "feature/unknown", time: daysAgo(60), merged: null },
+          { name: "feature/old", time: daysAgo(40), merged: false },
+        ],
+      },
+      local: [],
+    },
+    NOW,
+  );
+  assert.deepEqual(summary.stale.branches, [{ name: "feature/old", days: 40 }]);
+  assert.equal(buildRows({ branches: summary }).find((row) => row.kind === "branches-stale").count, "1+");
+});
+
+test("an unreadable pull request or a missing GitHub list marks the counts as partial", async () => {
+  const { state, check, last } = createHarness();
+  state.time = NOW;
+  const old = new Date(daysAgo(45)).toISOString();
+  state.refs = {
+    totalCount: 2,
+    nodes: [
+      { name: "main", target: { oid: "a1", committedDate: old }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+      { name: "feature/x", target: { oid: "tip", committedDate: old }, associatedPullRequests: { totalCount: 1, nodes: [null] } },
+      { name: "feature/y", target: { oid: "tip2", committedDate: old }, associatedPullRequests: { totalCount: 0, nodes: [] } },
+    ],
+  };
+  await check();
+  // feature/x might be merged, so only feature/y is stale, and the count
+  // says that more may exist.
+  const stale = last().rows.find((row) => row.kind === "branches-stale");
+  assert.equal(stale.count, "1+");
+  assert.equal(stale.title, "feature/y (45 days)");
+
+  const noList = summarizeBranches(
+    {
+      defaultBranch: "main",
+      remote: null,
+      local: [
+        { name: "alone", upstream: null, time: daysAgo(40) },
+        { name: "tracked", upstream: "feature/t", time: daysAgo(40) },
+      ],
+    },
+    NOW,
+  );
+  assert.deepEqual(noList.stale.branches, [{ name: "alone", days: 40 }]);
+  assert.equal(noList.stale.capped, true);
+});
+
+test("local branches are read by their full name and tracked GitHub name", () => {
+  const source = fs.readFileSync(path.join(root, "src", "repo-status.js"), "utf8");
+  assert.match(source, /%\(refname:lstrip=2\)%00%\(upstream:remotename\)%00%\(upstream:remoteref\)/);
 });
 
 test("a removed worktree falls back to the project folder", async () => {

@@ -38,13 +38,42 @@ const ALERT_PAGE_SIZE = 100;
 const SAFE_ID = /^[^\s/\\]{1,256}$/;
 const GITHUB_REMOTE =
   /^(?:https:\/\/(?:[^@/\s]+@)?github\.com\/|ssh:\/\/git@github\.com(?::\d+)?\/|git@github\.com:)([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
-const OPEN_KINDS = ["issues", "pulls", "security"];
+// Each clickable row opens one GitHub page of the repository shown.
+const PAGE_BY_KIND = {
+  issues: "issues",
+  pulls: "pulls",
+  security: "security",
+  "branches-remote": "branches",
+  "branches-dead": "branches",
+  "branches-stale": "branches",
+};
+// The branch query reads one page of branches.
+const BRANCH_PAGE_SIZE = 100;
+// A branch can carry several merged pull requests. Any of them may hold the
+// branch's current tip.
+const MERGED_PULLS_PER_BRANCH = 10;
+const STALE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// A tooltip lists this many branch names, then a count of the rest.
+const TOOLTIP_NAMES = 10;
 
 const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN) { totalCount }
     pullRequests(states: OPEN) { totalCount }
     vulnerabilityAlerts(states: OPEN) { totalCount }
+    defaultBranchRef { name }
+    refs(refPrefix: "refs/heads/", first: ${BRANCH_PAGE_SIZE}) {
+      totalCount
+      nodes {
+        name
+        target { ... on Commit { oid committedDate } }
+        associatedPullRequests(states: MERGED, first: ${MERGED_PULLS_PER_BRANCH}) {
+          totalCount
+          nodes { headRefOid }
+        }
+      }
+    }
   }
 }`;
 
@@ -87,8 +116,93 @@ function parseGitHubRemote(remoteUrl) {
 }
 
 function repositoryUrl(repo, kind) {
-  if (!repo || !OPEN_KINDS.includes(kind)) return null;
-  return `https://github.com/${repo.owner}/${repo.name}/${kind}`;
+  const page = Object.hasOwn(PAGE_BY_KIND, kind) ? PAGE_BY_KIND[kind] : null;
+  if (!repo || !page) return null;
+  return `https://github.com/${repo.owner}/${repo.name}/${page}`;
+}
+
+function nameList(names) {
+  const shown = names.slice(0, TOOLTIP_NAMES).join(", ");
+  const rest = names.length - TOOLTIP_NAMES;
+  return rest > 0 ? `${shown}, and ${rest} more` : shown;
+}
+
+// Sorts the branches into the four counts of the Branches group. The default
+// branch is never counted. A branch is dead when its pull request merged with
+// its current tip, or when it is local and its branch on GitHub was deleted.
+// A branch is stale when its newest commit, local or on GitHub, is older
+// than STALE_DAYS and it is not dead.
+function summarizeBranches({ defaultBranch, remote, local }, now) {
+  const counted = (name) => name && name !== defaultBranch;
+  const remoteNodes = remote ? remote.nodes.filter((node) => counted(node.name)) : [];
+  const localBranches = local ? local.filter((branch) => counted(branch.name)) : [];
+  const remoteNames = new Set(remote ? remote.nodes.map((node) => node.name) : []);
+  // A partial list of GitHub branches cannot show that a branch is gone.
+  const remoteComplete = remote && !remote.capped;
+  // A branch whose state is unknown is neither dead nor stale, so the two
+  // counts may be higher than shown. That happens with a partial GitHub list,
+  // an unknown merge state, or no GitHub list for branches that track one.
+  const capped =
+    Boolean(remote?.capped) ||
+    remoteNodes.some((node) => node.merged === null) ||
+    (!remote && localBranches.some((branch) => branch.upstream && branch.upstream !== defaultBranch));
+
+  const merged = remoteNodes.filter((node) => node.merged).map((node) => node.name);
+  const deleted = remoteComplete
+    ? localBranches
+        .filter((branch) => branch.upstream && !remoteNames.has(branch.upstream))
+        .map((branch) => branch.name)
+    : [];
+  const mergedNames = new Set(merged);
+  const deletedNames = new Set(deleted);
+
+  // A local branch and the GitHub branch it tracks are one branch, named as
+  // on GitHub, whatever the local name. Other local branches stand alone,
+  // even when a GitHub branch has the same name.
+  const copies = new Map();
+  // A copy marked skip is dead, or is a branch whose state is unknown.
+  const addCopy = (key, name, time, skip) => {
+    if (!Number.isFinite(time)) return;
+    const copy = copies.get(key);
+    if (copy) copy.time = Math.max(copy.time, time);
+    else copies.set(key, { name, time, skip });
+  };
+  for (const node of remoteNodes) {
+    addCopy(`remote:${node.name}`, node.name, node.time, node.merged !== false);
+  }
+  const unknownMerge = new Set(remoteNodes.filter((node) => node.merged === null).map((node) => node.name));
+  for (const branch of localBranches) {
+    // A local branch that tracks the default branch, such as a worktree
+    // branch, is not the default branch and stands alone.
+    const tracked = branch.upstream && branch.upstream !== defaultBranch ? branch.upstream : null;
+    if (tracked && remoteNames.has(tracked)) {
+      addCopy(`remote:${tracked}`, tracked, branch.time, mergedNames.has(tracked) || unknownMerge.has(tracked));
+    } else if (tracked && !remoteComplete) {
+      // Its GitHub branch is outside the partial list, so its age there is
+      // unknown.
+      continue;
+    } else {
+      addCopy(`local:${branch.name}`, branch.name, branch.time, deletedNames.has(branch.name));
+    }
+  }
+  const staleBefore = now - STALE_DAYS * DAY_MS;
+  const stale = [...copies.values()]
+    .filter((copy) => copy.time < staleBefore && !copy.skip)
+    .sort((a, b) => a.time - b.time)
+    .map(({ name, time }) => ({ name, days: Math.floor((now - time) / DAY_MS) }));
+
+  // The total counts every branch on GitHub, the default branch among them.
+  const remoteTotal = remote ? Math.max(remote.total - (defaultBranch ? 1 : 0), 0) : 0;
+  return {
+    remote: remote
+      ? { value: remoteTotal, capped: false, names: remoteNodes.map((node) => node.name) }
+      : null,
+    local: local ? { value: localBranches.length, capped: false, names: localBranches.map((b) => b.name) } : null,
+    // A merged branch is on GitHub and a deleted one is local, so they are
+    // never the same branch.
+    dead: { value: merged.length + deleted.length, capped, merged, deleted },
+    stale: { value: stale.length, capped, branches: stale },
+  };
 }
 
 function countValue(count) {
@@ -127,6 +241,31 @@ function buildRows(status) {
       title: parts.map(([label, count]) => `${label}: ${countText(count)}`).join(", "),
       tone: "warning",
     });
+  }
+  const branches = status.branches;
+  if (branches) {
+    const group = "branches";
+    const remote = countValue(branches.remote);
+    if (remote) {
+      rows.push({ group, kind: "branches-remote", label: "Remote", count: countText(remote), title: nameList(remote.names) });
+    }
+    const local = countValue(branches.local);
+    if (local) {
+      rows.push({ group, kind: "branches-local", label: "Local", count: countText(local), title: nameList(local.names) });
+    }
+    const dead = countValue(branches.dead);
+    if (dead) {
+      const title = [
+        dead.merged.length ? `Merged on GitHub: ${nameList(dead.merged)}` : "",
+        dead.deleted.length ? `Deleted on GitHub: ${nameList(dead.deleted)}` : "",
+      ].filter(Boolean).join("\n");
+      rows.push({ group, kind: "branches-dead", label: "Dead", count: countText(dead), title });
+    }
+    const stale = countValue(branches.stale);
+    if (stale) {
+      const title = nameList(stale.branches.map(({ name, days }) => `${name} (${days} days)`));
+      rows.push({ group, kind: "branches-stale", label: "Stale", count: countText(stale), title });
+    }
   }
   return rows;
 }
@@ -169,9 +308,70 @@ function totalCount(node) {
   return typeof node?.totalCount === "number" ? { value: node.totalCount, capped: false } : null;
 }
 
+const HEADS_PREFIX = "refs/heads/";
+
+// Lists the local branches of a folder with the name of the branch they
+// track on origin, as GitHub names it, and the time of their newest commit.
+// Returns null when git cannot read it.
+async function readLocalBranches(run, folder) {
+  if (!folder) return null;
+  const result = await run("git", [
+    "-C",
+    folder,
+    "for-each-ref",
+    "refs/heads",
+    "--format=%(refname:lstrip=2)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(committerdate:unix)",
+  ]);
+  if (result.error) return null;
+  return result.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [name, remoteName = "", remoteRef = "", seconds = ""] = line.split("\0");
+      const tracksOrigin = remoteName === "origin" && remoteRef.startsWith(HEADS_PREFIX);
+      return {
+        name,
+        upstream: tracksOrigin ? remoteRef.slice(HEADS_PREFIX.length) : null,
+        time: Number(seconds) * 1000,
+      };
+    });
+}
+
+function readRemoteBranches(refs) {
+  if (!refs || !Array.isArray(refs.nodes)) return null;
+  // GitHub returns null for a branch it could not resolve. The list is then
+  // incomplete and cannot show that a branch is gone.
+  const nodes = refs.nodes.filter((node) => node && typeof node.name === "string");
+  return {
+    total: refs.totalCount,
+    capped: refs.totalCount > nodes.length,
+    nodes: nodes.map((node) => ({
+      name: node.name,
+      time: Date.parse(node.target?.committedDate ?? ""),
+      merged: readMerged(node),
+    })),
+  };
+}
+
+// A merged pull request counts only when it merged the branch's tip. A
+// branch that gained commits after its merge is still in use. Returns null
+// when the page of pull requests read is not the whole list and holds no
+// match, so the answer is unknown.
+function readMerged(node) {
+  const pulls = node.associatedPullRequests;
+  const oid = node.target?.oid;
+  const list = Array.isArray(pulls?.nodes) ? pulls.nodes : [];
+  if (oid && list.some((pull) => pull?.headRefOid === oid)) return true;
+  // GitHub returns null for a pull request it could not resolve, so only a
+  // whole page of readable pull requests proves that none holds the tip.
+  const readable = list.every((pull) => typeof pull?.headRefOid === "string");
+  const complete = readable && typeof pulls?.totalCount === "number" && pulls.totalCount <= list.length;
+  return oid && complete ? false : null;
+}
+
 // gh exits with an error for a GraphQL answer that also carries errors, such
 // as a missing permission for Dependabot alerts, so the answer is read anyway.
-async function fetchCounts(run, repo) {
+async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
   // An explicit host keeps a GH_HOST setting for another server out of it.
   const graphql = run("gh", [
     "api",
@@ -196,10 +396,11 @@ async function fetchCounts(run, repo) {
       if (!Array.isArray(list)) return null;
       return { value: list.length, capped: list.length >= ALERT_PAGE_SIZE };
     });
-  const [graphqlResult, codeScanning, secretScanning] = await Promise.all([
+  const [graphqlResult, codeScanning, secretScanning, local] = await Promise.all([
     graphql,
     alerts("code-scanning"),
     alerts("secret-scanning"),
+    readLocalBranches(run, folder),
   ]);
   if (graphqlResult.error?.code === "ENOENT") {
     throw new Error("the gh command was not found");
@@ -215,7 +416,25 @@ async function fetchCounts(run, repo) {
     dependabot: totalCount(repository.vulnerabilityAlerts),
     codeScanning,
     secretScanning,
+    branches: readBranches(repository, local, now),
   };
+}
+
+// A branch answer that cannot be read leaves out the Branches group only, so
+// the other rows still show.
+function readBranches(repository, local, now) {
+  try {
+    return summarizeBranches(
+      {
+        defaultBranch: repository.defaultBranchRef?.name ?? null,
+        remote: readRemoteBranches(repository.refs),
+        local,
+      },
+      now,
+    );
+  } catch {
+    return null;
+  }
 }
 
 function defaultDatabaseDirectory() {
@@ -346,7 +565,8 @@ function createRepoStatusService({
         if (result.error?.code === "ENOENT") throw new Error("the git command was not found");
         return parseGitHubRemote(result.stdout);
       });
-      if (repo) return repo;
+      // The folder also lists the local branches.
+      if (repo) return { ...repo, folder };
     }
     return null;
   }
@@ -358,7 +578,11 @@ function createRepoStatusService({
 
   function loadCounts(repo, reason) {
     const maxAge = reason === "interval" ? REFRESH_INTERVAL_MS - 30 * 1000 : FRESH_MS;
-    return cached(counts, repo.slug, maxAge, () => fetchCounts(run, repo));
+    // Local branches belong to a folder, so two clones of one repository on
+    // GitHub keep separate entries.
+    return cached(counts, JSON.stringify([repo.slug, repo.folder]), maxAge, () =>
+      fetchCounts(run, repo, { folder: repo.folder, now: now() }),
+    );
   }
 
   async function check(sessionId, pagePath, reason) {
@@ -453,7 +677,25 @@ const ICONS = {
     ["path", { d: "M12 8v4" }],
     ["path", { d: "M12 16h.01" }],
   ],
+  "branches-remote": [["path", { d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" }]],
+  "branches-local": [
+    ["path", { d: "M6 3v12" }],
+    ["circle", { cx: "18", cy: "6", r: "3" }],
+    ["circle", { cx: "6", cy: "18", r: "3" }],
+    ["path", { d: "M18 9a9 9 0 0 1-9 9" }],
+  ],
+  "branches-dead": [
+    ["circle", { cx: "12", cy: "12", r: "10" }],
+    ["path", { d: "m15 9-6 6" }],
+    ["path", { d: "m9 9 6 6" }],
+  ],
+  "branches-stale": [
+    ["circle", { cx: "12", cy: "12", r: "10" }],
+    ["path", { d: "M12 6v6l4 2" }],
+  ],
 };
+
+const GROUP_TITLES = { branches: "Branches" };
 
 const PAGE_CSS = `
 [${SECTION_ATTRIBUTE}] {
@@ -475,7 +717,7 @@ const PAGE_CSS = `
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-[${SECTION_ATTRIBUTE}] button {
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -488,10 +730,24 @@ const PAGE_CSS = `
   color: inherit;
   font: inherit;
   text-align: start;
+}
+[${SECTION_ATTRIBUTE}] button.t3-rtl-repo-status-row {
   cursor: pointer;
 }
-[${SECTION_ATTRIBUTE}] button:hover,
-[${SECTION_ATTRIBUTE}] button:focus-visible {
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-group {
+  margin-top: 6px;
+  padding-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-group[data-separated] {
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+[${SECTION_ATTRIBUTE}] button.t3-rtl-repo-status-row:hover,
+[${SECTION_ATTRIBUTE}] button.t3-rtl-repo-status-row:focus-visible {
   background: color-mix(in srgb, currentColor 8%, transparent);
   outline: none;
 }
@@ -505,8 +761,8 @@ const PAGE_CSS = `
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-[${SECTION_ATTRIBUTE}] button[data-tone="warning"] .t3-rtl-repo-status-count,
-[${SECTION_ATTRIBUTE}] button[data-tone="warning"] svg {
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] .t3-rtl-repo-status-count,
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] svg {
   color: var(--warning, #d97706);
 }
 `;
@@ -520,6 +776,8 @@ function buildRepoStatusPageSource() {
   const styleId = ${JSON.stringify(STYLE_ID)};
   const css = ${JSON.stringify(PAGE_CSS)};
   const icons = ${JSON.stringify(ICONS)};
+  const groupTitles = ${JSON.stringify(GROUP_TITLES)};
+  const linkKinds = ${JSON.stringify(Object.keys(PAGE_BY_KIND))};
   const refreshInterval = ${REFRESH_INTERVAL_MS};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
@@ -598,25 +856,42 @@ function buildRepoStatusPageSource() {
     name.textContent = data.repo || "";
     head.appendChild(name);
     section.appendChild(head);
+    let group;
+    let rowsBefore = 0;
     for (const row of data.rows) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.kind = row.kind;
-      if (row.tone) button.dataset.tone = row.tone;
-      button.title = row.title || "";
-      button.appendChild(icon(row.kind));
+      if (row.group && row.group !== group) {
+        const title = document.createElement("div");
+        title.className = "t3-rtl-repo-status-group";
+        // The line separates the group only from rows above it.
+        if (rowsBefore > 0) title.dataset.separated = "";
+        title.textContent = groupTitles[row.group] || row.group;
+        section.appendChild(title);
+      }
+      group = row.group;
+      rowsBefore += 1;
+      // A row without a GitHub page, such as local branches, is not a button.
+      const linked = linkKinds.includes(row.kind);
+      const element = document.createElement(linked ? "button" : "div");
+      element.className = "t3-rtl-repo-status-row";
+      if (linked) element.type = "button";
+      element.dataset.kind = row.kind;
+      if (row.tone) element.dataset.tone = row.tone;
+      element.title = row.title || "";
+      element.appendChild(icon(row.kind));
       const label = document.createElement("span");
       label.textContent = row.label;
       const count = document.createElement("span");
       count.className = "t3-rtl-repo-status-count";
       count.textContent = row.count;
-      button.append(label, count);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        notify({ type: "open", kind: row.kind });
-      });
-      section.appendChild(button);
+      element.append(label, count);
+      if (linked) {
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          notify({ type: "open", kind: row.kind });
+        });
+      }
+      section.appendChild(element);
     }
     return section;
   };
@@ -694,6 +969,7 @@ module.exports = {
   REFRESH_INTERVAL_MS,
   buildRepoStatusPageSource,
   buildRows,
+  summarizeBranches,
   createRepoStatusService,
   fetchCounts,
   lookupThreadFolder,
