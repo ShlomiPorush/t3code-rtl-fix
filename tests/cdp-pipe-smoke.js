@@ -414,6 +414,17 @@ async function run() {
       <div id="toast-description" class="min-w-0 select-text wrap-break-word" data-slot="toast-description">${rtlText} T3</div>
     </div>
     <div id="thread-header" class="group/thread-title flex"><h2 id="thread-header-title" class="min-w-0"><span>${rtlText} V2</span></h2><svg data-thread-title-chevron="true" class="icon"></svg></div>
+    <div id="secret-requests" class="text-left" style="width: 420px">
+      <form id="rtl-secret-card" data-v2-item-type="secret_request" class="flex min-w-0 flex-col gap-3" style="display: flex; flex-direction: column">
+        <div class="flex min-w-0 flex-col gap-1" style="display: flex; flex-direction: column"><label id="rtl-secret-label" for="rtl-secret-input" class="text-sm font-medium text-foreground">${rtlText} Moses API</label><p id="rtl-secret-reason" class="text-sm wrap-anywhere text-muted-foreground">${rtlText} Auth Service ${rtlText} Users read+write.</p></div>
+        <div id="rtl-secret-field" class="flex min-w-0 items-center gap-2" style="display: flex"><div class="min-w-0 flex-1" style="flex: 1"><input id="rtl-secret-input" type="password"></div><button type="submit">Save securely</button></div>
+        <div class="flex min-w-0 items-center justify-between gap-2" style="display: flex"><p id="rtl-secret-note" class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">Kept out of chat</p><button type="button">Decline</button></div>
+      </form>
+      <form data-v2-item-type="secret_request" class="flex min-w-0 flex-col gap-3" style="display: flex; flex-direction: column">
+        <div class="flex min-w-0 flex-col gap-1" style="display: flex; flex-direction: column"><label id="english-secret-label" for="english-secret-input" class="text-sm font-medium text-foreground">GitHub token</label><p id="english-secret-reason" class="text-sm wrap-anywhere text-muted-foreground">Used to open the pull request.</p></div>
+        <div class="flex min-w-0 items-center gap-2" style="display: flex"><div class="min-w-0 flex-1" style="flex: 1"><input id="english-secret-input" type="password"></div><button type="submit">Save securely</button></div>
+      </form>
+    </div>
     <div id="work-log-row" class="group/timeline-row relative w-full min-w-0 text-left" role="button" aria-expanded="true" style="width: 400px">
       <div class="flex min-w-0 gap-1.5 items-center">
         <div class="flex min-w-0 flex-1 items-baseline gap-1.5"><span id="work-log-icon" class="relative shrink-0"><svg class="icon"></svg></span><div class="min-w-0 flex-1 truncate"><div class="min-w-0 flex-1 overflow-hidden"><p id="work-log-summary" class="flex min-w-0 w-full items-baseline gap-3"><span id="work-log-question-summary" class="min-w-0 truncate">${rtlText} PR?</span><span id="work-log-answer-summary" class="min-w-0 truncate">${rtlText} 3 PRs</span></p></div></div></div>
@@ -526,6 +537,14 @@ ${rtlText}
       const citationPopup = document.createElement("div");
       citationPopup.innerHTML = '<div id="citation-card" class="flex flex-col items-start gap-3 p-1 text-sm" style="width: 300px"><div class="max-h-64 min-h-0 space-y-3 self-stretch overflow-y-auto whitespace-pre-wrap wrap-break-word"><blockquote id="citation-quote" class="border-l-2 border-border pl-3 text-muted-foreground">' + ${JSON.stringify(rtlText)} + ' common.md</blockquote><p id="citation-card-comment">' + ${JSON.stringify(rtlText)} + '</p></div><a id="citation-source" href="#">Go to source</a></div>';
       document.body.appendChild(citationPopup);
+      // Saving or declining a secret replaces its card with a row that shows
+      // the name and the outcome.
+      const answeredSecretRow = (id, label) => '<div id="' + id + '" data-v2-item-type="secret_request" class="group/timeline-row relative w-full min-w-0 text-left" style="width: 400px; text-align: left"><div class="flex min-h-6 min-w-0 gap-1.5 text-sm items-center" style="display: flex"><div class="flex min-w-0 flex-1 items-baseline gap-1.5" style="display: flex; flex: 1"><span id="' + id + '-icon" class="relative w-6 shrink-0 leading-0" style="width: 24px; flex-shrink: 0"><svg class="icon"></svg></span><div id="' + id + '-label" class="min-w-0 flex-1 text-secondary-label truncate" style="flex: 1">' + label + '</div></div></div></div>';
+      document.getElementById("secret-requests").insertAdjacentHTML(
+        "beforeend",
+        answeredSecretRow("rtl-secret-row", ${JSON.stringify(`${rtlText} Moses API · Saved`)}) +
+          answeredSecretRow("english-secret-row", "GitHub token · Declined"),
+      );
       // Typing into an empty composer paragraph after injection.
       document.getElementById("composer-typed-paragraph").append(${JSON.stringify(rtlText)});
       // A predicted next prompt replaces the text of the composer placeholder
@@ -893,6 +912,31 @@ ${rtlText}
             document.getElementById("english-work-log-question-summary").getBoundingClientRect().right <=
             document.getElementById("english-work-log-answer-summary").getBoundingClientRect().left,
           englishWorkLogChevronTransform: style("english-work-log-chevron-icon").transform,
+          ...(() => {
+            const box = (id) => document.getElementById(id).getBoundingClientRect();
+            const textBox = (id) => {
+              const range = document.createRange();
+              range.selectNodeContents(document.getElementById(id));
+              return range.getBoundingClientRect();
+            };
+            return {
+              rtlSecretLabelDir: document.getElementById("rtl-secret-label").dir,
+              rtlSecretLabelAtRight: Math.abs(textBox("rtl-secret-label").right - box("rtl-secret-card").right) <= 1,
+              rtlSecretReasonDir: document.getElementById("rtl-secret-reason").dir,
+              rtlSecretReasonAtRight: Math.abs(textBox("rtl-secret-reason").right - box("rtl-secret-card").right) <= 1,
+              rtlSecretFieldDirection: style("rtl-secret-field").direction,
+              rtlSecretNoteDirection: style("rtl-secret-note").direction,
+              englishSecretLabelDir: document.getElementById("english-secret-label").dir,
+              englishSecretReasonDir: document.getElementById("english-secret-reason").dir,
+              rtlSecretRowDirection: style("rtl-secret-row").direction,
+              rtlSecretRowLabelDir: document.getElementById("rtl-secret-row-label").dir,
+              rtlSecretRowIconAtRight: Math.abs(box("rtl-secret-row-icon").right - box("rtl-secret-row").right) <= 1,
+              rtlSecretRowLabelNextToIcon: Math.round(box("rtl-secret-row-icon").left - textBox("rtl-secret-row-label").right) <= 8,
+              englishSecretRowLabelNextToIcon: Math.round(textBox("english-secret-row-label").left - box("english-secret-row-icon").right) <= 8,
+              englishSecretRowDirection: style("english-secret-row").direction,
+              englishSecretRowIconAtLeft: Math.abs(box("english-secret-row-icon").left - box("english-secret-row").left) <= 1,
+            };
+          })(),
           workLogQuestionTextAlign: style("work-log-question").textAlign,
           workLogQuestionAtRight: (() => {
             const range = document.createRange();
@@ -1279,6 +1323,21 @@ ${rtlText}
     englishWorkLogIconAtLeft: true,
     englishWorkLogQuestionSummaryLeftOfAnswer: true,
     englishWorkLogChevronTransform: "none",
+    rtlSecretLabelDir: "rtl",
+    rtlSecretLabelAtRight: true,
+    rtlSecretReasonDir: "rtl",
+    rtlSecretReasonAtRight: true,
+    rtlSecretFieldDirection: "ltr",
+    rtlSecretNoteDirection: "ltr",
+    englishSecretLabelDir: "auto",
+    englishSecretReasonDir: "auto",
+    rtlSecretRowDirection: "rtl",
+    rtlSecretRowLabelDir: "rtl",
+    rtlSecretRowIconAtRight: true,
+    rtlSecretRowLabelNextToIcon: true,
+    englishSecretRowLabelNextToIcon: true,
+    englishSecretRowDirection: "ltr",
+    englishSecretRowIconAtLeft: true,
     workLogQuestionTextAlign: "start",
     workLogQuestionAtRight: true,
     liveThoughtDir: "auto",

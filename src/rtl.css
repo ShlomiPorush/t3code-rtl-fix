@@ -273,6 +273,26 @@ ul[aria-label="Related threads"] span.block.truncate {
   transform: scaleX(-1);
 }
 
+/* The name and reason on a secret request card sit on the side where their
+   text starts. */
+form[data-v2-item-type="secret_request"] > div:first-child > :is(label, p) {
+  text-align: start !important;
+}
+
+/* A saved or declined secret request whose name reads right to left is
+   mirrored like a work log row, so its icon sits on the right before the
+   name. The row is left aligned in T3 Code's markup, so the name sits on the
+   side where its text starts. */
+[data-v2-item-type="secret_request"][class~="group/timeline-row"]:has(
+    > div > div > div.text-secondary-label:dir(rtl)
+  ) {
+  direction: rtl;
+}
+
+[data-v2-item-type="secret_request"][class~="group/timeline-row"] div.text-secondary-label {
+  text-align: start !important;
+}
+
 /* The work log row is left aligned in T3 Code's markup, so an expanded
    question or answer that reads right to left would sit on the wrong side. */
 [class~="group/timeline-row"] .space-y-1 > p {
