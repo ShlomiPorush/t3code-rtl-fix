@@ -1696,11 +1696,13 @@ function buildRepoStatusPageSource() {
     }
     return null;
   };
-  // T3 Code turns the setting on unless it was turned off. No answer is a
-  // doubt, so it opens GitHub.
+  // T3 Code turns the setting on unless it was turned off. Without a saved
+  // settings file the bridge answers null, which means the defaults. Any
+  // other answer, or none, is a doubt, so it opens GitHub.
   const opensPullRequestsInApp = async () => {
     try {
       const settings = await window.desktopBridge.getClientSettings();
+      if (settings === null) return true;
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
       const value = settings.pullRequestLinksOpenInApp;
       return value === undefined || value === true;

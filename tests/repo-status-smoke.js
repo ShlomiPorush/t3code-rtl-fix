@@ -70,11 +70,11 @@ const fixture = `<!doctype html><html><head><title>fixture</title>
 // Like T3 Code, the entry script loads the store of the thread's panel at
 // start. The store records the pull requests it opens and shows the panel,
 // unless a test tells it to ignore the call or to keep the panel hidden.
-// T3 Code's desktop bridge answers with the settings changed from their
-// defaults.
+// Without a saved settings file, T3 Code's desktop bridge answers null, which
+// means the defaults.
 const entryScript = `import { d } from "./rightPanelStore-test.js";
 window.__panelStore = d;
-window.desktopBridge = { getClientSettings: async () => ({}) };
+window.desktopBridge = { getClientSettings: async () => null };
 `;
 const panelStoreScript = `let state;
 const set = (patch) => {
