@@ -210,9 +210,10 @@ test("the thread folder comes from T3 Code's database", (t) => {
     INSERT INTO projection_projects VALUES ('p1', 'C:\\old-repo', NULL);
     INSERT INTO projection_threads VALUES ('t1', 'p1', NULL), ('t2', 'p1', 'C:\\old-worktree');
   `);
-  assert.deepEqual(lookupThreadFolder(directory, "t1"), ["C:\\old-repo"]);
-  assert.deepEqual(lookupThreadFolder(directory, "t2"), ["C:\\old-worktree", "C:\\old-repo"]);
-  assert.deepEqual(lookupProjectFolder(directory, "p1"), ["C:\\old-repo"]);
+  // The project comes along, so the page can open a pull request in T3 Code.
+  assert.deepEqual(lookupThreadFolder(directory, "t1"), { folders: ["C:\\old-repo"], projectId: "p1" });
+  assert.deepEqual(lookupThreadFolder(directory, "t2"), { folders: ["C:\\old-worktree", "C:\\old-repo"], projectId: "p1" });
+  assert.deepEqual(lookupProjectFolder(directory, "p1"), { folders: ["C:\\old-repo"], projectId: "p1" });
 
   // Current releases write statev2.sqlite and leave state.sqlite behind.
   const payload = (id, worktreePath) => JSON.stringify({ id, worktreePath }).replace(/'/g, "''");
@@ -224,11 +225,14 @@ test("the thread folder comes from T3 Code's database", (t) => {
       ('t1', 'p1', '${payload("t1", null)}'),
       ('mcp:launch:78de3208', 'p1', '${payload("mcp:launch:78de3208", "C:\\worktree")}');
   `);
-  assert.deepEqual(lookupThreadFolder(directory, "t1"), ["C:\\repo"]);
-  assert.deepEqual(lookupThreadFolder(directory, "mcp:launch:78de3208"), ["C:\\worktree", "C:\\repo"]);
+  assert.deepEqual(lookupThreadFolder(directory, "t1"), { folders: ["C:\\repo"], projectId: "p1" });
+  assert.deepEqual(lookupThreadFolder(directory, "mcp:launch:78de3208"), {
+    folders: ["C:\\worktree", "C:\\repo"],
+    projectId: "p1",
+  });
   assert.equal(lookupThreadFolder(directory, "t2"), null);
   // A new thread has only its project. A removed project has no folder.
-  assert.deepEqual(lookupProjectFolder(directory, "p1"), ["C:\\repo"]);
+  assert.deepEqual(lookupProjectFolder(directory, "p1"), { folders: ["C:\\repo"], projectId: "p1" });
   assert.equal(lookupProjectFolder(directory, "p2"), null);
   assert.equal(lookupProjectFolder(directory, "p3"), null);
 });
@@ -298,13 +302,15 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     run,
     log: (message) => state.logs.push(message),
     now: () => state.time,
+    // The stubs name folders. A lookup gives them with the project.
     findThreadFolder: (id) => {
       state.folderLookups += 1;
-      return typeof state.folder === "function" ? state.folder(id) : state.folder;
+      const folders = typeof state.folder === "function" ? state.folder(id) : state.folder;
+      return folders ? { folders: [].concat(folders), projectId: "p-thread" } : null;
     },
     findProjectFolder: (id) => {
       state.projectLookups.push(id);
-      return state.projects[id] || null;
+      return state.projects[id] ? { folders: [].concat(state.projects[id]), projectId: id } : null;
     },
     open: async (url) => state.opened.push(url),
   });
@@ -315,11 +321,19 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
 }
 
 test("a check pushes the rows of the open thread's repository", async () => {
-  const { check, last } = createHarness();
+  const { state, check, last } = createHarness();
   await check();
   assert.equal(last().path, threadHref);
   assert.equal(last().repo, "o/r");
   assert.deepEqual(last().rows.map((row) => row.kind), ["issues"]);
+  // The page needs the project to open a pull request in T3 Code's panel.
+  assert.equal(last().projectId, "p-thread");
+  // Without rows the push names no project.
+  state.issues = 0;
+  state.time += FRESH_MS;
+  await check("focus");
+  assert.deepEqual(last().rows, []);
+  assert.equal(last().projectId, null);
 });
 
 test("counts are reused while fresh and refreshed by the interval", async () => {
@@ -1200,11 +1214,12 @@ test("a new thread shows the status of its project's repository", async () => {
   assert.equal(last().project, "p1");
   assert.equal(last().repo, "o/r");
   assert.deepEqual(last().rows.map((row) => row.kind), ["issues"]);
+  assert.equal(last().projectId, "p1");
   // Without a project, or with an unsafe one, nothing is looked up.
   await check("navigate", draft);
   await check("navigate", draft, "a b");
   assert.deepEqual(state.projectLookups, ["p1"]);
-  assert.deepEqual(last(), { path: draft, project: "a b", repo: null, rows: [] });
+  assert.deepEqual(last(), { path: draft, project: "a b", repo: null, projectId: null, rows: [] });
   // A project that is not in the database shows no section.
   await check("navigate", draft, "p2");
   assert.deepEqual(last().rows, []);
