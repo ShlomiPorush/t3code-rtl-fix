@@ -403,8 +403,14 @@ test("a settings file swapped for a link while it is read is refused", async (t)
   const store = createSettingsStore({ directory: fix, t3Home: home });
   const open = fs.openSync;
   let swapped = false;
+  // The store opens the file under the folder's real path, which can differ
+  // from the temp path in form, such as a short 8.3 name on a CI runner.
+  const realFolder = fs.realpathSync.native(fix).toLowerCase();
   fs.openSync = (file, ...rest) => {
-    if (!swapped && path.resolve(String(file)) === path.resolve(ours)) {
+    const opened = path.resolve(String(file));
+    const sameFile = path.basename(opened) === "settings.json" &&
+      fs.realpathSync.native(path.dirname(opened)).toLowerCase() === realFolder;
+    if (!swapped && sameFile) {
       swapped = true;
       fs.rmSync(ours);
       fs.linkSync(t3Settings, ours);
