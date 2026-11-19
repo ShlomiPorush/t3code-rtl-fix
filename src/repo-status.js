@@ -19,6 +19,9 @@ const REPO_STATUS_BINDING = "__t3RtlFixRepoStatus";
 const RECEIVER = "__t3RtlFixRepoStatusUpdate";
 const PAGE_FLAG = "__t3RtlFixRepoStatusWatcher";
 const CHECK = "__t3RtlFixRepoStatusCheck";
+// The page starts off and waits for the launcher to turn it on, so a new
+// document under a turned-off setting never checks.
+const ENABLE = "__t3RtlFixRepoStatusEnabled";
 const SECTION_ATTRIBUTE = "data-t3-rtl-repo-status";
 const STYLE_ID = "t3-rtl-fix-repo-status-style";
 const TIP_CLASS = "t3-rtl-repo-status-tip";
@@ -925,8 +928,13 @@ function createRepoStatusService({
   findThreadFolder = (threadId) => lookupThreadFolder(databaseDirectory, threadId),
   findProjectFolder = (projectId) => lookupProjectFolder(databaseDirectory, projectId),
   open = (url) => openExternal(run, url),
+  enabled: initiallyEnabled = true,
 } = {}) {
   const sessions = new Map();
+  // Turning the section off or on starts a new generation. Work that began
+  // in an earlier one shows nothing and opens nothing.
+  let enabled = initiallyEnabled;
+  let generation = 0;
   const attached = new Set();
   const folders = new Map();
   const remotes = new Map();
@@ -1020,6 +1028,7 @@ function createRepoStatusService({
     sessions.set(sessionId, session);
     const request = (session.request || 0) + 1;
     session.request = request;
+    const startedIn = generation;
     // The rows shown stay clickable while the same thread refreshes.
     const key = target ? JSON.stringify([target.kind, target.id]) : null;
     if (session.target !== key) {
@@ -1028,7 +1037,7 @@ function createRepoStatusService({
       session.links = new Set();
     }
     // A newer check may replace this one at any await.
-    const current = () => session.request === request;
+    const current = () => session.request === request && startedIn === generation && enabled;
     let rows = [];
     let repo = null;
     if (target) {
@@ -1054,13 +1063,16 @@ function createRepoStatusService({
     // The links are those of the rows the page shows. A page that did not
     // take the rows still shows the earlier ones, and rows it took stay
     // shown even when a newer check has started.
-    if (accepted) {
+    // Rows the page took stay clickable even when a newer check has started,
+    // but not after the section was turned off or on.
+    if (accepted && startedIn === generation && enabled) {
       session.repo = shown;
       session.links = linksOf(rows);
     }
   }
 
   async function handle(sessionId, payload) {
+    if (!enabled) return;
     const message = parseJson(payload);
     if (!message || typeof message !== "object") return;
     if (message.type === "check" && typeof message.path === "string") {
@@ -1077,7 +1089,7 @@ function createRepoStatusService({
       const url = typeof message.link === "string"
         ? session.links.has(message.link) ? linkUrl(session.repo, message.link) : null
         : repositoryUrl(session.repo, message.kind);
-      if (url) await open(url);
+      if (url && enabled) await open(url);
     }
   }
 
@@ -1090,6 +1102,29 @@ function createRepoStatusService({
     await send("Page.addScriptToEvaluateOnNewDocument", { source }, sessionId);
     await send("Runtime.evaluate", { expression: source }, sessionId);
     attached.add(sessionId);
+    await tellPage(sessionId);
+  }
+
+  function tellPage(sessionId) {
+    return send(
+      "Runtime.evaluate",
+      { expression: `(() => { const enable = window[${JSON.stringify(ENABLE)}]; if (typeof enable === "function") enable(${enabled ? "true" : "false"}); })()` },
+      sessionId,
+    );
+  }
+
+  function setEnabled(value) {
+    const next = value === true;
+    if (next === enabled) return;
+    enabled = next;
+    generation += 1;
+    for (const session of sessions.values()) {
+      session.repo = null;
+      session.links = new Set();
+    }
+    for (const sessionId of attached) {
+      tellPage(sessionId).catch((error) => logOnce(`the page could not be told: ${error.message}`));
+    }
   }
 
   // A reloaded page loses the binding. The launcher adds it again when the
@@ -1098,11 +1133,8 @@ function createRepoStatusService({
   async function reattach(sessionId) {
     if (!attached.has(sessionId)) return;
     await send("Runtime.addBinding", { name: REPO_STATUS_BINDING }, sessionId);
-    await send(
-      "Runtime.evaluate",
-      { expression: `(() => { const check = window[${JSON.stringify(CHECK)}]; if (typeof check === "function") check("navigate"); })()` },
-      sessionId,
-    );
+    // Turning the page on also checks.
+    await tellPage(sessionId);
   }
 
   function forget(sessionId) {
@@ -1110,7 +1142,7 @@ function createRepoStatusService({
     attached.delete(sessionId);
   }
 
-  return { attach, reattach, handle, forget };
+  return { attach, reattach, handle, forget, setEnabled };
 }
 
 const ICONS = {
@@ -1459,6 +1491,10 @@ function buildRepoStatusPageSource() {
 
   let current = null;
   let currentSignature = "";
+  let enabled = false;
+  // Changes each time the section is turned off or on. A pull request click
+  // from before the change opens nothing.
+  let epoch = 0;
   let lastHref = location.href;
   let renderQueued = false;
 
@@ -1527,8 +1563,11 @@ function buildRepoStatusPageSource() {
       return null;
     }
   };
-  let lastProject = draftProject();
-  const request = (reason) => notify({ type: "check", path: location.href, project: draftProject(), reason });
+  // Set when the timers start.
+  let lastProject = null;
+  const request = (reason) => {
+    if (enabled) notify({ type: "check", path: location.href, project: draftProject(), reason });
+  };
   Object.defineProperty(window, ${JSON.stringify(CHECK)}, { value: request });
 
   const ensureStyle = () => {
@@ -1742,10 +1781,10 @@ function buildRepoStatusPageSource() {
   // Resolves to whether the pull request opened in T3 Code's panel, or to
   // null when it should open nowhere. The thread and the project are those
   // of the click.
-  const openPullRequestInApp = async (link, repo, thread, projectId) => {
+  const openPullRequestInApp = async (link, repo, thread, projectId, clickEpoch) => {
     const match = pullLink.exec(link);
     const key = threadKey(thread);
-    const moved = () => !stillShown(repo, projectId, key);
+    const moved = () => epoch !== clickEpoch || !stillShown(repo, projectId, key);
     if (moved()) return null;
     const store = await within((async () => ((await opensPullRequestsInApp()) ? findPanelStore() : null))(), 2000);
     // A page that moved to another thread or repository meanwhile opens
@@ -1792,6 +1831,12 @@ function buildRepoStatusPageSource() {
       return false;
     }
     const shown = await panelShown(moved);
+    // A section turned off meanwhile takes back this click's change, so the
+    // panel does not show the pull request later.
+    if (shown === null && epoch !== clickEpoch) {
+      undo();
+      return null;
+    }
     // The pull request waits in the panel of the thread left behind.
     if (shown !== false) return shown;
     undo();
@@ -1808,9 +1853,15 @@ function buildRepoStatusPageSource() {
       browser();
       return;
     }
-    opening = opening.then(() => openPullRequestInApp(link, repo, thread, projectId)).then((opened) => {
-      if (opened === false) browser();
-    }, browser);
+    const clickEpoch = epoch;
+    const fallback = () => {
+      if (epoch === clickEpoch && enabled) browser();
+    };
+    opening = opening
+      .then(() => (epoch === clickEpoch ? openPullRequestInApp(link, repo, thread, projectId, clickEpoch) : null))
+      .then((opened) => {
+        if (opened === false) fallback();
+      }, fallback);
   };
 
   const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("[data-quote], a[data-link]")) : []);
@@ -2247,6 +2298,7 @@ function buildRepoStatusPageSource() {
   };
 
   window[receiver] = (data) => {
+    if (!enabled) return false;
     if (!data || routeKey(data.path) !== routeKey(location.href)) return false;
     if ((data.project ?? null) !== draftProject()) return false;
     current = data;
@@ -2264,7 +2316,10 @@ function buildRepoStatusPageSource() {
   if (document.documentElement) startObserving();
   else document.addEventListener("DOMContentLoaded", startObserving, { once: true });
 
-  setInterval(() => {
+  // The timers run only while the section is on, so a page with it off
+  // reads nothing, not even T3 Code's drafts.
+  let timers = [];
+  const watchAddress = () => {
     const project = draftProject();
     const otherProject = !!current && (current.project ?? null) !== project;
     if (location.href === lastHref && project === lastProject && !otherProject) return;
@@ -2277,15 +2332,40 @@ function buildRepoStatusPageSource() {
       scheduleRender();
     }
     request("navigate");
-  }, 1000);
-  setInterval(() => {
-    if (document.visibilityState === "visible") request("interval");
-  }, refreshInterval);
+  };
+  const startTimers = () => {
+    if (timers.length) return;
+    lastHref = location.href;
+    lastProject = draftProject();
+    timers = [
+      setInterval(watchAddress, 1000),
+      setInterval(() => {
+        if (document.visibilityState === "visible") request("interval");
+      }, refreshInterval),
+    ];
+  };
+  const stopTimers = () => {
+    timers.forEach(clearInterval);
+    timers = [];
+  };
   window.addEventListener("focus", () => request("focus"));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") request("focus");
   });
-  request("navigate");
+  Object.defineProperty(window, ${JSON.stringify(ENABLE)}, {
+    value: (value) => {
+      const next = value === true;
+      if (next !== enabled) {
+        enabled = next;
+        epoch += 1;
+        current = null;
+        scheduleRender();
+      }
+      if (enabled) startTimers();
+      else stopTimers();
+      request("navigate");
+    },
+  });
 })();`;
 }
 

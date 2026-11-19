@@ -117,6 +117,11 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "t3-rtl-launcher.js"),
     (Join-Path $sourceDirectory "annotation-direction.js"),
     (Join-Path $sourceDirectory "repo-status.js"),
+    (Join-Path $sourceDirectory "cdp-dispatch.js"),
+    (Join-Path $sourceDirectory "extras.js"),
+    (Join-Path $sourceDirectory "extras-page.js"),
+    (Join-Path $sourceDirectory "extras-settings.js"),
+    (Join-Path $sourceDirectory "usage-limits.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )

@@ -676,6 +676,39 @@ async function checkPullRequestInApp(sessionId) {
   if (JSON.stringify(opened.slice(before)) !== JSON.stringify(Array(6).fill("https://github.com/o/r/pull/12"))) {
     throw new Error(`Unexpected pull request pages: ${JSON.stringify(opened.slice(before))}`);
   }
+
+  // Turning the section off after the panel took the pull request, while it
+  // waits to show, takes the pull request back and opens nothing, not even
+  // on GitHub, and removes the section. Turning it on shows it again.
+  const callsBefore = await evaluate(sessionId, "window.__panelCalls.length");
+  await evaluate(sessionId, `(window.__panelHidden = true, 1)`);
+  await clickPullRequest(sessionId);
+  await waitFor(sessionId, `window.__panelCalls.length > ${callsBefore}`, "the panel to take the pull request");
+  await evaluate(sessionId, `(window.__t3RtlFixRepoStatusEnabled(false), 1)`);
+  // While it is off, the page reads nothing, not even T3 Code's drafts.
+  await evaluate(sessionId, `(() => {
+    window.__draftReads = 0;
+    window.__getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      window.__draftReads += 1;
+      return window.__getItem.call(this, key);
+    };
+    return 1;
+  })()`);
+  await wait(1500);
+  const draftReads = await evaluate(sessionId, "(Storage.prototype.getItem = window.__getItem, window.__draftReads)");
+  if (draftReads !== 0) throw new Error(`The page read the drafts ${draftReads} times while the section was off`);
+  await waitFor(sessionId, `!document.querySelector("[data-t3-rtl-repo-status]")`, "the section to leave when it is turned off");
+  await waitFor(
+    sessionId,
+    `!Object.hasOwn(window.__panelStore.getState().byThreadKey, ${JSON.stringify(key)})`,
+    "the panel to forget the pull request when the section is turned off",
+  );
+  await wait(2600);
+  await Promise.all(handled);
+  if (opened.length !== before + 6) throw new Error(`A pull request opened after the section was turned off: ${JSON.stringify(opened.slice(before + 6))}`);
+  await evaluate(sessionId, `(window.__panelHidden = false, window.__t3RtlFixRepoStatusEnabled(true), 1)`);
+  await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section when it is turned on again");
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
 }
 
@@ -1113,7 +1146,7 @@ const timeout = setTimeout(() => {
   process.stderr.write("Repository status smoke test timed out\n");
   child?.kill();
   process.exitCode = 1;
-}, 30000);
+}, 45000);
 
 run().catch((error) => {
   process.stderr.write(`${error.stack}\n`);

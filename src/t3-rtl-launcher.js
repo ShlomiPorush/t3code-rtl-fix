@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { buildInjectionSource } = require("./injection");
+const { createDispatch } = require("./cdp-dispatch");
 const {
   ANNOTATION_BINDING,
   applyAnnotationDirection,
@@ -14,7 +15,6 @@ const cssPath = path.join(__dirname, "rtl.css");
 const appPathFile = path.join(__dirname, "app-path.txt");
 const logPath = path.join(__dirname, "launcher.log");
 const windowsLauncherPath = path.join(__dirname, "launch-t3-rtl.vbs");
-const settingsPath = path.join(__dirname, "settings.json");
 
 
 function log(message) {
@@ -72,32 +72,86 @@ try {
 
 const injectionSource = buildInjectionSource(css);
 
-// Optional settings.json beside the launcher, such as { "repoStatus": false }.
-// The installer never writes it, so a reinstall keeps the user's choice.
-function readSettings() {
+// Optional settings.json beside the launcher, such as { "repoStatus": false },
+// which the Extras section on T3 Code's Labs page also changes. The installer
+// never writes it, so a reinstall keeps the user's choices. Each extra loads
+// on its own, so a failure in one leaves the RTL fix and the others running.
+let settingsStore = null;
+let t3Home = null;
+try {
+  const { createSettingsStore, resolveT3Home } = require("./extras-settings");
+  t3Home = resolveT3Home();
+  settingsStore = createSettingsStore({ directory: __dirname, t3Home, log });
+} catch (error) {
+  log(`Extras settings are off: ${error.message}`);
+}
+const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true };
+
+let repoStatus = null;
+let repoStatusBinding = null;
+let repoStatusRuns = false;
+try {
+  const { REPO_STATUS_BINDING, createRepoStatusService, opensSqliteReadOnly } = require("./repo-status");
+  repoStatusRuns = opensSqliteReadOnly(process.versions.node) && sqliteLoads();
+  repoStatusBinding = REPO_STATUS_BINDING;
+  repoStatus = createRepoStatusService({
+    send: (...args) => send(...args),
+    log,
+    enabled: initialSettings.repoStatus !== false && repoStatusRuns,
+  });
+} catch (error) {
+  log(`Repository status is off: ${error.message}`);
+}
+
+// node:sqlite exists without a flag only in newer Node.js releases. Nothing
+// is opened here.
+function sqliteLoads() {
   try {
-    const text = fs.readFileSync(settingsPath, "utf8");
-    const settings = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
-    return settings && typeof settings === "object" ? settings : {};
-  } catch (error) {
-    if (error.code !== "ENOENT") log(`Could not read ${settingsPath}: ${error.message}`);
-    return {};
+    return typeof require("node:sqlite").DatabaseSync === "function";
+  } catch {
+    return false;
   }
 }
 
-// The repository status section is an extra. It loads on its own, so a
-// failure in it leaves the RTL fix running.
-let repoStatus = null;
-let repoStatusBinding = null;
-if (readSettings().repoStatus !== false) {
+let extras = null;
+let extrasBinding = null;
+if (settingsStore) {
   try {
-    const { REPO_STATUS_BINDING, createRepoStatusService } = require("./repo-status");
-    repoStatusBinding = REPO_STATUS_BINDING;
-    repoStatus = createRepoStatusService({ send: (...args) => send(...args), log });
+    const { createUsageReader } = require("./usage-limits");
+    const { EXTRAS_BINDING, createExtrasService } = require("./extras");
+    extrasBinding = EXTRAS_BINDING;
+    extras = createExtrasService({
+      send: (...args) => send(...args),
+      log,
+      store: settingsStore,
+      reader: createUsageReader({ t3Home, log }),
+      repoStatusAvailable: () => !!repoStatus && repoStatusRuns,
+    });
   } catch (error) {
-    log(`Repository status is off: ${error.message}`);
+    log(`Extras are off: ${error.message}`);
   }
+  settingsStore.onChange((settings) => {
+    repoStatus?.setEnabled(settings.repoStatus && repoStatusRuns);
+  });
 }
+
+const dispatch = createDispatch({
+  bindings: {
+    ...(repoStatus && repoStatusBinding
+      ? { [repoStatusBinding]: (sessionId, params) => repoStatus.handle(sessionId, params?.payload) }
+      : {}),
+    ...(extras && extrasBinding
+      ? { [extrasBinding]: (sessionId, params) => extras.handle(sessionId, params?.executionContextId, params?.payload) }
+      : {}),
+  },
+  navigated: extras ? [(sessionId, frame) => extras.navigated(sessionId, frame)] : [],
+  documentReady: repoStatus ? [(sessionId) => repoStatus.reattach(sessionId)] : [],
+  destroyed: [
+    ...(repoStatus ? [(sessionId) => repoStatus.forget(sessionId)] : []),
+    ...(extras ? [(sessionId) => extras.forget(sessionId)] : []),
+  ],
+  log,
+});
 
 const child = spawn(appPath, ["--remote-debugging-pipe"], {
   env: t3Environment,
@@ -132,6 +186,12 @@ function send(method, params = {}, sessionId) {
       reject(error);
     }
   });
+}
+
+// Extras read the regular build's data folder, so the development build's
+// page, whose provider list lives elsewhere, does not get them.
+function isRegularT3Page(targetInfo) {
+  return /^t3code:\/\//i.test(targetInfo?.url || "");
 }
 
 function isT3Page(targetInfo) {
@@ -173,6 +233,8 @@ async function attachAndInject(targetInfo) {
       return;
     }
 
+    // Page events, such as a reload, reach every service.
+    await send("Page.enable", {}, sessionId);
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: injectionSource },
@@ -191,6 +253,13 @@ async function attachAndInject(targetInfo) {
         log(`Repository status could not be added: ${error.message}`);
       }
     }
+    if (extras && isRegularT3Page(targetInfo)) {
+      try {
+        await extras.attach(sessionId);
+      } catch (error) {
+        log(`Extras could not be added: ${error.message}`);
+      }
+    }
   } catch (error) {
     sessionsByTarget.delete(targetId);
     log(`Injection failed for target ${targetId}: ${error.message}`);
@@ -200,23 +269,7 @@ async function attachAndInject(targetInfo) {
 }
 
 function handleMessage(message) {
-  if (
-    repoStatus &&
-    message.method === "Runtime.bindingCalled" &&
-    message.params?.name === repoStatusBinding
-  ) {
-    repoStatus.handle(message.sessionId, message.params?.payload).catch((error) => {
-      log(`Repository status failed: ${error.message}`);
-    });
-    return;
-  }
-
-  if (repoStatus && message.method === "Page.domContentEventFired") {
-    repoStatus.reattach(message.sessionId).catch((error) => {
-      log(`Repository status could not be added after a reload: ${error.message}`);
-    });
-    return;
-  }
+  if (dispatch.handle(message)) return;
 
   if (
     message.method === "Runtime.bindingCalled" &&
@@ -267,7 +320,7 @@ function handleMessage(message) {
   if (message.method === "Target.targetDestroyed") {
     const destroyedSession = sessionsByTarget.get(message.params?.targetId);
     annotationSessionsLogged.delete(destroyedSession);
-    repoStatus?.forget(destroyedSession);
+    dispatch.targetDestroyed(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
   }
 }
