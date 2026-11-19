@@ -1257,14 +1257,16 @@ test("the page script parses and renders text without HTML parsing", () => {
 
 test("the launcher loads repository status on its own and honors the opt-out", () => {
   const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
-  assert.match(launcher, /readSettings\(\)\.repoStatus !== false/);
-  assert.match(launcher, /try \{\s*const \{ REPO_STATUS_BINDING, createRepoStatusService \} = require\("\.\/repo-status"\)/);
+  assert.match(launcher, /initialSettings\.repoStatus !== false && repoStatusRuns/);
+  assert.match(launcher, /try \{\s*const \{ REPO_STATUS_BINDING, createRepoStatusService, opensSqliteReadOnly \} = require\("\.\/repo-status"\)/);
   assert.match(launcher, /Repository status could not be added/);
-  assert.match(launcher, /Page\.domContentEventFired[\s\S]*repoStatus\.reattach/);
+  assert.match(launcher, /documentReady: repoStatus \? \[\(sessionId\) => repoStatus\.reattach\(sessionId\)\]/);
   const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
   const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
-  assert.match(windowsInstaller, /"repo-status\.js"/);
-  assert.match(macInstaller, /\$SRC\/repo-status\.js/);
+  for (const file of ["repo-status.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "cdp-dispatch.js"]) {
+    assert.ok(windowsInstaller.includes(`"${file}"`), `the Windows installer copies ${file}`);
+    assert.ok(macInstaller.includes(` ${file}`) && macInstaller.includes(`"$SRC/${file}"`), `the macOS installer copies ${file}`);
+  }
 });
 
 test("repository status commands run without a shell", () => {

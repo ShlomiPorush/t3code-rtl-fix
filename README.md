@@ -155,15 +155,58 @@ GitHub cannot be read.
 - On macOS, the section needs Node.js 22.12 or newer, or T3 Code's own runtime.
   With an older Node.js, the launcher turns it off and the RTL fix still works.
 
-To turn the section off, create `settings.json` beside `rtl.css` in the
-installed folder with this content, then fully quit and reopen T3 Code:
+To turn the section off, use the **Repository status** switch in the Extras
+section of T3 Code's Labs settings. See [Extras settings](#extras-settings).
 
-```json
-{ "repoStatus": false }
-```
+## Usage limits
 
-The installer never writes this file, so an update keeps your choice. Problems
-are written once each to `launcher.log` in the same folder.
+The sidebar footer shows the usage limits of the AI accounts set up in T3
+Code, between the buttons at the left and the update button at the right. It
+shows the busiest accounts as small chips in the color you gave each account
+in T3 Code, with its highest percent, as many as the free width holds: a
+wider sidebar shows more accounts. T3 Code's buttons never move.
+
+Each chip has an arrow for T3 Code's pace of that limit: up when the account
+spends faster than the window passes, down when it has headroom left, and
+right when it is on pace. A limit that is used up shows a blocked sign, and a
+limit without a known reset shows a dot.
+
+Point at the chips, or move to them with the keyboard and press Enter, to see
+every account. Each limit has its own line with its percent and pace, such as
+a separate weekly limit for one model. The reset shows in words, such as
+"resets in 21h", on the account's line when all its limits reset together, as
+with Claude, and on each limit's line when they differ. Point at a reset to see
+its date and time, or at an account's name to see when T3 Code last checked
+it. Escape closes the list.
+
+- The numbers come from the files where T3 Code keeps what it last read about
+  each account. The fix only reads them, and only the account's name, color,
+  provider, and limit windows reach the page.
+- An account shows while T3 Code checked it in the last 24 hours. Its row in
+  the list fades when the check is older than 30 minutes.
+- In T3 Code's WSL-only mode, T3 Code keeps this data inside WSL, so the chips
+  do not show. Usage sources such as CLIProxy are not shown either.
+- The account list holds the accounts whose provider reports usage, also while
+  none of its limits is open. Providers that never report usage are left out.
+- Choose the accounts in the Extras section, or turn the chips off there.
+
+## Extras settings
+
+The Labs page of T3 Code's settings ends with an **Extras** section, added by
+the fix:
+
+- **Usage limits in the sidebar** turns the chips on or off.
+- **Accounts** chooses the accounts the chips show. An account you hid stays in
+  the list, so you can show it again.
+- **Repository status** turns the repository status section on or off. On
+  macOS with an older Node.js, the switch is off and says why.
+
+Changes apply at once, without a restart. They are saved in `settings.json`
+beside `rtl.css` in the installed folder. The installer never writes this file,
+so an update keeps your choices, and a file that the fix cannot read is never
+overwritten: the section says so, and changes wait until you fix or delete it.
+An existing `{ "repoStatus": false }` keeps working. Problems are written once
+each to `launcher.log` in the same folder.
 
 ## Requirements
 
@@ -323,6 +366,15 @@ and their details. When a row or a link is clicked, the launcher opens only a Gi
 of that repository that it sent to the page itself. The only network requests
 are the ones `gh` makes to GitHub.
 
+The usage chips and the Extras section run in a separate script world that
+the launcher creates in the T3 Code page. Their binding exists only in that
+world, so T3 Code's own scripts and the frames inside the page, such as HTML
+that an agent made, cannot call it or receive its data. What the chips and the
+section show is ordinary text in T3 Code's page. The page can change only
+the three Extras settings, one at a time, and the launcher writes them to its own
+`settings.json`, never to a T3 Code file. It refuses when its folder is inside
+T3 Code's data folder.
+
 ## Repository layout
 
 ```text
@@ -339,7 +391,10 @@ tests/     Unit, browser smoke, and Windows installer tests
 - A T3 Code update may recreate its Windows shortcuts. Run the install command
   again if the fix stops loading after an update.
 - T3 Code can change its internal HTML structure. The selectors in `rtl.css`
-  may need an update when that happens.
+  may need an update when that happens. The usage chips and the Extras section
+  then stop showing until the fix is updated.
+- The usage chips and the Extras section are not added to T3 Code's
+  development build.
 - The first installation cannot inject into an instance that is already open.
   Fully quit and reopen the app once.
 
