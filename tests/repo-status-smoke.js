@@ -64,9 +64,56 @@ const fixture = `<!doctype html><html><head><title>fixture</title>
       if (window.__watchCard && !card.contains(event.target)) window.__cardClosed.push("outside-press");
     }, true);
   </script>
+  <script type="module" crossorigin src="/assets/index-test.js"></script>
 </body></html>`;
 
+// Like T3 Code, the entry script loads the store of the thread's panel at
+// start. The store records the pull requests it opens and shows the panel,
+// unless a test tells it to ignore the call or to keep the panel hidden.
+// Without a saved settings file, T3 Code's desktop bridge answers null, which
+// means the defaults.
+const entryScript = `import { d } from "./rightPanelStore-test.js";
+window.__panelStore = d;
+window.desktopBridge = { getClientSettings: async () => null };
+`;
+const panelStoreScript = `let state;
+const set = (patch) => {
+  state = { ...state, ...patch };
+};
+state = {
+  byThreadKey: {},
+  openPullRequest(threadRef, surface) {
+    window.__panelCalls.push({ threadRef, surface });
+    if (window.__panelIgnores) return;
+    const id = ["pull-request", surface.projectId, surface.host, surface.repository, surface.number].join(":");
+    const key = threadRef.environmentId + ":" + threadRef.threadId;
+    const panel = state.byThreadKey[key] || { surfaces: [] };
+    set({ byThreadKey: {
+      ...state.byThreadKey,
+      [key]: { isOpen: true, surfaces: [...panel.surfaces.filter((item) => item.id !== id), { id, kind: "pull-request", ...surface }], activeSurfaceId: id },
+    } });
+    if (window.__panelHidden || document.querySelector("[data-right-panel-surface-content]")) return;
+    const content = document.createElement("div");
+    content.setAttribute("data-right-panel-surface-content", "");
+    document.body.appendChild(content);
+  },
+};
+window.__panelCalls = [];
+// Another store of the same chunk, without the pull request action.
+export const a = { getState: () => ({ remember() {} }) };
+export const d = {
+  getState: () => state,
+  setState: (update) => set(typeof update === "function" ? update(state) : update),
+};
+`;
+
 const server = http.createServer((request, response) => {
+  const scripts = { "/assets/index-test.js": entryScript, "/assets/rightPanelStore-test.js": panelStoreScript };
+  if (Object.hasOwn(scripts, request.url)) {
+    response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+    response.end(scripts[request.url]);
+    return;
+  }
   response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   response.end(fixture);
 });
@@ -170,7 +217,10 @@ const fakeRun = async (file, args) => {
                 labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
               }],
             },
-            pullRequests: { totalCount: 1 },
+            pullRequests: {
+              totalCount: 1,
+              nodes: [{ number: 12, title: "Fix the table direction", updatedAt: recent, isDraft: false, author: { login: "dana" } }],
+            },
             vulnerabilityAlerts: { totalCount: 2 },
             defaultBranchRef: { name: "main" },
             refs: { totalCount: 2, nodes: [branch("main"), branch("feature/x")] },
@@ -222,8 +272,8 @@ async function run() {
   service = createRepoStatusService({
     send,
     run: fakeRun,
-    findThreadFolder: (threadId) => (threadId === threadWithRepo ? "C:\\repo" : null),
-    findProjectFolder: (projectId) => (projectId === "p1" ? "C:\\repo" : null),
+    findThreadFolder: (threadId) => (threadId === threadWithRepo ? { folders: ["C:\\repo"], projectId: "p-1" } : null),
+    findProjectFolder: (projectId) => (projectId === "p1" ? { folders: ["C:\\repo"], projectId: "p1" } : null),
     open: async (url) => opened.push(url),
   });
 
@@ -284,6 +334,7 @@ async function run() {
 
   await checkTooltip(sessionId);
   await checkTooltipLinks(sessionId);
+  await checkPullRequestInApp(sessionId);
   await checkDrag(sessionId);
   await checkPlainItemClick(sessionId);
   await checkCardStaysOpen(sessionId);
@@ -526,6 +577,108 @@ async function checkTooltipLinks(sessionId) {
   if (opened.length !== before + 3) throw new Error(`Unexpected extra pages: ${JSON.stringify(opened)}`);
 }
 
+// Clicks the first pull request in the Pull requests tooltip.
+async function clickPullRequest(sessionId, modifiers = 0) {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  // After a reload, no tooltip was made yet.
+  await waitFor(sessionId, `!document.querySelector(".t3-rtl-repo-status-tip[data-open]")`, "the tooltip to close before a pull request click");
+  await hoverRow(sessionId, "pulls");
+  await waitFor(
+    sessionId,
+    `document.querySelector(".t3-rtl-repo-status-tip[data-shown] a.t3-rtl-tip-item")?.dataset.link === "pull/12"`,
+    "the Pull requests tooltip",
+  );
+  const item = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", { type, x: item.x, y: item.y, button: "left", clickCount: 1, modifiers }, sessionId);
+  }
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after a pull request click");
+}
+
+const PANEL_CALLS = "JSON.stringify(window.__panelCalls)";
+
+// A pull request opens in T3 Code's panel, as a pull request link in a
+// message does. Ctrl, the setting turned off or unreadable, a store that does
+// not take it, or a panel that does not show leaves it to GitHub.
+async function checkPullRequestInApp(sessionId) {
+  // Without the list of loaded files, the page finds the store through the
+  // entry script.
+  await evaluate(sessionId, `(performance.clearResourceTimings(), window.__panelCalls = [], 1)`);
+  const before = opened.length;
+  await clickPullRequest(sessionId);
+  await waitFor(sessionId, `window.__panelCalls.length === 1 && !!document.querySelector("[data-right-panel-surface-content]")`, "the pull request to open in the panel");
+  // The same fields as T3 Code's own pull request link.
+  const expectedCall = JSON.stringify([{
+    threadRef: { environmentId, threadId: threadWithRepo },
+    surface: { projectId: "p-1", host: "github.com", repository: "o/r", number: 12, url: "https://github.com/o/r/pull/12" },
+  }]);
+  const calls = await evaluate(sessionId, PANEL_CALLS);
+  if (calls !== expectedCall) throw new Error(`Unexpected panel calls: ${calls}`);
+  await wait(300);
+  await Promise.all(handled);
+  if (opened.length !== before) throw new Error(`A pull request opened in the panel also opened ${JSON.stringify(opened.slice(before))}`);
+
+  // Ctrl opens GitHub.
+  await clickPullRequest(sessionId, 2);
+  const withCtrl = await openedAfter(sessionId, before + 1, "the pull request to open on GitHub with Ctrl");
+  if (withCtrl !== "https://github.com/o/r/pull/12") throw new Error(`Unexpected pull request page: ${withCtrl}`);
+
+  // T3 Code's setting turned off opens GitHub, and so does a missing bridge.
+  await evaluate(sessionId, `(window.desktopBridge = { getClientSettings: async () => ({ pullRequestLinksOpenInApp: false }) }, 1)`);
+  await clickPullRequest(sessionId);
+  await openedAfter(sessionId, before + 2, "the pull request to open on GitHub with the setting off");
+  await evaluate(sessionId, `(delete window.desktopBridge, 1)`);
+  await clickPullRequest(sessionId);
+  await openedAfter(sessionId, before + 3, "the pull request to open on GitHub without the desktop bridge");
+  await evaluate(sessionId, `(window.desktopBridge = { getClientSettings: async () => ({}) }, 1)`);
+
+  // A store that does not take the pull request opens GitHub, even while
+  // another repository's pull request with the same number is active.
+  const key = `${environmentId}:${threadWithRepo}`;
+  await evaluate(sessionId, `(window.__panelStore.setState({ byThreadKey: { ${JSON.stringify(key)}: {
+    isOpen: true,
+    activeSurfaceId: "other",
+    surfaces: [{ id: "other", kind: "pull-request", projectId: "p-1", host: "github.com", repository: "x/y", number: 12 }],
+  } } }), window.__panelIgnores = true, 1)`);
+  await clickPullRequest(sessionId);
+  await openedAfter(sessionId, before + 4, "the pull request to open on GitHub when the store ignores it");
+  await evaluate(sessionId, `(window.__panelIgnores = false, window.__panelStore.setState({ byThreadKey: {} }), 1)`);
+
+  // A panel that does not show opens GitHub, and the panel forgets the pull
+  // request, so it does not show later as well. A second click while the
+  // first one waits does the same.
+  await evaluate(sessionId, `(document.querySelector("[data-right-panel-surface-content]").remove(), window.__panelHidden = true, 1)`);
+  await clickPullRequest(sessionId);
+  await clickPullRequest(sessionId);
+  await openedAfter(sessionId, before + 6, "both pull request clicks to open on GitHub when the panel does not show");
+  if (!(await evaluate(sessionId, `!Object.hasOwn(window.__panelStore.getState().byThreadKey, ${JSON.stringify(key)})`))) {
+    throw new Error("A pull request that did not show stayed in the panel");
+  }
+  await evaluate(sessionId, `(window.__panelHidden = false, 1)`);
+
+  // A move to another thread while the settings are read opens nothing,
+  // neither in the thread left behind nor on GitHub.
+  await evaluate(sessionId, `(window.desktopBridge = { getClientSettings: () => new Promise((resolve) => {
+    history.pushState({}, "", "/${environmentId}/${threadWithoutRepo}");
+    setTimeout(() => resolve({}), 200);
+  }) }, 1)`);
+  await clickPullRequest(sessionId);
+  await wait(600);
+  if (await evaluate(sessionId, "window.__panelCalls.length") !== 4) throw new Error("A pull request opened in the thread left behind");
+  await evaluate(sessionId, `(window.desktopBridge = { getClientSettings: async () => ({}) }, history.pushState({}, "", "/${environmentId}/${threadWithRepo}"), 1)`);
+  await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section after returning to the thread");
+  await wait(300);
+  await Promise.all(handled);
+
+  const count = await evaluate(sessionId, "window.__panelCalls.length");
+  if (count !== 4) throw new Error(`Unexpected number of panel calls: ${count}`);
+  if (JSON.stringify(opened.slice(before)) !== JSON.stringify(Array(6).fill("https://github.com/o/r/pull/12"))) {
+    throw new Error(`Unexpected pull request pages: ${JSON.stringify(opened.slice(before))}`);
+  }
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+}
+
 // An item dragged from the tooltip into the composer quotes it as plain
 // text, and the focus and the tooltip end as after a click.
 async function checkDrag(sessionId) {
@@ -716,7 +869,7 @@ async function checkCardStaysOpen(sessionId) {
 // from T3 Code's drafts in local storage, and changes there show at once.
 async function checkDraft(sessionId) {
   const drafts = (projectId) => `localStorage.setItem("t3code:composer-drafts:v1", ${JSON.stringify(JSON.stringify({
-    state: { draftsByThreadKey: {}, draftThreadsByThreadKey: { d1: { threadId: "t-new", projectId } } },
+    state: { draftsByThreadKey: {}, draftThreadsByThreadKey: { d1: { environmentId, threadId: "t-new", projectId } } },
     version: 1,
   }))})`;
   // From a thread without a section, so the section shown is the draft's.
@@ -728,6 +881,21 @@ async function checkDraft(sessionId) {
     `document.querySelector("[data-t3-rtl-repo-status] .t3-rtl-repo-status-head")?.textContent === "o/r" && location.pathname === "/draft/d1"`,
     "the section of a new thread",
   );
+  // A pull request opens in the panel of the new thread, named by its draft.
+  await evaluate(sessionId, `(window.__panelCalls = [], 1)`);
+  const openedBefore = opened.length;
+  await clickPullRequest(sessionId);
+  await waitFor(sessionId, "window.__panelCalls.length === 1", "the pull request to open in the new thread's panel");
+  const draftCall = await evaluate(sessionId, "JSON.stringify(window.__panelCalls[0])");
+  const expectedDraftCall = JSON.stringify({
+    threadRef: { environmentId, threadId: "t-new" },
+    surface: { projectId: "p1", host: "github.com", repository: "o/r", number: 12, url: "https://github.com/o/r/pull/12" },
+  });
+  if (draftCall !== expectedDraftCall) throw new Error(`Unexpected panel call for a new thread: ${draftCall}`);
+  await wait(300);
+  await Promise.all(handled);
+  if (opened.length !== openedBefore) throw new Error("A pull request of a new thread also opened on GitHub");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   // A check for another project can answer just before the project comes
   // back. The page then asks again for its own project.
   const otherRows = `window.__t3RtlFixRepoStatusUpdate({ path: location.href, project: "p2", repo: "x/y", rows: [

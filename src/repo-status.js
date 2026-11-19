@@ -843,19 +843,19 @@ const THREAD_DATABASES = [
   {
     file: "statev2.sqlite",
     query: `SELECT json_extract(t.payload_json, '$.worktreePath') AS worktree,
-                   p.workspace_root AS root
+                   p.workspace_root AS root, t.project_id AS project
             FROM orchestration_v2_projection_threads t
             LEFT JOIN projection_projects p ON p.project_id = t.project_id
             WHERE t.thread_id = ?`,
-    project: "SELECT workspace_root AS root FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
+    project: "SELECT workspace_root AS root, project_id AS project FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
   },
   {
     file: "state.sqlite",
-    query: `SELECT t.worktree_path AS worktree, p.workspace_root AS root
+    query: `SELECT t.worktree_path AS worktree, p.workspace_root AS root, t.project_id AS project
             FROM projection_threads t
             JOIN projection_projects p ON p.project_id = t.project_id
             WHERE t.thread_id = ?`,
-    project: "SELECT workspace_root AS root FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
+    project: "SELECT workspace_root AS root, project_id AS project FROM projection_projects WHERE project_id = ? AND deleted_at IS NULL",
   },
 ];
 
@@ -870,7 +870,8 @@ function opensSqliteReadOnly(version) {
 
 // Opens T3 Code's database read only for one lookup, so the launcher never
 // holds it open while T3 Code migrates or checkpoints it. kind names the
-// query: "query" for a thread, "project" for a project.
+// query: "query" for a thread, "project" for a project. It gives the folders
+// and the project, which T3 Code needs to open a pull request in its panel.
 function lookupFolders(databaseDirectory, kind, id) {
   const source = THREAD_DATABASES.map((candidate) => ({
     ...candidate,
@@ -890,7 +891,8 @@ function lookupFolders(databaseDirectory, kind, id) {
     // A worktree that was removed after its branch merged can leave its
     // folder behind, so the project folder is the fallback.
     const folders = [...new Set([row.worktree, row.root].filter(Boolean))];
-    return folders.length > 0 ? folders : null;
+    if (folders.length === 0) return null;
+    return { folders, projectId: typeof row.project === "string" && row.project ? row.project : null };
   } finally {
     database.close();
   }
@@ -972,14 +974,14 @@ function createRepoStatusService({
       () => (target.kind === "project" ? findProjectFolder(target.id) : findThreadFolder(target.id)),
       false,
     );
-    for (const folder of [].concat(found || [])) {
+    for (const folder of found?.folders || []) {
       const repo = await cached(remotes, folder, LOCATION_CACHE_MS, async () => {
         const result = await run("git", ["-C", folder, "remote", "get-url", "origin"]);
         if (result.error?.code === "ENOENT") throw new Error("the git command was not found");
         return parseGitHubRemote(result.stdout);
       });
       // The folder also lists the local branches.
-      if (repo) return { ...repo, folder };
+      if (repo) return { ...repo, folder, projectId: found.projectId ?? null };
     }
     return null;
   }
@@ -1041,7 +1043,14 @@ function createRepoStatusService({
     }
     if (!current()) return;
     const shown = rows.length > 0 ? repo : null;
-    const accepted = await push(sessionId, { path: pagePath, project: project ?? null, repo: shown?.slug || null, rows });
+    const accepted = await push(sessionId, {
+      path: pagePath,
+      project: project ?? null,
+      repo: shown?.slug || null,
+      // The page opens a pull request in T3 Code's panel for this project.
+      projectId: shown?.projectId || null,
+      rows,
+    });
     // The links are those of the rows the page shows. A page that did not
     // take the rows still shows the earlier ones, and rows it took stay
     // shown even when a newer check has started.
@@ -1475,7 +1484,7 @@ function buildRepoStatusPageSource() {
   // other shape of them shows no section.
   let draftsRaw = null;
   let drafts = null;
-  const draftProject = () => {
+  const draftEntry = () => {
     try {
       const segments = routeKey(location.href).split("/");
       if (segments[0] !== "draft" || !segments[1]) return null;
@@ -1490,7 +1499,30 @@ function buildRepoStatusPageSource() {
       }
       const threads = drafts && drafts.state && drafts.state.draftThreadsByThreadKey;
       const draft = threads && Object.hasOwn(threads, draftId) ? threads[draftId] : null;
-      return draft && typeof draft.projectId === "string" && draft.projectId ? draft.projectId : null;
+      return draft && typeof draft === "object" ? draft : null;
+    } catch {
+      return null;
+    }
+  };
+  const draftProject = () => {
+    const draft = draftEntry();
+    return draft && typeof draft.projectId === "string" && draft.projectId ? draft.projectId : null;
+  };
+  // T3 Code names a thread by its environment and its id. A new thread has
+  // both in its draft.
+  const threadRef = () => {
+    const named = (environmentId, threadId) =>
+      typeof environmentId === "string" && environmentId && typeof threadId === "string" && threadId
+        ? { environmentId, threadId }
+        : null;
+    const segments = routeKey(location.href).split("/");
+    if (segments.length !== 2) return null;
+    if (segments[0] === "draft") {
+      const draft = draftEntry();
+      return draft ? named(draft.environmentId, draft.threadId) : null;
+    }
+    try {
+      return named(decodeURIComponent(segments[0]), decodeURIComponent(segments[1]));
     } catch {
       return null;
     }
@@ -1623,6 +1655,164 @@ function buildRepoStatusPageSource() {
     return node;
   };
 
+  // T3 Code opens a pull request link in a message in the thread's panel when
+  // its "Open pull requests in T3 Code" setting is on. A pull request in a
+  // tooltip opens the same way, through the store of that panel. T3 Code has
+  // no public way to do this, so any doubt opens GitHub instead.
+  let panelStore = null;
+  const panelStoreUrls = async () => {
+    const urls = new Set();
+    const file = /\\/rightPanelStore-[\\w-]+\\.js$/;
+    try {
+      for (const entry of performance.getEntriesByType("resource")) {
+        if (file.test(new URL(entry.name).pathname)) urls.add(entry.name);
+      }
+    } catch {}
+    if (urls.size) return [...urls];
+    // The entry script lists the chunks that the app loads at start.
+    for (const script of document.querySelectorAll("script[type=module][src]")) {
+      try {
+        const match = /rightPanelStore-[\\w-]+\\.js/.exec(await (await fetch(script.src)).text());
+        if (match) urls.add(new URL(match[0], script.src).href);
+      } catch {}
+    }
+    return [...urls];
+  };
+  // The address is the one the app loaded, so the import gives the store
+  // that the app uses rather than a second copy.
+  const findPanelStore = async () => {
+    if (panelStore) return panelStore;
+    for (const url of await panelStoreUrls()) {
+      try {
+        const module = await import(url);
+        for (const value of Object.values(module)) {
+          const state = value && typeof value.getState === "function" ? value.getState() : null;
+          if (state && typeof state.openPullRequest === "function" && state.byThreadKey && typeof state.byThreadKey === "object") {
+            panelStore = value;
+            return value;
+          }
+        }
+      } catch {}
+    }
+    return null;
+  };
+  // T3 Code turns the setting on unless it was turned off. Without a saved
+  // settings file the bridge answers null, which means the defaults. Any
+  // other answer, or none, is a doubt, so it opens GitHub.
+  const opensPullRequestsInApp = async () => {
+    try {
+      const settings = await window.desktopBridge.getClientSettings();
+      if (settings === null) return true;
+      if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
+      const value = settings.pullRequestLinksOpenInApp;
+      return value === undefined || value === true;
+    } catch {
+      return false;
+    }
+  };
+  const within = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+  const pullLink = /^pull\\/([1-9][0-9]{0,9})$/;
+  const threadKey = (thread) => (thread ? thread.environmentId + ":" + thread.threadId : null);
+  // T3 Code's link parser writes each part of the repository this way.
+  const repositoryName = (repo) => repo.split("/").map((part) => {
+    try {
+      return encodeURIComponent(decodeURIComponent(part).toLowerCase()).toLowerCase();
+    } catch {
+      return part.toLowerCase();
+    }
+  }).join("/");
+  // The rows that the clicked link belongs to are still the ones shown, on
+  // the same thread.
+  const stillShown = (repo, projectId, key) =>
+    !!current && current.repo === repo && current.projectId === projectId &&
+    routeKey(current.path) === routeKey(location.href) && threadKey(threadRef()) === key;
+  // Resolves to true when the panel shows, to null when the page moved
+  // away first, and to false otherwise.
+  const panelShown = (moved) => new Promise((resolve) => {
+    const deadline = Date.now() + 2000;
+    const check = () => {
+      const content = document.querySelector("[data-right-panel-surface-content]");
+      if (moved()) resolve(null);
+      else if (content && content.getClientRects().length > 0) resolve(true);
+      else if (Date.now() > deadline) resolve(false);
+      else setTimeout(check, 100);
+    };
+    check();
+  });
+  // Resolves to whether the pull request opened in T3 Code's panel, or to
+  // null when it should open nowhere. The thread and the project are those
+  // of the click.
+  const openPullRequestInApp = async (link, repo, thread, projectId) => {
+    const match = pullLink.exec(link);
+    const key = threadKey(thread);
+    const moved = () => !stillShown(repo, projectId, key);
+    if (moved()) return null;
+    const store = await within((async () => ((await opensPullRequestsInApp()) ? findPanelStore() : null))(), 2000);
+    // A page that moved to another thread or repository meanwhile opens
+    // nothing, so the click does not reach the thread left behind.
+    if (moved()) return null;
+    if (!store) return false;
+    const number = Number(match[1]);
+    const repository = repositoryName(repo);
+    // The same fields as T3 Code's own link, so both open one tab.
+    const surface = { projectId, host: "github.com", repository, number, url: "https://github.com/" + repo + "/" + link };
+    let before;
+    let after;
+    // Takes back this click's change, unless the panel changed since.
+    const undo = () => {
+      try {
+        if (after === before || store.getState().byThreadKey[key] !== after || typeof store.setState !== "function") return;
+        store.setState((state) => {
+          const byThreadKey = { ...state.byThreadKey };
+          if (before === undefined) delete byThreadKey[key];
+          else byThreadKey[key] = before;
+          return { byThreadKey };
+        });
+      } catch {}
+    };
+    try {
+      before = store.getState().byThreadKey[key];
+      store.getState().openPullRequest(thread, surface);
+      after = store.getState().byThreadKey[key];
+      const surfaces = after && after.isOpen && Array.isArray(after.surfaces) ? after.surfaces : [];
+      const active = surfaces.find((item) => item && item.id === after.activeSurfaceId);
+      const opened = !!active && active.kind === "pull-request" && active.projectId === projectId &&
+        active.host === "github.com" && active.repository === repository && active.number === number;
+      if (!opened) {
+        undo();
+        return false;
+      }
+    } catch {
+      // The store may have changed before it failed, such as on a full
+      // local storage.
+      try {
+        after = store.getState().byThreadKey[key];
+      } catch {}
+      undo();
+      return false;
+    }
+    const shown = await panelShown(moved);
+    // The pull request waits in the panel of the thread left behind.
+    if (shown !== false) return shown;
+    undo();
+    return false;
+  };
+  // One pull request opens at a time, so a click that gives up takes back
+  // only its own change.
+  let opening = Promise.resolve();
+  const openLink = (link, repo, external) => {
+    const browser = () => notify({ type: "open", link, repo });
+    const thread = threadRef();
+    const projectId = current && typeof current.projectId === "string" ? current.projectId : "";
+    if (external || !pullLink.test(link || "") || !projectId || !stillShown(repo, projectId, threadKey(thread))) {
+      browser();
+      return;
+    }
+    opening = opening.then(() => openPullRequestInApp(link, repo, thread, projectId)).then((opened) => {
+      if (opened === false) browser();
+    }, browser);
+  };
+
   const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("[data-quote], a[data-link]")) : []);
 
   const focusLink = (index) => {
@@ -1664,7 +1854,9 @@ function buildRepoStatusPageSource() {
       event.preventDefault();
       event.stopPropagation();
       if (event.type === "auxclick" && event.button !== 1) return;
-      notify({ type: "open", link: link.dataset.link, repo: link.dataset.repo });
+      // As with T3 Code's own links, Ctrl, Cmd, or the middle button opens
+      // GitHub in the browser.
+      openLink(link.dataset.link, link.dataset.repo, event.ctrlKey || event.metaKey || event.button === 1);
       if (event.detail > 0) {
         const anchor = tipAnchor;
         hideTip();
