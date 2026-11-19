@@ -124,7 +124,9 @@ update, the pull request opens on GitHub.
 
 Drag an item into the message box to quote it. The quote is its number and
 title, or its name, followed by its address on GitHub when it has one, such as
-`#7 Fix the table direction https://github.com/owner/repo/issues/7`.
+`#7 Fix the table direction https://github.com/owner/repo/issues/7`. A pull
+request becomes T3 Code's own pull request reference instead, the same one you
+get when you drag a pull request from T3 Code's panel.
 
 - **Remote**: branches on GitHub. Click to open the branches page on GitHub.
 - **Local**: branches in the project folder.

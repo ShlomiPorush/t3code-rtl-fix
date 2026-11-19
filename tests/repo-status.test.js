@@ -713,7 +713,7 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
               },
               pullRequests: {
                 totalCount: 1,
-                nodes: [{ number: 9, title: "p", updatedAt: "bad", isDraft: true, reviewDecision: "SOMETHING_NEW", author: { login: "me" } }],
+                nodes: [{ number: 9, title: "p", updatedAt: "bad", isDraft: true, reviewDecision: "SOMETHING_NEW", headRefName: "fix/x", baseRefName: "main", author: { login: "me" } }],
               },
               vulnerabilityAlerts: {
                 totalCount: 2,
@@ -751,7 +751,7 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
       labels: [{ name: "bug", color: "d73a4a" }, { name: "evil", color: null }],
     },
   ]);
-  assert.deepEqual(status.pulls.items, [{ number: 9, title: "p", author: "me", time: null, draft: true, review: null }]);
+  assert.deepEqual(status.pulls.items, [{ number: 9, title: "p", author: "me", time: null, draft: true, review: null, head: "fix/x", base: "main" }]);
   assert.deepEqual(status.dependabot.alerts, [
     { number: 5, severity: "medium", package: "lodash" },
     { number: null, severity: null, package: "" },

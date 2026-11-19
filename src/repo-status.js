@@ -22,6 +22,9 @@ const CHECK = "__t3RtlFixRepoStatusCheck";
 // The page starts off and waits for the launcher to turn it on, so a new
 // document under a turned-off setting never checks.
 const ENABLE = "__t3RtlFixRepoStatusEnabled";
+// The drag type of T3 Code's own pull request rows. The composer shows a
+// drop of it as a reference to the pull request.
+const PULL_REQUEST_DRAG_TYPE = "application/x-t3code-pull-request";
 const SECTION_ATTRIBUTE = "data-t3-rtl-repo-status";
 const STYLE_ID = "t3-rtl-fix-repo-status-style";
 const TIP_CLASS = "t3-rtl-repo-status-tip";
@@ -93,7 +96,7 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
     }
     pullRequests(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      nodes { number title updatedAt isDraft reviewDecision author { login } }
+      nodes { number title updatedAt isDraft reviewDecision headRefName baseRefName author { login } }
     }
     vulnerabilityAlerts(states: OPEN, first: ${DEPENDABOT_PAGE_SIZE}) {
       totalCount
@@ -399,6 +402,11 @@ function pullDetail(pulls) {
           pull.draft ? { text: "Draft", tone: "muted" } : null,
           REVIEW_BADGES[pull.review] || null,
         ]),
+        // Dragged into the composer, it becomes T3 Code's own pull request
+        // reference. The page adds the address it links to.
+        pull: pull.head && pull.base
+          ? { number: pull.number, title: pull.title || `#${pull.number}`, headBranch: pull.head, baseBranch: pull.base, isDraft: pull.draft }
+          : null,
       }, numberLink("pull", pull.number)), null, "pulls"),
     ],
   };
@@ -670,6 +678,9 @@ function readPulls(connection) {
       time: timeOf(pull.updatedAt),
       draft: pull.isDraft === true,
       review: Object.hasOwn(REVIEW_BADGES, pull.reviewDecision ?? "") ? pull.reviewDecision : null,
+      // T3 Code's pull request reference needs both branches.
+      head: text(pull.headRefName, 255),
+      base: text(pull.baseRefName, 255),
     }));
   return count;
 }
@@ -1485,6 +1496,7 @@ function buildRepoStatusPageSource() {
   const tipSwitchDelay = ${TIP_SWITCH_DELAY_MS};
   const tipHideDelay = ${TIP_HIDE_DELAY_MS};
   const draftsKey = ${JSON.stringify(DRAFTS_KEY)};
+  const PULL_REQUEST_TYPE = ${JSON.stringify(PULL_REQUEST_DRAG_TYPE)};
   const listLineMin = ${LIST_LINE_MIN};
   if (window[flag]) return;
   Object.defineProperty(window, flag, { value: true });
@@ -1671,6 +1683,20 @@ function buildRepoStatusPageSource() {
       .map((part) => (part == null ? "" : String(part).trim()))
       .filter(Boolean)
       .join(" ");
+    // A pull request also carries T3 Code's pull request reference, in the
+    // format of T3 Code's own pull request rows.
+    const pull = item.pull;
+    if (linked && pull && Number.isInteger(pull.number) && typeof pull.headBranch === "string" && typeof pull.baseBranch === "string") {
+      node.dataset.pull = JSON.stringify({
+        number: pull.number,
+        title: String(pull.title).slice(0, 2048),
+        url: node.href,
+        headBranch: pull.headBranch,
+        baseBranch: pull.baseBranch,
+        state: "open",
+        isDraft: pull.isDraft === true,
+      });
+    }
     if (item.lead) {
       node.dataset.lead = "";
       node.appendChild(make("span", "t3-rtl-tip-lead", item.lead));
@@ -1921,7 +1947,9 @@ function buildRepoStatusPageSource() {
     tip.addEventListener("contextmenu", (event) => event.stopPropagation());
     tip.addEventListener("click", activate);
     tip.addEventListener("auxclick", activate);
-    // The quote goes as plain text, so the composer inserts it as typed.
+    // The quote goes as plain text, so the composer inserts it as typed. A
+    // pull request also goes as T3 Code's pull request reference, which the
+    // composer shows as a reference to that pull request.
     tip.addEventListener("dragstart", (event) => {
       const item = event.target.closest && event.target.closest("[data-quote]");
       if (!item || !tip.contains(item) || !event.dataTransfer) {
@@ -1930,7 +1958,10 @@ function buildRepoStatusPageSource() {
       }
       event.dataTransfer.clearData();
       event.dataTransfer.setData("text/plain", item.dataset.quote);
-      event.dataTransfer.effectAllowed = "copy";
+      if (item.dataset.pull) event.dataTransfer.setData(PULL_REQUEST_TYPE, item.dataset.pull);
+      // T3 Code's composer takes its pull request references as a move, and
+      // a drag that allows only a copy would end without a drop there.
+      event.dataTransfer.effectAllowed = item.dataset.pull ? "copyMove" : "copy";
       dragging = true;
       clearTimeout(hideTimer);
     });

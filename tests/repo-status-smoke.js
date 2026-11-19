@@ -219,7 +219,7 @@ const fakeRun = async (file, args) => {
             },
             pullRequests: {
               totalCount: 1,
-              nodes: [{ number: 12, title: "Fix the table direction", updatedAt: recent, isDraft: false, author: { login: "dana" } }],
+              nodes: [{ number: 12, title: "Fix the table direction", updatedAt: recent, isDraft: false, headRefName: "fix/table", baseRefName: "main", author: { login: "dana" } }],
             },
             vulnerabilityAlerts: { totalCount: 2 },
             defaultBranchRef: { name: "main" },
@@ -726,8 +726,20 @@ async function checkDrag(sessionId) {
   const target = await center(sessionId, "#composer");
   await send("Input.setInterceptDrags", { enabled: true }, sessionId);
   try {
-    for (const [kind, selector, quote] of [
+    // A pull request also carries T3 Code's pull request reference, in the
+    // format T3 Code's composer reads.
+    const pullReference = JSON.stringify({
+      number: 12,
+      title: "Fix the table direction",
+      url: "https://github.com/o/r/pull/12",
+      headBranch: "fix/table",
+      baseBranch: "main",
+      state: "open",
+      isDraft: false,
+    });
+    for (const [kind, selector, quote, reference] of [
       ["issues", ".t3-rtl-repo-status-tip a.t3-rtl-tip-item", "#7 תיקון כיוון בטבלאות https://github.com/o/r/issues/7"],
+      ["pulls", ".t3-rtl-repo-status-tip a.t3-rtl-tip-item", "#12 Fix the table direction https://github.com/o/r/pull/12", pullReference],
       // A branch without a page on GitHub is quoted by its name.
       ["branches-local", ".t3-rtl-repo-status-tip .t3-rtl-tip-item:not(a)", "spike"],
     ]) {
@@ -754,7 +766,12 @@ async function checkDrag(sessionId) {
       const data = drags[before];
       if (!data) throw new Error(`No drag started from the ${kind} tooltip`);
       const types = data.items.map((entry) => entry.mimeType);
-      if (JSON.stringify(types) !== JSON.stringify(["text/plain"]) || data.items[0].data !== quote) {
+      const expectedTypes = reference ? ["text/plain", "application/x-t3code-pull-request"] : ["text/plain"];
+      // T3 Code's composer takes a pull request reference as a move, so that
+      // drag allows a copy and a move (1 | 16); a quote allows a copy.
+      const expectedMask = reference ? 17 : 1;
+      if (data.dragOperationsMask !== expectedMask) throw new Error(`Unexpected drag operations for ${kind}: ${data.dragOperationsMask}`);
+      if (JSON.stringify(types) !== JSON.stringify(expectedTypes) || data.items[0].data !== quote || (reference && data.items[1].data !== reference)) {
         throw new Error(`Unexpected drag data: ${JSON.stringify(data)}`);
       }
       // The tooltip stays open while the pointer is outside it.
