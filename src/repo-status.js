@@ -974,7 +974,7 @@ function createRepoStatusService({
       () => (target.kind === "project" ? findProjectFolder(target.id) : findThreadFolder(target.id)),
       false,
     );
-    for (const folder of [].concat(found?.folders || [])) {
+    for (const folder of found?.folders || []) {
       const repo = await cached(remotes, folder, LOCATION_CACHE_MS, async () => {
         const result = await run("git", ["-C", folder, "remote", "get-url", "origin"]);
         if (result.error?.code === "ENOENT") throw new Error("the git command was not found");
@@ -1696,62 +1696,97 @@ function buildRepoStatusPageSource() {
     }
     return null;
   };
+  // T3 Code turns the setting on unless it was turned off. No answer is a
+  // doubt, so it opens GitHub.
   const opensPullRequestsInApp = async () => {
     try {
-      const settings = await window.desktopBridge?.getClientSettings?.();
-      // T3 Code turns the setting on unless it was turned off.
-      return !(settings && settings.pullRequestLinksOpenInApp === false);
+      const settings = await window.desktopBridge.getClientSettings();
+      return !!settings && typeof settings === "object" && settings.pullRequestLinksOpenInApp !== false;
     } catch {
       return false;
     }
   };
+  const within = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+  const pullLink = /^pull\\/([1-9][0-9]{0,9})$/;
+  const threadKey = (thread) => (thread ? thread.environmentId + ":" + thread.threadId : null);
+  // The rows that the clicked link belongs to are still the ones shown, on
+  // the same thread.
+  const stillShown = (repo, projectId, key) =>
+    !!current && current.repo === repo && current.projectId === projectId &&
+    routeKey(current.path) === routeKey(location.href) && threadKey(threadRef()) === key;
   const panelShown = () => new Promise((resolve) => {
     const deadline = Date.now() + 2000;
     const check = () => {
-      if (document.querySelector("[data-right-panel-surface-content]")) resolve(true);
+      const content = document.querySelector("[data-right-panel-surface-content]");
+      if (content && content.getClientRects().length > 0) resolve(true);
       else if (Date.now() > deadline) resolve(false);
       else setTimeout(check, 100);
     };
     check();
   });
-  // Resolves to whether the pull request opened in T3 Code's panel.
+  // Resolves to whether the pull request opened in T3 Code's panel, or to
+  // null when it should open nowhere.
   const openPullRequestInApp = async (link, repo) => {
-    const match = /^pull\\/([1-9][0-9]{0,9})$/.exec(link || "");
-    const shown = current && current.repo === repo && routeKey(current.path) === routeKey(location.href) ? current : null;
+    const match = pullLink.exec(link || "");
     const thread = threadRef();
-    if (!match || !shown || typeof shown.projectId !== "string" || !shown.projectId || !thread) return false;
-    if (!(await opensPullRequestsInApp())) return false;
-    const store = await findPanelStore();
-    if (!store) return false;
+    const key = threadKey(thread);
+    const projectId = current && typeof current.projectId === "string" ? current.projectId : "";
+    if (!match || !projectId || !stillShown(repo, projectId, key)) return false;
+    const ready = await within(Promise.all([opensPullRequestsInApp(), findPanelStore()]), 2000);
+    if (!ready || !ready[0] || !ready[1]) return false;
+    // A page that moved to another thread or repository meanwhile opens
+    // nothing, so the click does not reach the thread left behind.
+    if (!stillShown(repo, projectId, key)) return null;
+    const store = ready[1];
     const number = Number(match[1]);
+    // The same fields as T3 Code's own link, so both open one tab.
+    const surface = { projectId, host: "github.com", repository: repo, number, url: "https://github.com/" + repo + "/" + link };
+    let before;
+    let after;
+    // Takes back this click's change, unless the panel changed since.
+    const undo = () => {
+      try {
+        if (after === before || store.getState().byThreadKey[key] !== after || typeof store.setState !== "function") return;
+        store.setState((state) => {
+          const byThreadKey = { ...state.byThreadKey };
+          if (before === undefined) delete byThreadKey[key];
+          else byThreadKey[key] = before;
+          return { byThreadKey };
+        });
+      } catch {}
+    };
     try {
-      store.getState().openPullRequest(thread, {
-        projectId: shown.projectId,
-        repository: repo,
-        number,
-        url: "https://github.com/" + repo + "/" + link,
-      });
-      const panel = store.getState().byThreadKey[thread.environmentId + ":" + thread.threadId];
-      const surfaces = panel && panel.isOpen && Array.isArray(panel.surfaces) ? panel.surfaces : [];
-      const active = surfaces.find((surface) => surface && surface.id === panel.activeSurfaceId);
-      if (!active || active.kind !== "pull-request" || active.number !== number) return false;
+      before = store.getState().byThreadKey[key];
+      store.getState().openPullRequest(thread, surface);
+      after = store.getState().byThreadKey[key];
+      const surfaces = after && after.isOpen && Array.isArray(after.surfaces) ? after.surfaces : [];
+      const active = surfaces.find((item) => item && item.id === after.activeSurfaceId);
+      const opened = !!active && active.kind === "pull-request" && active.projectId === projectId &&
+        active.host === "github.com" && active.repository === repo && active.number === number;
+      if (!opened) {
+        undo();
+        return false;
+      }
     } catch {
+      undo();
       return false;
     }
-    return panelShown();
+    if (await panelShown()) return true;
+    undo();
+    return false;
   };
   const openLink = (link, repo, external) => {
     const browser = () => notify({ type: "open", link, repo });
-    if (external) {
+    if (external || !pullLink.test(link || "")) {
       browser();
       return;
     }
     openPullRequestInApp(link, repo).then((opened) => {
-      if (!opened) browser();
+      if (opened === false) browser();
     }, browser);
   };
 
-  const tipLinks = () => (tip && tipAnchor ?Array.from(tip.querySelectorAll("[data-quote], a[data-link]")) : []);
+  const tipLinks = () => (tip && tipAnchor ? Array.from(tip.querySelectorAll("[data-quote], a[data-link]")) : []);
 
   const focusLink = (index) => {
     const links = tipLinks();
