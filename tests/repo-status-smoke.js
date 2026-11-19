@@ -646,10 +646,12 @@ async function checkPullRequestInApp(sessionId) {
   await evaluate(sessionId, `(window.__panelIgnores = false, window.__panelStore.setState({ byThreadKey: {} }), 1)`);
 
   // A panel that does not show opens GitHub, and the panel forgets the pull
-  // request, so it does not show later as well.
+  // request, so it does not show later as well. A second click while the
+  // first one waits does the same.
   await evaluate(sessionId, `(document.querySelector("[data-right-panel-surface-content]").remove(), window.__panelHidden = true, 1)`);
   await clickPullRequest(sessionId);
-  await openedAfter(sessionId, before + 5, "the pull request to open on GitHub when the panel does not show");
+  await clickPullRequest(sessionId);
+  await openedAfter(sessionId, before + 6, "both pull request clicks to open on GitHub when the panel does not show");
   if (!(await evaluate(sessionId, `!Object.hasOwn(window.__panelStore.getState().byThreadKey, ${JSON.stringify(key)})`))) {
     throw new Error("A pull request that did not show stayed in the panel");
   }
@@ -663,15 +665,15 @@ async function checkPullRequestInApp(sessionId) {
   }) }, 1)`);
   await clickPullRequest(sessionId);
   await wait(600);
-  if (await evaluate(sessionId, "window.__panelCalls.length") !== 3) throw new Error("A pull request opened in the thread left behind");
+  if (await evaluate(sessionId, "window.__panelCalls.length") !== 4) throw new Error("A pull request opened in the thread left behind");
   await evaluate(sessionId, `(window.desktopBridge = { getClientSettings: async () => ({}) }, history.pushState({}, "", "/${environmentId}/${threadWithRepo}"), 1)`);
   await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section after returning to the thread");
   await wait(300);
   await Promise.all(handled);
 
   const count = await evaluate(sessionId, "window.__panelCalls.length");
-  if (count !== 3) throw new Error(`Unexpected number of panel calls: ${count}`);
-  if (JSON.stringify(opened.slice(before)) !== JSON.stringify(Array(5).fill("https://github.com/o/r/pull/12"))) {
+  if (count !== 4) throw new Error(`Unexpected number of panel calls: ${count}`);
+  if (JSON.stringify(opened.slice(before)) !== JSON.stringify(Array(6).fill("https://github.com/o/r/pull/12"))) {
     throw new Error(`Unexpected pull request pages: ${JSON.stringify(opened.slice(before))}`);
   }
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
