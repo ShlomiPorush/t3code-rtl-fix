@@ -79,6 +79,8 @@ need to open DevTools and paste CSS manually.
 - The comment field of the element annotation window in the browser preview
   follows the direction of the comment while it is typed, and so do the comment
   and page title in the card that opens from an annotation chip.
+- Messages no longer show through around the composer at the bottom of a
+  thread, behind its context row, or in the gap below it.
 - T3 Code itself is not patched or repackaged.
 
 ## Repository status

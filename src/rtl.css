@@ -330,3 +330,12 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
   padding-left: 0 !important;
   padding-inline-start: 0.8rem !important;
 }
+
+/* The composer floats over the bottom of the thread, so messages show through
+   around its corners, behind its context row, and in the gap below it. The
+   layer that holds it at the bottom gets the chat background, so messages end
+   where the composer starts. A composer centered in an empty thread fills the
+   whole chat and keeps its own layout. */
+[data-chat-composer-overlay="true"].bottom-0 {
+  background-color: var(--background) !important;
+}
