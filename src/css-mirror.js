@@ -193,12 +193,14 @@ function mirrorCss(text, options) {
     const name = head.trim().toLowerCase();
     // Tailwind moves an element sideways through this variable. A mirrored
     // element moves the other way, such as one centered from its new side or
-    // a switch thumb that starts on the right.
+    // a switch thumb that starts on the right. The layout sets --t3-rtl-x to
+    // -1 in right-to-left boxes and to 1 in left-to-right islands and where a
+    // script places an element from its physical side.
     if (name === "--tw-translate-x") {
       const [body, priority] = splitPriority(statement.slice(colon + 1));
       if (!body.trim() || /^\s*0(?:px)?\s*$/.test(body)) return statement;
       changed++;
-      return head + ":calc(-1 * (" + body.trim() + "))" + priority;
+      return head + ":calc(var(--t3-rtl-x, 1) * (" + body.trim() + "))" + priority;
     }
     if (!name || name.startsWith("--")) return statement;
     // A mirrored arrow icon turns the other way, so an open chevron that T3
@@ -215,7 +217,8 @@ function mirrorCss(text, options) {
     }
     const lead = head.slice(0, head.length - head.trimStart().length);
     const value = statement.slice(colon + 1);
-    let nextValue = absoluteUrls(value);
+    // Generated content is text, so a url() in it is not an address.
+    let nextValue = name === "content" ? value : absoluteUrls(value);
     const unchanged = () => (nextValue === value ? statement : head + ":" + nextValue);
     if (KEEP_VALUE.test(nextValue)) return unchanged();
     if (PHYSICAL_VALUE.test(nextValue)) {
@@ -263,6 +266,8 @@ function mirrorCss(text, options) {
   // opens a rule or at-rule block, one that ends with ";" or "}" inside a
   // block is a declaration. Strings, comments and parentheses are skipped
   // over so their contents never end a statement.
+  // A statement without its comments, for telling what kind it is.
+  const bare = (part) => part.replace(/\/\*[\s\S]*?\*\//g, "").trim();
   let output = "";
   let statement = "";
   const keepStack = [];
@@ -301,7 +306,7 @@ function mirrorCss(text, options) {
     }
     if (c === "{") {
       const prelude = statement;
-      if (/^\s*@import\b/i.test(prelude)) imports = true;
+      if (/^@import\b/i.test(bare(prelude))) imports = true;
       // Declarations directly inside @font-face, @page and similar at-rules
       // describe something other than a box.
       const keep = (keepStack.length > 0 && keepStack[keepStack.length - 1]) ||
@@ -315,8 +320,9 @@ function mirrorCss(text, options) {
     }
     if (c === ";" || c === "}") {
       const keep = keepStack.length > 0 && keepStack[keepStack.length - 1];
-      if (/^\s*@import\b/i.test(statement)) imports = true;
-      const isDeclaration = depth > 0 && !/^\s*@/.test(statement) && statement.trim() !== "";
+      const plain = bare(statement);
+      if (/^@import\b/i.test(plain)) imports = true;
+      const isDeclaration = depth > 0 && !/^@/.test(plain) && plain !== "";
       output += isDeclaration && !keep ? rewriteDeclaration(statement) : statement;
       output += c;
       statement = "";

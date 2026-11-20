@@ -102,7 +102,15 @@ test("keeps the room for the details card on its physical side", () => {
 test("moves mirrored elements sideways the other way", () => {
   assert.equal(
     mirror(".a{--tw-translate-x:calc(1 / 2 * 100%);translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}"),
-    ".a{--tw-translate-x:calc(-1 * (calc(1 / 2 * 100%)));translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}",
+    ".a{--tw-translate-x:calc(var(--t3-rtl-x, 1) * (calc(1 / 2 * 100%)));translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}",
+  );
+});
+
+test("finds an import after a comment and leaves generated content alone", () => {
+  assert.equal(mirrorCss('/* note */@import "x.css";.a{left:0}').imports, true);
+  assert.equal(
+    mirror('.a{content:"url(example.png)"}', { baseUrl: "t3code://app/assets/main.css" }),
+    '.a{content:"url(example.png)"}',
   );
 });
 

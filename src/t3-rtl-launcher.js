@@ -189,6 +189,15 @@ const annotationSessionsLogged = new Set();
 // The new-document script of the layout in each T3 Code page, by session.
 const layoutScripts = new Map();
 
+// Layout work for each session runs one step at a time, so quick changes,
+// such as one from a second window, never lose track of a script.
+const layoutQueues = new Map();
+function queueLayout(sessionId, step) {
+  const next = (layoutQueues.get(sessionId) || Promise.resolve()).then(step, step);
+  layoutQueues.set(sessionId, next.catch(() => {}));
+  return next;
+}
+
 // A reload or a new document starts in the saved layout. The new script is
 // added before the old one is removed, so no document starts without one.
 async function registerLayout(sessionId) {
@@ -206,18 +215,21 @@ async function registerLayout(sessionId) {
 }
 
 // Applies a changed setting to an open page at once.
-async function switchLayout(sessionId) {
-  try {
-    await registerLayout(sessionId);
-    await send(
-      "Runtime.evaluate",
-      { expression: `globalThis.__t3RtlLayout && globalThis.__t3RtlLayout.set(${rtlLayout})`, returnByValue: true },
-      sessionId,
-    );
-    log(`Right-to-left layout turned ${rtlLayout ? "on" : "off"}`);
-  } catch (error) {
-    log(`Could not switch the right-to-left layout: ${error.message}`);
-  }
+function switchLayout(sessionId) {
+  return queueLayout(sessionId, async () => {
+    if (!layoutScripts.has(sessionId)) return;
+    try {
+      await registerLayout(sessionId);
+      await send(
+        "Runtime.evaluate",
+        { expression: `globalThis.__t3RtlLayout && globalThis.__t3RtlLayout.set(${rtlLayout})`, returnByValue: true },
+        sessionId,
+      );
+      log(`Right-to-left layout turned ${rtlLayout ? "on" : "off"}`);
+    } catch (error) {
+      log(`Could not switch the right-to-left layout: ${error.message}`);
+    }
+  });
 }
 
 function send(method, params = {}, sessionId) {
@@ -284,16 +296,18 @@ async function attachAndInject(targetInfo) {
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
     if (buildLayoutSource) {
-      try {
-        await registerLayout(sessionId);
-        await send(
-          "Runtime.evaluate",
-          { expression: buildLayoutSource({ enabled: rtlLayout }), returnByValue: true },
-          sessionId,
-        );
-      } catch (error) {
-        log(`The right-to-left layout could not be added: ${error.message}`);
-      }
+      await queueLayout(sessionId, async () => {
+        try {
+          await registerLayout(sessionId);
+          await send(
+            "Runtime.evaluate",
+            { expression: buildLayoutSource({ enabled: rtlLayout }), returnByValue: true },
+            sessionId,
+          );
+        } catch (error) {
+          log(`The right-to-left layout could not be added: ${error.message}`);
+        }
+      });
     }
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
@@ -381,6 +395,7 @@ function handleMessage(message) {
     const destroyedSession = sessionsByTarget.get(message.params?.targetId);
     annotationSessionsLogged.delete(destroyedSession);
     layoutScripts.delete(destroyedSession);
+    layoutQueues.delete(destroyedSession);
     dispatch.targetDestroyed(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
   }

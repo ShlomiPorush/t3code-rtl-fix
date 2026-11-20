@@ -52,6 +52,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="inline" class="inline-pr box"></div>
   <div id="scripted-target" class="scripted-pl box"></div>
   <div id="rail" class="rail box"></div>
+  <div id="placed" class="rail box" style="left: 10px;"></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
 </div>
 </body></html>`;
@@ -143,6 +144,7 @@ async function run(port) {
       inlineLeft: s("inline").paddingLeft, inlineRight: s("inline").paddingRight,
       scriptedLeft: s("scripted-target").paddingLeft,
       rail: s("rail").translate,
+      placed: s("placed").translate,
       font: s("var-short").fontFamily,
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
@@ -167,6 +169,7 @@ async function run(port) {
   check(on.inlineLeft === "5px", `The inline style was not mirrored: ${JSON.stringify(on)}`);
   check(on.scriptedLeft === "6px", `A scripted sheet was changed: ${JSON.stringify(on)}`);
   check(on.rail.startsWith("50%"), `The translate was not mirrored: ${on.rail}`);
+  check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
 
   // A style whose text changes is mirrored again.
@@ -189,6 +192,13 @@ async function run(port) {
     return seen;
   })()`);
   check(dragged[0] === 120 && dragged[1] === 80, `The drag was not mirrored once: ${JSON.stringify(dragged)}`);
+
+  // A second injection into the same document takes over from the first,
+  // so turning the layout off still gives everything back.
+  await evaluate(buildLayoutSource({ enabled: true }));
+  await wait(400);
+  const again = await evaluate(measure);
+  check(again.dir === "rtl" && again.copies === 2 && again.disabled === 2, `A second injection did not take over: ${JSON.stringify(again)}`);
 
   // Off again gives back the exact original values.
   await evaluate("globalThis.__t3RtlLayout.set(false)");
