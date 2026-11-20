@@ -54,6 +54,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="rail" class="rail box"></div>
   <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
+  <div id="mini-handle" data-preview-mini-player-resize class="ml-4" style="cursor: ew-resize; width: 20px; height: 20px;"></div>
 </div>
 </body></html>`;
 
@@ -222,6 +223,18 @@ async function run(port) {
     grip.dispatchEvent(new PointerEvent("pointerup", options(80, 10)));
     return seen;
   })()`);
+  const mini = await evaluate(`(() => {
+    const handle = document.getElementById("mini-handle");
+    const seen = [];
+    handle.addEventListener("pointermove", (event) => seen.push(event.clientX));
+    const options = (x) => ({ bubbles: true, pointerId: 11, clientX: x, clientY: 5, button: 0 });
+    handle.dispatchEvent(new PointerEvent("pointerdown", options(100)));
+    handle.dispatchEvent(new PointerEvent("pointermove", options(80)));
+    handle.dispatchEvent(new PointerEvent("pointerup", options(80)));
+    return { seen, dir: handle.getAttribute("dir"), left: getComputedStyle(handle).marginLeft };
+  })()`);
+  check(mini.dir === "ltr" && mini.left === "16px" && mini.seen[0] === 80,
+    `A floating preview handle left its physical side: ${JSON.stringify(mini)}`);
   check(innerDrag[0] === 120 && innerDrag[1] === "grip:80", `Handles inside a placed element were not judged by their own place: ${JSON.stringify(innerDrag)}`);
 
   // A second injection into the same document takes over from the first,

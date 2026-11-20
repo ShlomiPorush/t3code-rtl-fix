@@ -120,6 +120,10 @@ test("finds an import after a comment and leaves generated content alone", () =>
     mirror('.a{content:url("icon.png")}', { baseUrl: "t3code://app/assets/main.css" }),
     '.a{content:url("t3code://app/assets/icon.png")}',
   );
+  assert.equal(
+    mirror('.a{background:URL("icon(2).png")}', { baseUrl: "t3code://app/assets/main.css" }),
+    '.a{background:url("t3code://app/assets/icon(2).png")}',
+  );
 });
 
 test("lets a mirrored icon turn the other way", () => {

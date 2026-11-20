@@ -106,6 +106,10 @@ const LTR_ISLAND_SELECTOR = [
   // The terminal's buttons float over its top right corner, away from where
   // each line starts.
   ':has(> * > button[aria-label^="New Terminal"])',
+  // The floating preview is placed and resized by T3 Code from its physical
+  // sides, and each edge handle names its compass side, so the handles stay
+  // on those sides and move with the pointer.
+  "[data-preview-mini-player-resize]",
   "file-tree-container",
   "pre",
   "kbd",

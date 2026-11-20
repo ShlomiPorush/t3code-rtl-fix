@@ -172,9 +172,13 @@ function mirrorCss(text, options) {
     return added ? next.join(",") + priority : value;
   };
 
+  // A url() token: quoted, where the address may hold parentheses, or bare.
+  const URL_TOKEN = /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^"'()\s]+))\s*\)/gi;
   const absoluteUrls = (value) => {
-    if (!baseUrl || value.indexOf("url(") === -1) return value;
-    return value.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/g, (match, quote, url) => {
+    if (!baseUrl || !/url\(/i.test(value)) return value;
+    return value.replace(URL_TOKEN, (match, double, single, bare) => {
+      const url = double ?? single ?? bare;
+      const quote = double !== undefined ? '"' : single !== undefined ? "'" : "";
       if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(url)) return match;
       try {
         return `url(${quote}${new URL(url, baseUrl).href}${quote})`;
@@ -220,7 +224,7 @@ function mirrorCss(text, options) {
     // Text inside a string of generated content is not an address, while an
     // image it names with url() is.
     let nextValue = name === "content"
-      ? value.replace(/url\(\s*(["']?)[^"')]+\1\s*\)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g,
+      ? value.replace(new RegExp(URL_TOKEN.source + /|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/.source, "gi"),
         (part) => (/^url\(/i.test(part) ? absoluteUrls(part) : part))
       : absoluteUrls(value);
     const unchanged = () => (nextValue === value ? statement : head + ":" + nextValue);
