@@ -478,6 +478,8 @@ function buildLayoutSource({ enabled }) {
           const target = record.target;
           if (record.type === "attributes") {
             if (isStylesheetOwner(target)) void mirrorOwner(target);
+            // A link that stops being a stylesheet loses its copy.
+            else if (state.copies.has(target)) removeCopy(target);
             continue;
           }
           const style = (target.nodeType === Node.ELEMENT_NODE ? target : target.parentElement)?.closest?.("style");
@@ -526,9 +528,19 @@ function buildLayoutSource({ enabled }) {
     // drag started. The decision is made when the drag starts, and a layout
     // change waits until the drag ends.
     const resizeCursor = /^(?:col-resize|ew-resize|e-resize|w-resize|nwse-resize|nesw-resize|ne-resize|nw-resize|se-resize|sw-resize)$/;
+    // The cursor is inherited, so the handle is the outermost element that
+    // shows it.
     const resizeHandle = (target) => {
       for (let element = target; element && element !== document.body; element = element.parentElement) {
-        if (resizeCursor.test(getComputedStyle(element).cursor)) return element;
+        const cursor = getComputedStyle(element).cursor;
+        if (resizeCursor.test(cursor)) {
+          let handle = element;
+          while (handle.parentElement && handle.parentElement !== document.body &&
+            getComputedStyle(handle.parentElement).cursor === cursor) {
+            handle = handle.parentElement;
+          }
+          return handle;
+        }
         if (element.matches("button, [role=separator], a, input")) break;
       }
       return null;
@@ -564,8 +576,10 @@ function buildLayoutSource({ enabled }) {
         pointerId: event.pointerId,
         startX: event.clientX,
         // A handle that a script places from its physical side, such as those
-        // of the device preview, already moves the way the pointer does.
-        mirror: state.applied === true && !handle.closest('[dir="ltr"]') && !handle.closest(scriptPlacedSelector),
+        // of the device preview, already moves the way the pointer does. One
+        // placed by the mirrored stylesheets inside such an element, such as
+        // those of the floating preview, moved to the other side.
+        mirror: state.applied === true && !handle.closest('[dir="ltr"]') && !handle.matches(scriptPlacedSelector),
       };
     };
 

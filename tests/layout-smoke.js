@@ -52,7 +52,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="inline" class="inline-pr box"></div>
   <div id="scripted-target" class="scripted-pl box"></div>
   <div id="rail" class="rail box"></div>
-  <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
+  <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
 </div>
 </body></html>`;
@@ -205,6 +205,24 @@ async function run(port) {
     return seen;
   })()`);
   check(placedDrag[0] === 80, `A handle placed by script was mirrored: ${JSON.stringify(placedDrag)}`);
+  // A handle that the mirrored stylesheets place inside a placed element is
+  // mirrored, also when the drag starts on its content.
+  const innerDrag = await evaluate(`(() => {
+    const handle = document.getElementById("inner-handle");
+    const grip = document.getElementById("placed-grip");
+    const seen = [];
+    handle.addEventListener("pointermove", (event) => seen.push(event.clientX));
+    grip.addEventListener("pointermove", (event) => seen.push("grip:" + event.clientX));
+    const options = (x, id) => ({ bubbles: true, pointerId: id, clientX: x, clientY: 5, button: 0 });
+    handle.dispatchEvent(new PointerEvent("pointerdown", options(100, 9)));
+    handle.dispatchEvent(new PointerEvent("pointermove", options(80, 9)));
+    handle.dispatchEvent(new PointerEvent("pointerup", options(80, 9)));
+    grip.dispatchEvent(new PointerEvent("pointerdown", options(100, 10)));
+    grip.dispatchEvent(new PointerEvent("pointermove", options(80, 10)));
+    grip.dispatchEvent(new PointerEvent("pointerup", options(80, 10)));
+    return seen;
+  })()`);
+  check(innerDrag[0] === 120 && innerDrag[1] === "grip:80", `Handles inside a placed element were not judged by their own place: ${JSON.stringify(innerDrag)}`);
 
   // A second injection into the same document takes over from the first,
   // so turning the layout off still gives everything back.
@@ -242,6 +260,14 @@ async function run(port) {
   const twice = await evaluate(measure);
   check(twice.dir === null && twice.copies === 0 && twice.disabled === 0 && twice.mlLeft === "16px",
     `Two early runs left the layout on: ${JSON.stringify(twice)}`);
+
+  // A link that stops being a stylesheet loses its copy.
+  await evaluate("globalThis.__t3RtlLayout.set(true)");
+  await wait(600);
+  await evaluate(`document.querySelector('link[href="/main.css"]').rel = "preload"`);
+  await wait(300);
+  const relinked = await evaluate(`document.querySelectorAll("[data-t3-rtl-mirror]").length`);
+  check(relinked === 1, `A link that stopped being a stylesheet kept its copy: ${relinked} copies`);
 }
 
 server.listen(0, "127.0.0.1", () => {
