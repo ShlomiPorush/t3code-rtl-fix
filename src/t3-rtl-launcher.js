@@ -85,7 +85,17 @@ try {
 } catch (error) {
   log(`Extras settings are off: ${error.message}`);
 }
-const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true };
+const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true, rtlLayout: true };
+
+// The right-to-left layout of the whole app, which the Extras section turns
+// on and off. It loads on its own, so a failure leaves the per-message fix.
+let buildLayoutSource = null;
+try {
+  ({ buildLayoutSource } = require("./app-layout"));
+} catch (error) {
+  log(`The right-to-left layout is off: ${error.message}`);
+}
+let rtlLayout = initialSettings.rtlLayout !== false;
 
 let repoStatus = null;
 let repoStatusBinding = null;
@@ -132,6 +142,11 @@ if (settingsStore) {
   }
   settingsStore.onChange((settings) => {
     repoStatus?.setEnabled(settings.repoStatus && repoStatusRuns);
+    const nextLayout = settings.rtlLayout !== false;
+    if (nextLayout !== rtlLayout) {
+      rtlLayout = nextLayout;
+      for (const sessionId of layoutScripts.keys()) void switchLayout(sessionId);
+    }
   });
 }
 
@@ -171,6 +186,39 @@ const pending = new Map();
 const sessionsByTarget = new Map();
 const attachingTargets = new Set();
 const annotationSessionsLogged = new Set();
+// The new-document script of the layout in each T3 Code page, by session.
+const layoutScripts = new Map();
+
+// A reload or a new document starts in the saved layout. The new script is
+// added before the old one is removed, so no document starts without one.
+async function registerLayout(sessionId) {
+  if (!buildLayoutSource) return;
+  const previous = layoutScripts.get(sessionId);
+  const { identifier } = await send(
+    "Page.addScriptToEvaluateOnNewDocument",
+    { source: buildLayoutSource({ enabled: rtlLayout }) },
+    sessionId,
+  );
+  layoutScripts.set(sessionId, identifier);
+  if (previous) {
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: previous }, sessionId).catch(() => {});
+  }
+}
+
+// Applies a changed setting to an open page at once.
+async function switchLayout(sessionId) {
+  try {
+    await registerLayout(sessionId);
+    await send(
+      "Runtime.evaluate",
+      { expression: `globalThis.__t3RtlLayout && globalThis.__t3RtlLayout.set(${rtlLayout})`, returnByValue: true },
+      sessionId,
+    );
+    log(`Right-to-left layout turned ${rtlLayout ? "on" : "off"}`);
+  } catch (error) {
+    log(`Could not switch the right-to-left layout: ${error.message}`);
+  }
+}
 
 function send(method, params = {}, sessionId) {
   const id = nextMessageId++;
@@ -235,6 +283,18 @@ async function attachAndInject(targetInfo) {
 
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
+    if (buildLayoutSource) {
+      try {
+        await registerLayout(sessionId);
+        await send(
+          "Runtime.evaluate",
+          { expression: buildLayoutSource({ enabled: rtlLayout }), returnByValue: true },
+          sessionId,
+        );
+      } catch (error) {
+        log(`The right-to-left layout could not be added: ${error.message}`);
+      }
+    }
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: injectionSource },
@@ -320,6 +380,7 @@ function handleMessage(message) {
   if (message.method === "Target.targetDestroyed") {
     const destroyedSession = sessionsByTarget.get(message.params?.targetId);
     annotationSessionsLogged.delete(destroyedSession);
+    layoutScripts.delete(destroyedSession);
     dispatch.targetDestroyed(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
   }

@@ -1,7 +1,8 @@
 # T3 Code RTL Fix
 
-Automatically aligns each T3 Code user and assistant message from its own text
-while keeping code, commands, and file paths left to right.
+Turns the whole T3 Code app right to left, and aligns each user and assistant
+message from its own text while keeping code, commands, and file paths left to
+right.
 
 The fix is applied every time the T3 Code desktop app starts. It removes the
 need to open DevTools and paste CSS manually.
@@ -82,6 +83,41 @@ need to open DevTools and paste CSS manually.
 - Messages no longer show through around the composer at the bottom of a
   thread, behind its context row, or in the gap below it.
 - T3 Code itself is not patched or repackaged.
+
+## Right-to-left layout
+
+The whole app is mirrored, as in a right-to-left language:
+
+- The sidebar is on the right. The composer, the thread header, menus,
+  dialogs, settings, and the right panel are mirrored, with their buttons and
+  icons on the other side. Arrows and chevrons point the other way, and an
+  open chevron still points down.
+- Messages keep the rule of each block: Hebrew and Arabic read right to left,
+  and an English message stays left to right and left aligned.
+- An empty composer starts on the right, with its placeholder. A paragraph
+  typed in English turns left to right, as before.
+- English text in the app itself, such as settings and button labels, sits on
+  the right and keeps its reading order, so punctuation stays at the end of
+  the sentence.
+- Code, terminals, diffs, keyboard keys, and the T3 Code logo stay left to
+  right.
+- Dragging the edge of the sidebar or a panel moves it the way the pointer
+  moves.
+- The thread details card, when it is docked beside the conversation, stays
+  on the right, because T3 Code places it and keeps room for it from script.
+  When it opens as a floating card, it opens on the left.
+- The space for the window's own minimize, maximize, and close buttons stays
+  where those buttons are.
+
+T3 Code itself is not changed. The fix reads T3 Code's stylesheets and adds a
+copy of each one in which every left or right side becomes the start or end
+side, then turns the original off. Turning the layout off removes the copies
+and turns the originals on again, so T3 Code's own layout comes back exactly.
+A stylesheet that the fix cannot read or copy stays as it is.
+
+To turn the layout off, use the **Right-to-left layout** switch in the Extras
+section of T3 Code's Labs settings. The change applies at once in every open
+window. See [Extras settings](#extras-settings).
 
 ## Repository status
 
@@ -199,6 +235,8 @@ it. Escape closes the list.
 The Labs page of T3 Code's settings ends with an **Extras** section, added by
 the fix:
 
+- **Right-to-left layout** turns the mirrored layout of the whole app on or
+  off. It is on by default.
 - **Usage limits in the sidebar** turns the chips on or off.
 - **Accounts** chooses the accounts the chips show. An account you hid stays in
   the list, so you can show it again.
@@ -395,10 +433,12 @@ tests/     Unit, browser smoke, and Windows installer tests
 - A T3 Code update may recreate its Windows shortcuts. Run the install command
   again if the fix stops loading after an update.
 - T3 Code can change its internal HTML structure. The selectors in `rtl.css`
-  may need an update when that happens. The usage chips and the Extras section
+  and in the right-to-left layout may need an update when that happens. The usage chips and the Extras section
   then stop showing until the fix is updated.
 - The usage chips and the Extras section are not added to T3 Code's
   development build.
+- In the right-to-left layout, a new window can show T3 Code's own layout for
+  a moment when T3 Code first opens, before the fix reaches it.
 - The first installation cannot inject into an instance that is already open.
   Fully quit and reopen the app once.
 
@@ -410,7 +450,9 @@ Contributors need Node.js 18 or newer. On Windows with Microsoft Edge installed:
 npm test
 ```
 
-The smoke test verifies CSS injection through a Chromium debugging pipe. A
+The smoke tests verify CSS injection through a Chromium debugging pipe, and the
+right-to-left layout in a real browser: mirrored copies of the stylesheets,
+the exact original layout when it is turned off, and a mirrored resize drag. A
 separate regression test performs a complete installation and removal under
 Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
 enabled and that shipped user-facing text contains no Hebrew.

@@ -122,6 +122,8 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "extras-page.js"),
     (Join-Path $sourceDirectory "extras-settings.js"),
     (Join-Path $sourceDirectory "usage-limits.js"),
+    (Join-Path $sourceDirectory "app-layout.js"),
+    (Join-Path $sourceDirectory "css-mirror.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )

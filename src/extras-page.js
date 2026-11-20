@@ -364,7 +364,10 @@ function pageMain(config) {
   function place(anchor) {
     var rect = anchor.getBoundingClientRect();
     var width = popover.offsetWidth;
-    var left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    // The list opens from the chips' start edge: the left one, or the right
+    // one in the right-to-left layout.
+    var start = document.documentElement.getAttribute("data-t3-rtl-app") === "on" ? rect.right - width : rect.left;
+    var left = Math.max(8, Math.min(start, window.innerWidth - width - 8));
     popover.style.left = left + "px";
     popover.style.bottom = Math.max(8, window.innerHeight - rect.top + 6) + "px";
     popover.style.maxHeight = Math.max(120, rect.top - 16) + "px";
@@ -621,6 +624,13 @@ function pageMain(config) {
     // change() ignores a second change until the answer arrives.
     var locked = !settings.writable;
     card.appendChild(settingRow(
+      "Right-to-left layout",
+      "Mirror the whole app: the sidebar on the right and the composer and panels right to left.",
+      sw(settings.rtlLayout, locked, "Right-to-left layout", function (value) {
+        change({ type: "set", key: "rtlLayout", value: value });
+      }),
+    ));
+    card.appendChild(settingRow(
       "Usage limits in the sidebar",
       "Show the usage of the chosen accounts in the sidebar footer.",
       sw(settings.usageLimits, locked, "Usage limits in the sidebar", function (value) {
@@ -845,7 +855,7 @@ const PAGE_CSS = `
   font-variant-numeric: tabular-nums; line-height: 16px;
 }
 .t3x-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--t3x-accent, var(--muted-foreground)); flex: none; }
-.t3x-acct-name .t3x-dot { margin-right: 6px; vertical-align: middle; }
+.t3x-acct-name .t3x-dot { margin-inline-end: 6px; vertical-align: middle; }
 .t3x-pace { width: 11px; height: 11px; flex: none; fill: none; stroke: var(--t3x-accent, var(--muted-foreground)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .t3x-pop {
   position: fixed; z-index: 2147483000; width: 232px; overflow: auto; box-sizing: border-box;
@@ -862,12 +872,15 @@ const PAGE_CSS = `
 .t3x-acct-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t3x-window-line { display: grid; grid-template-columns: 1fr 40px 32px 11px; gap: 6px; align-items: center; margin-top: 3px; }
 .t3x-window-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
-.t3x-acct .t3x-pct { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.t3x-acct .t3x-pct { text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
 .t3x-pace-cell { display: flex; align-items: center; justify-content: center; }
 .t3x-reset { flex: none; font-size: 11px; color: var(--muted-foreground); }
 .t3x-bar { height: 4px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, currentColor 12%, transparent); }
 .t3x-bar i { display: block; height: 100%; border-radius: 2px; background: var(--t3x-accent); }
 .t3x-section { display: grid; gap: 12px; direction: ltr; }
+/* In the right-to-left layout the section and the usage list read right to
+   left like the rest of the app. */
+:root[data-t3-rtl-app="on"] :is(.t3x-section, .t3x-pop) { direction: rtl; }
 .t3x-title { margin: 0; font-size: 16px; font-weight: 600; }
 .t3x-sub { margin: 2px 0 0; font-size: 13px; color: var(--muted-foreground); }
 .t3x-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--card-foreground); }
@@ -882,8 +895,9 @@ const PAGE_CSS = `
 .t3x-switch[aria-checked="true"] { background: var(--primary); }
 .t3x-switch:disabled { opacity: .5; cursor: not-allowed; }
 .t3x-switch:focus-visible, .t3x-trigger:focus-visible, .t3x-option:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.t3x-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--background); transition: transform .15s; }
+.t3x-knob { position: absolute; top: 2px; inset-inline-start: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--background); transition: transform .15s; }
 .t3x-switch[aria-checked="true"] .t3x-knob { transform: translateX(16px); }
+.t3x-switch[aria-checked="true"]:dir(rtl) .t3x-knob { transform: translateX(-16px); }
 .t3x-select { position: relative; flex: none; }
 .t3x-trigger {
   display: inline-flex; align-items: center; gap: 8px; min-width: 160px; justify-content: space-between;
@@ -893,7 +907,7 @@ const PAGE_CSS = `
 .t3x-trigger:disabled { opacity: .5; cursor: not-allowed; }
 .t3x-caret { color: var(--muted-foreground); }
 .t3x-list {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 240px; max-height: 320px; overflow: auto;
+  position: absolute; inset-inline-end: 0; top: calc(100% + 4px); z-index: 50; min-width: 240px; max-height: 320px; overflow: auto;
   padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--popover);
   color: var(--popover-foreground); box-shadow: 0 10px 30px rgb(0 0 0 / 0.28);
 }

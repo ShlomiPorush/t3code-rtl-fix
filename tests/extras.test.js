@@ -76,12 +76,15 @@ test("T3 Code's home follows T3CODE_HOME like T3 Code does", () => {
 
 test("only the allowed settings and values are accepted", () => {
   assert.deepEqual(applyChange({}, { type: "set", key: "usageLimits", value: false }), { usageLimits: false });
+  assert.deepEqual(applyChange({}, { type: "set", key: "rtlLayout", value: false }), { rtlLayout: false });
+  assert.equal(applyChange({}, { type: "set", key: "rtlLayout", value: "off" }), null);
   assert.equal(applyChange({}, { type: "set", key: "usageLimits", value: "no" }), null);
   assert.equal(applyChange({}, { type: "set", key: "evil", value: true }), null);
   assert.equal(applyChange({}, { type: "set", key: "__proto__", value: true }), null);
   assert.equal(applyChange({}, { type: "hideAccount", id: "../x", hidden: true }), null);
   assert.deepEqual(applyChange({ keep: 1 }, { type: "hideAccount", id: "codex", hidden: true }), { keep: 1, usageHiddenAccounts: ["codex"] });
   assert.deepEqual(pick({ repoStatus: false, usageHiddenAccounts: ["a", "a", 5, "b/c"], other: FORBIDDEN }), {
+    rtlLayout: true,
     repoStatus: false,
     usageLimits: true,
     usageHiddenAccounts: ["a"],
@@ -124,7 +127,7 @@ test("a settings file that cannot be parsed is never overwritten", async (t) => 
 test("a byte order mark is accepted and a missing file means the defaults", async (t) => {
   const { home, fix } = layout(t);
   const store = createSettingsStore({ directory: fix, t3Home: home });
-  assert.deepEqual(pick(store.get()), { repoStatus: true, usageLimits: true, usageHiddenAccounts: [] });
+  assert.deepEqual(pick(store.get()), { rtlLayout: true, repoStatus: true, usageLimits: true, usageHiddenAccounts: [] });
   fs.writeFileSync(path.join(fix, "settings.json"), "\uFEFF{\"repoStatus\":false}", "utf8");
   assert.equal(createSettingsStore({ directory: fix, t3Home: home }).get().repoStatus, false);
 });

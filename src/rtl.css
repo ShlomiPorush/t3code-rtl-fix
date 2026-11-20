@@ -306,6 +306,13 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
   text-align: start !important;
 }
 
+/* In the right-to-left layout an empty composer starts on the right, so its
+   placeholder sits there too, in its own reading order. */
+:root[data-t3-rtl-app="on"]
+  div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
+  text-align: right !important;
+}
+
 div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
   > span.ml-2 {
   margin-left: 0 !important;
@@ -338,4 +345,10 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
    whole chat and keeps its own layout. */
 [data-chat-composer-overlay="true"].bottom-0 {
   background-color: var(--background) !important;
+}
+
+/* In the right-to-left layout the repository status section and its details
+   read right to left like the rest of the thread details card. */
+:root[data-t3-rtl-app="on"] :is([data-t3-rtl-repo-status], .t3-rtl-repo-status-tip) {
+  direction: rtl;
 }

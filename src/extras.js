@@ -74,6 +74,7 @@ function createExtrasService({
   function pageSettings() {
     const settings = store.get();
     return {
+      rtlLayout: settings.rtlLayout,
       repoStatus: settings.repoStatus,
       usageLimits: settings.usageLimits,
       usageHiddenAccounts: settings.usageHiddenAccounts,
