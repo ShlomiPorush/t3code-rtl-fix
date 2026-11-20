@@ -217,8 +217,11 @@ function mirrorCss(text, options) {
     }
     const lead = head.slice(0, head.length - head.trimStart().length);
     const value = statement.slice(colon + 1);
-    // Generated content is text, so a url() in it is not an address.
-    let nextValue = name === "content" ? value : absoluteUrls(value);
+    // Text inside a string of generated content is not an address, while an
+    // image it names with url() is.
+    let nextValue = name === "content"
+      ? value.split(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/).map((part, index) => (index % 2 ? part : absoluteUrls(part))).join("")
+      : absoluteUrls(value);
     const unchanged = () => (nextValue === value ? statement : head + ":" + nextValue);
     if (KEEP_VALUE.test(nextValue)) return unchanged();
     if (PHYSICAL_VALUE.test(nextValue)) {

@@ -59,10 +59,14 @@ const HIGH_CSS = `
 
 /* The mirrored copies move an element sideways by --t3-rtl-x times its
    distance (see css-mirror.js): the other way in a right-to-left box, and as
-   T3 Code wrote it in a left-to-right island or where a script placed it. */
+   T3 Code wrote it in a left-to-right island or where a script placed it.
+   Inside a placed element, each box follows its own direction again. */
 :root[data-t3-rtl-app="on"] [dir="rtl"] { --t3-rtl-x: -1; }
 :root[data-t3-rtl-app="on"] [dir="ltr"] { --t3-rtl-x: 1; }
 :root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) { --t3-rtl-x: 1; }
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :dir(rtl) { --t3-rtl-x: -1; }
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :dir(ltr) { --t3-rtl-x: 1; }
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :is(${SCRIPT_PLACED_SELECTOR}) { --t3-rtl-x: 1; }
 :root[data-t3-rtl-app="on"] { --t3-rtl-x: -1; }
 
 /* An icon that points to a side is mirrored. Its rotation, such as an open
@@ -139,6 +143,7 @@ function buildLayoutSource({ enabled }) {
   const highCss = ${JSON.stringify(HIGH_CSS)};
   const islandSelector = ${JSON.stringify(LTR_ISLAND_SELECTOR)};
   const textExcludeSelector = ${JSON.stringify(TEXT_EXCLUDE_SELECTOR)};
+  const scriptPlacedSelector = ${JSON.stringify(SCRIPT_PLACED_SELECTOR)};
   const mirrorCss = ${mirrorCss.toString()};
 
   const wanted = ${JSON.stringify(enabled === true)};
@@ -148,19 +153,30 @@ function buildLayoutSource({ enabled }) {
   const previous = globalThis[key];
   if (previous) previous.dispose();
 
-  // A new document gets this script before it has a root element.
+  // A new document gets this script before it has a root element. The run
+  // that waits for it is registered at once, so a later run replaces it.
   if (!document.documentElement) {
+    let pending = wanted;
     const waiter = new MutationObserver(() => {
       if (!document.documentElement) return;
       waiter.disconnect();
-      main();
+      main(pending);
     });
     waiter.observe(document, { childList: true });
+    globalThis[key] = {
+      set(on) {
+        pending = on === true;
+        return null;
+      },
+      dispose() {
+        waiter.disconnect();
+      },
+    };
     return;
   }
-  main();
+  main(wanted);
 
-  function main() {
+  function main(wanted) {
     const root = document.documentElement;
     const state = {
       wanted,
@@ -177,6 +193,7 @@ function buildLayoutSource({ enabled }) {
       frame: 0,
       loadingTimer: 0,
       reported: new Set(),
+      islands: [],
       listeners: [],
     };
 
@@ -260,7 +277,8 @@ function buildLayoutSource({ enabled }) {
       state.generations.set(owner, generation);
       // Anything that changed while the sheet was read wins over this run.
       const current = () =>
-        state.applied && !state.disposed && owner.isConnected && state.generations.get(owner) === generation && ownerKey(owner) === key;
+        state.applied && !state.disposed && owner.isConnected && state.generations.get(owner) === generation && ownerKey(owner) === key &&
+        (owner.getAttribute("media") || "") === media;
       const isLink = owner.localName === "link";
       let text;
       if (isLink) {
@@ -362,11 +380,20 @@ function buildLayoutSource({ enabled }) {
         if (element.hasAttribute("dir")) continue;
         element.setAttribute("dir", "ltr");
         element.setAttribute("data-t3-rtl-island", "");
+        // A weak reference finds the island again if T3 Code moves it out of
+        // the page and back, without keeping it alive.
+        state.islands.push(new WeakRef(element));
       }
     };
 
     const clearIslands = () => {
-      for (const element of document.querySelectorAll("[data-t3-rtl-island]")) {
+      const marked = new Set(document.querySelectorAll("[data-t3-rtl-island]"));
+      for (const ref of state.islands) {
+        const element = ref.deref();
+        if (element && element.hasAttribute("data-t3-rtl-island")) marked.add(element);
+      }
+      state.islands = [];
+      for (const element of marked) {
         element.removeAttribute("data-t3-rtl-island");
         if (element.getAttribute("dir") === "ltr") element.removeAttribute("dir");
       }
@@ -536,7 +563,9 @@ function buildLayoutSource({ enabled }) {
       state.drag = {
         pointerId: event.pointerId,
         startX: event.clientX,
-        mirror: state.applied === true && !handle.closest('[dir="ltr"]'),
+        // A handle that a script places from its physical side, such as those
+        // of the device preview, already moves the way the pointer does.
+        mirror: state.applied === true && !handle.closest('[dir="ltr"]') && !handle.closest(scriptPlacedSelector),
       };
     };
 

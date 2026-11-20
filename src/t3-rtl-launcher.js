@@ -145,7 +145,7 @@ if (settingsStore) {
     const nextLayout = settings.rtlLayout !== false;
     if (nextLayout !== rtlLayout) {
       rtlLayout = nextLayout;
-      for (const sessionId of layoutScripts.keys()) void switchLayout(sessionId);
+      for (const sessionId of layoutSessions) void switchLayout(sessionId);
     }
   });
 }
@@ -186,7 +186,9 @@ const pending = new Map();
 const sessionsByTarget = new Map();
 const attachingTargets = new Set();
 const annotationSessionsLogged = new Set();
-// The new-document script of the layout in each T3 Code page, by session.
+// The T3 Code pages that get the layout, from the moment they are attached,
+// and the new-document script of the layout in each, by session.
+const layoutSessions = new Set();
 const layoutScripts = new Map();
 
 // Layout work for each session runs one step at a time, so quick changes,
@@ -217,7 +219,7 @@ async function registerLayout(sessionId) {
 // Applies a changed setting to an open page at once.
 function switchLayout(sessionId) {
   return queueLayout(sessionId, async () => {
-    if (!layoutScripts.has(sessionId)) return;
+    if (!layoutSessions.has(sessionId)) return;
     try {
       await registerLayout(sessionId);
       await send(
@@ -296,6 +298,7 @@ async function attachAndInject(targetInfo) {
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
     if (buildLayoutSource) {
+      layoutSessions.add(sessionId);
       await queueLayout(sessionId, async () => {
         try {
           await registerLayout(sessionId);
@@ -394,6 +397,7 @@ function handleMessage(message) {
   if (message.method === "Target.targetDestroyed") {
     const destroyedSession = sessionsByTarget.get(message.params?.targetId);
     annotationSessionsLogged.delete(destroyedSession);
+    layoutSessions.delete(destroyedSession);
     layoutScripts.delete(destroyedSession);
     layoutQueues.delete(destroyedSession);
     dispatch.targetDestroyed(destroyedSession);

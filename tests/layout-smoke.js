@@ -52,7 +52,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="inline" class="inline-pr box"></div>
   <div id="scripted-target" class="scripted-pl box"></div>
   <div id="rail" class="rail box"></div>
-  <div id="placed" class="rail box" style="left: 10px;"></div>
+  <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
 </div>
 </body></html>`;
@@ -145,6 +145,7 @@ async function run(port) {
       scriptedLeft: s("scripted-target").paddingLeft,
       rail: s("rail").translate,
       placed: s("placed").translate,
+      placedChild: s("placed-child").translate,
       font: s("var-short").fontFamily,
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
@@ -170,6 +171,7 @@ async function run(port) {
   check(on.scriptedLeft === "6px", `A scripted sheet was changed: ${JSON.stringify(on)}`);
   check(on.rail.startsWith("50%"), `The translate was not mirrored: ${on.rail}`);
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
+  check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
 
   // A style whose text changes is mirrored again.
@@ -192,6 +194,17 @@ async function run(port) {
     return seen;
   })()`);
   check(dragged[0] === 120 && dragged[1] === 80, `The drag was not mirrored once: ${JSON.stringify(dragged)}`);
+  const placedDrag = await evaluate(`(() => {
+    const handle = document.getElementById("placed-handle");
+    const seen = [];
+    handle.addEventListener("pointermove", (event) => seen.push(event.clientX));
+    const options = (x) => ({ bubbles: true, pointerId: 8, clientX: x, clientY: 5, button: 0 });
+    handle.dispatchEvent(new PointerEvent("pointerdown", options(100)));
+    handle.dispatchEvent(new PointerEvent("pointermove", options(80)));
+    handle.dispatchEvent(new PointerEvent("pointerup", options(80)));
+    return seen;
+  })()`);
+  check(placedDrag[0] === 80, `A handle placed by script was mirrored: ${JSON.stringify(placedDrag)}`);
 
   // A second injection into the same document takes over from the first,
   // so turning the layout off still gives everything back.
@@ -218,6 +231,17 @@ async function run(port) {
   check(reloaded.dir === "rtl" && reloaded.mlRight === "16px" && reloaded.copies === 2, `A new document did not start mirrored: ${JSON.stringify(reloaded)}`);
   const loading = await evaluate(`document.documentElement.hasAttribute("data-t3-rtl-loading")`);
   check(loading === false, "The new document stayed hidden");
+
+  // Two runs before the document has a root leave one layout, which still
+  // gives everything back when it is turned off.
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: buildLayoutSource({ enabled: true }) }, sessionId);
+  await send("Page.reload", {}, sessionId);
+  await wait(1200);
+  await evaluate("globalThis.__t3RtlLayout.set(false)");
+  await wait(300);
+  const twice = await evaluate(measure);
+  check(twice.dir === null && twice.copies === 0 && twice.disabled === 0 && twice.mlLeft === "16px",
+    `Two early runs left the layout on: ${JSON.stringify(twice)}`);
 }
 
 server.listen(0, "127.0.0.1", () => {
