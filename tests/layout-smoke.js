@@ -55,6 +55,8 @@ const PAGE = `<!doctype html><html><head>
   <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
   <div id="mini-handle" data-preview-mini-player-resize class="ml-4" style="cursor: ew-resize; width: 20px; height: 20px;"></div>
+  <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
+  <span id="plain-auto" dir="auto">English title</span>
 </div>
 </body></html>`;
 
@@ -148,6 +150,10 @@ async function run(port) {
       placed: s("placed").translate,
       placedChild: s("placed-child").translate,
       font: s("var-short").fontFamily,
+      cardDir: s("card").direction,
+      cardTitleAlign: s("card-title").textAlign,
+      cardTextMarked: document.getElementById("card-text").hasAttribute("data-t3-rtl-text"),
+      plainAutoDir: s("plain-auto").direction,
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
     };
@@ -167,6 +173,9 @@ async function run(port) {
   check(on.rightOffset === 0, `left: 0 was not mirrored: ${JSON.stringify(on)}`);
   check(on.borderRight === "3px" && on.borderLeft === "0px", `The border was not mirrored: ${JSON.stringify(on)}`);
   check(on.align === "right", `A start-aligned English box did not sit on the right of the layout: ${on.align}`);
+  check(on.cardDir === "rtl" && on.cardTitleAlign === "right" && on.cardTextMarked,
+    `A card with an automatic direction was not laid out right to left: ${JSON.stringify(on)}`);
+  check(on.plainAutoDir === "ltr", `A line of text with an automatic direction lost its own direction: ${on.plainAutoDir}`);
   check(on.smLeft === "8px", `A rule inside @media was not mirrored: ${JSON.stringify(on)}`);
   check(on.inlineLeft === "5px", `The inline style was not mirrored: ${JSON.stringify(on)}`);
   check(on.scriptedLeft === "6px", `A scripted sheet was changed: ${JSON.stringify(on)}`);

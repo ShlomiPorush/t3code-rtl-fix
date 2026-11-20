@@ -55,6 +55,10 @@ const SCRIPT_PLACED_SELECTOR = [
   '[style*=";right:"]',
 ].join(", ");
 
+// A box with an automatic direction that holds icons is a layout, such as a
+// hover card, not a line of text.
+const LAYOUT_AUTO_SELECTOR = '[dir="auto"]:has(svg)';
+
 // Rules that must win over T3 Code's own.
 const HIGH_CSS = `
 :root[data-t3-rtl-app="on"][data-t3-rtl-loading] body {
@@ -106,6 +110,19 @@ const HIGH_CSS = `
    it to its start. Messages keep their side, and centered text stays
    centered. */
 :root[data-t3-rtl-app="on"] :dir(rtl) > :is([dir="auto"], [dir="ltr"]:is(.text-start, .text-left)):dir(ltr):not(.chat-markdown, .chat-markdown *, .text-center, [data-t3-rtl-island]) {
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
+}
+
+/* A popup that T3 Code lets take its direction from its first text, such as
+   a thread's hover card, is laid out with the app. Its first text is often an
+   English project name, which would put its icons on the left. Each line
+   still reads in its own order (see markText), and an English title in it
+   sits on the right. */
+:root[data-t3-rtl-app="on"] :is(${LAYOUT_AUTO_SELECTOR}) {
+  direction: rtl;
+}
+:root[data-t3-rtl-app="on"] :where(${LAYOUT_AUTO_SELECTOR}) [dir="ltr"]:not([data-t3-rtl-island], [data-t3-rtl-island] *) {
   text-align: -webkit-match-parent;
   text-align: match-parent;
 }
@@ -192,6 +209,7 @@ function buildLayoutSource({ enabled }) {
   const islandSelector = ${JSON.stringify(LTR_ISLAND_SELECTOR)};
   const textExcludeSelector = ${JSON.stringify(TEXT_EXCLUDE_SELECTOR)};
   const scriptPlacedSelector = ${JSON.stringify(SCRIPT_PLACED_SELECTOR)};
+  const layoutAutoSelector = ${JSON.stringify(LAYOUT_AUTO_SELECTOR)};
   const mirrorCss = ${mirrorCss.toString()};
 
   const wanted = ${JSON.stringify(enabled === true)};
@@ -499,8 +517,9 @@ function buildLayoutSource({ enabled }) {
     // paragraph. Excluded parts of the page are skipped whole, and the page is
     // read before anything is written.
     const letter = /\\p{L}/u;
+    const directedSelector = "[dir]:not(" + layoutAutoSelector + ")";
     const excluded = (element) =>
-      element.matches(textExcludeSelector) || (element !== root && element.hasAttribute("dir"));
+      element.matches(textExcludeSelector) || (element !== root && element.matches(directedSelector));
     const filter = {
       acceptNode(node) {
         if (node.nodeType === Node.ELEMENT_NODE) return excluded(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
@@ -515,7 +534,7 @@ function buildLayoutSource({ enabled }) {
         const start = scope.nodeType === Node.TEXT_NODE ? scope.parentElement : scope;
         if (!start || !start.isConnected || !body.contains(start)) continue;
         const outside = start.closest(textExcludeSelector);
-        const directed = start.closest("[dir]");
+        const directed = start.closest(directedSelector);
         if (outside || (directed && directed !== root)) continue;
         if (scope.nodeType === Node.TEXT_NODE) {
           if (letter.test(scope.data)) parents.add(start);
