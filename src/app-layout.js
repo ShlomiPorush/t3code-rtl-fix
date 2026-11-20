@@ -521,7 +521,7 @@ function buildLayoutSource({ enabled }) {
         const walker = document.createTreeWalker(start, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, filter);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) parents.add(node.parentElement);
       }
-      const marks = new Map();
+      const marks = new Set();
       for (const parent of parents) {
         let box = parent;
         while (box && box !== body) {
@@ -529,10 +529,10 @@ function buildLayoutSource({ enabled }) {
           if (display !== "inline" && display !== "contents") break;
           box = box.parentElement;
         }
-        if (!box || box === body || marks.has(box) || box.hasAttribute("data-t3-rtl-text")) continue;
-        marks.set(box, "");
+        if (!box || box === body || box.hasAttribute("data-t3-rtl-text")) continue;
+        marks.add(box);
       }
-      for (const [box, value] of marks) box.setAttribute("data-t3-rtl-text", value);
+      for (const box of marks) box.setAttribute("data-t3-rtl-text", "");
     };
 
     const clearText = () => {
@@ -544,13 +544,15 @@ function buildLayoutSource({ enabled }) {
     // mirrored copies already put on the left. The card follows: its offset
     // moves from the right to the left, each time T3 Code writes it. Only
     // this element's style is watched.
-    const cardObservers = new Map();
+    // Each card is held weakly, and its watcher stops when T3 Code removes it.
+    const cardObservers = new WeakMap();
+    let cardRefs = [];
     const swapCard = (card) => {
       const right = card.style.right;
       if (!right || right === "auto") return;
       card.style.left = right;
       card.style.right = "";
-      card.setAttribute("data-t3-rtl-card", right);
+      card.setAttribute("data-t3-rtl-card", "");
     };
     const mirrorCards = (scope) => {
       if (scope.nodeType !== Node.ELEMENT_NODE) return;
@@ -561,21 +563,33 @@ function buildLayoutSource({ enabled }) {
         // A floating card is placed by its popover, which follows the layout.
         if (cardObservers.has(card) || getComputedStyle(card).position !== "absolute" || !card.style.right) continue;
         swapCard(card);
-        const observer = new MutationObserver(() => swapCard(card));
+        const observer = new MutationObserver(() => {
+          if (card.isConnected) {
+            swapCard(card);
+            return;
+          }
+          observer.disconnect();
+          cardObservers.delete(card);
+        });
         observer.observe(card, { attributes: true, attributeFilter: ["style"] });
         cardObservers.set(card, observer);
+        cardRefs = cardRefs.filter((ref) => ref.deref()?.isConnected);
+        cardRefs.push(new WeakRef(card));
       }
     };
     const clearCards = () => {
-      for (const [card, observer] of cardObservers) {
-        observer.disconnect();
+      for (const ref of cardRefs) {
+        const card = ref.deref();
+        if (!card) continue;
+        cardObservers.get(card)?.disconnect();
+        cardObservers.delete(card);
         if (card.hasAttribute("data-t3-rtl-card")) {
           card.style.right = card.style.left;
           card.style.left = "";
           card.removeAttribute("data-t3-rtl-card");
         }
       }
-      cardObservers.clear();
+      cardRefs = [];
     };
 
     // An English placeholder ends with a left-to-right mark, so punctuation

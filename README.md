@@ -93,9 +93,9 @@ The whole app is mirrored, as in a right-to-left language:
   are mirrored, with their buttons and icons on the other side. Arrows and
   chevrons point the other way, an open chevron still points down, and a
   closed project's chevron points left.
-- The window's own minimize, maximize, and close buttons stay in its top
-  right corner, above the sidebar, and the sidebar's logo and buttons keep
-  clear of them.
+- On Windows, the window's own minimize, maximize, and close buttons stay
+  in its top right corner, above the sidebar, and the sidebar's logo and
+  buttons keep clear of them. The layout has not been checked on macOS.
 - Messages keep the rule of each block: Hebrew and Arabic read right to left,
   and an English message stays left to right and left aligned.
 - An empty composer starts on the right, with its placeholder. A paragraph
@@ -109,7 +109,9 @@ The whole app is mirrored, as in a right-to-left language:
   moves.
 - The thread details card is on the left, under its button, whether it is
   docked beside the conversation or opens as a floating card, and the
-  conversation keeps room for it there.
+  conversation keeps room for it there. T3 Code still keeps the floating
+  browser preview clear of the card as if the card were on the right, so the
+  preview can cover a docked card.
 
 T3 Code itself is not changed. The fix reads T3 Code's stylesheets and adds a
 copy of each one in which every left or right side becomes the start or end
