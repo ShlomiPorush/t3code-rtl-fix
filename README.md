@@ -86,15 +86,16 @@ need to open DevTools and paste CSS manually.
 
 ## Right-to-left layout
 
-The app reads right to left, as in a right-to-left language, while its
-columns keep their places:
+The whole app is mirrored, as in a right-to-left language:
 
-- The sidebar stays on the left, as T3 Code made it, and so do the right
-  panel on the right and the panel buttons in the window's top right corner,
-  beside the window's own buttons. Everything inside the conversation and the
-  right panel is mirrored: the thread header, the composer, menus, dialogs,
-  and settings, with their buttons and icons on the other side. Arrows and
-  chevrons point the other way, and an open chevron still points down.
+- The sidebar is on the right, and the right panel and the panel buttons are
+  on the left. The thread header, the composer, menus, dialogs, and settings
+  are mirrored, with their buttons and icons on the other side. Arrows and
+  chevrons point the other way, an open chevron still points down, and a
+  closed project's chevron points left.
+- The window's own minimize, maximize, and close buttons stay in its top
+  right corner, above the sidebar, and the sidebar's logo and buttons keep
+  clear of them.
 - Messages keep the rule of each block: Hebrew and Arabic read right to left,
   and an English message stays left to right and left aligned.
 - An empty composer starts on the right, with its placeholder. A paragraph
@@ -102,14 +103,13 @@ columns keep their places:
 - English text in the app itself, such as settings, button labels, work log
   rows, and placeholders, sits on the right and keeps its reading order, so
   punctuation stays at the end of the sentence.
-- Code, terminals, diffs, the file tree, the right panel's tab strip, keyboard
+- Code, terminals, diffs, the file tree, paths and branch names, keyboard
   keys, and the T3 Code logo stay left to right.
 - Dragging the edge of the sidebar or a panel moves it the way the pointer
   moves.
-- The thread details card stays on the right, under its button, whether it
-  is docked beside the conversation or opens as a floating card.
-- The space for the window's own minimize, maximize, and close buttons stays
-  where those buttons are.
+- The thread details card is on the left, under its button, whether it is
+  docked beside the conversation or opens as a floating card, and the
+  conversation keeps room for it there.
 
 T3 Code itself is not changed. The fix reads T3 Code's stylesheets and adds a
 copy of each one in which every left or right side becomes the start or end

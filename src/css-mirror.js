@@ -47,35 +47,31 @@ function mirrorCss(text, options) {
     "border-color": ["border-block-color", "border-inline-color"],
   };
   const LISTS = new Set(["transition", "transition-property", "will-change"]);
-  // Native window controls never move with the layout, so the space kept for
-  // them stays on its physical side. So does the space kept next to the
-  // sidebar's own controls, since the sidebar stays on the left.
-  const KEEP_VALUE = /titlebar-area|--workspace-native-controls|--workspace-titlebar-content|--desktop-window-|--toast-/;
+  // The space for the window's own title bar area stays where it is.
+  const KEEP_VALUE = /titlebar-area|--desktop-window-|--toast-/;
   // Notifications are placed, animated, and swiped by T3 Code from the
   // pointer's physical movement, so their rules stay as they are.
   const KEEP_PRELUDE = /data-position|data-swipe-direction|toast/i;
-  // T3 Code places its thread details card at the physical right from
-  // script, and keeps room for it through these variables. That room stays
-  // on the physical side of the card, so T3 Code's own logical declarations
-  // that use them become physical.
-  const PHYSICAL_VALUE = /--chat-lane-inset-(?:start|end)/;
-  const PHYSICAL_NAMES = {
-    "margin-inline-start": "margin-left",
-    "margin-inline-end": "margin-right",
-    "padding-inline-start": "padding-left",
-    "padding-inline-end": "padding-right",
-    "inset-inline-start": "left",
-    "inset-inline-end": "right",
-  };
-  // A mirrored side takes the window inset of the side it lands on: the
-  // other side in a right-to-left box, its own side in a left-to-right one.
-  // --t3-rtl-x is -1 or 1 there (see app-layout.js), so the inset is picked
-  // by arithmetic.
+  // --t3-rtl-x is -1 in a right-to-left box and 1 in a left-to-right one
+  // (see app-layout.js), so a value can follow the side a box lands on by
+  // arithmetic.
+  const ltrOnly = "(1 + var(--t3-rtl-x, 1)) / 2";
+  const rtlOnly = "(1 - var(--t3-rtl-x, 1)) / 2";
+  // A mirrored side takes the window inset of the side it lands on.
   const swapSides = (value) =>
-    value.replace(/(var\(--workspace-controls-|env\(safe-area-inset-)(left|right)\)/g, (match, prefix, side) => {
-      const other = prefix + (side === "left" ? "right" : "left") + ")";
-      return `calc(${match} * (1 + var(--t3-rtl-x, 1)) / 2 + ${other} * (1 - var(--t3-rtl-x, 1)) / 2)`;
-    });
+    value
+      .replace(/(var\(--workspace-controls-|env\(safe-area-inset-)(left|right)\)/g, (match, prefix, side) => {
+        const other = prefix + (side === "left" ? "right" : "left") + ")";
+        return `calc(${match} * ${ltrOnly} + ${other} * ${rtlOnly})`;
+      })
+      // The window's own buttons stay in its top right corner. A header that
+      // keeps room for them at its end needs it only while that end is the
+      // right: in the mirrored layout the sidebar is under the buttons.
+      .replace(/var\(--workspace-native-controls-inset\)/g, (match) => `calc(${match} * ${ltrOnly})`)
+      // The room kept beside the sidebar's own buttons grows by the window's
+      // buttons when those sit on the same side, in the mirrored layout.
+      .replace(/var\(--workspace-titlebar-content-left\)/g, (match) =>
+        `calc(${match} + (var(--workspace-controls-right) - var(--workspace-controls-left)) * ${rtlOnly})`);
   // Anything that a split by whitespace cannot read safely.
   const OPAQUE = /var\(|env\(|calc\(|attr\(|\//;
 
@@ -236,11 +232,6 @@ function mirrorCss(text, options) {
       : absoluteUrls(value);
     const unchanged = () => (nextValue === value ? statement : head + ":" + nextValue);
     if (KEEP_VALUE.test(nextValue)) return unchanged();
-    if (PHYSICAL_VALUE.test(nextValue)) {
-      if (!PHYSICAL_NAMES[name]) return unchanged();
-      changed++;
-      return lead + PHYSICAL_NAMES[name] + ":" + nextValue;
-    }
     if (NAMES[name]) {
       changed++;
       return lead + NAMES[name] + ":" + swapSides(nextValue);

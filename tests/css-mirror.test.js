@@ -77,12 +77,21 @@ test("does not touch selectors, strings, comments, or custom properties", () => 
   assert.equal(mirror(css), css);
 });
 
-test("keeps the space for native window controls physical", () => {
-  const css =
-    ".wco\\:pr-x:is(.wco,.wco *){padding-right:var(--workspace-native-controls-inset)}" +
-    "@media (display-mode:window-controls-overlay){.t{padding-right:env(titlebar-area-x)}}";
-  assert.equal(mirror(css), css);
+test("keeps room for the window's buttons only where a header ends on the right", () => {
+  assert.equal(
+    mirror(".wco\:pr-x:is(.wco,.wco *){padding-right:var(--workspace-native-controls-inset)}"),
+    ".wco\:pr-x:is(.wco,.wco *){padding-inline-end:calc(var(--workspace-native-controls-inset) * (1 + var(--t3-rtl-x, 1)) / 2)}",
+  );
+  const kept = "@media (display-mode:window-controls-overlay){.t{padding-right:env(titlebar-area-x)}}";
+  assert.equal(mirror(kept), kept);
   assert.equal(mirror(".wco .z{margin-left:1px}"), ".wco .z{margin-inline-start:1px}");
+});
+
+test("widens the room beside the sidebar's buttons by the window's buttons on the right", () => {
+  assert.equal(
+    mirror(".logo{margin-left:var(--workspace-titlebar-content-left)}"),
+    ".logo{margin-inline-start:calc(var(--workspace-titlebar-content-left) + (var(--workspace-controls-right) - var(--workspace-controls-left)) * (1 - var(--t3-rtl-x, 1)) / 2)}",
+  );
 });
 
 test("moves a mirrored control to the window inset of its new side", () => {
@@ -93,11 +102,9 @@ test("moves a mirrored control to the window inset of its new side", () => {
   );
 });
 
-test("keeps the room for the details card on its physical side", () => {
-  assert.equal(
-    mirror(".lane{padding-inline-start:var(--chat-lane-inset-start,0px);padding-inline-end:calc(.75rem + var(--chat-lane-inset-end,0px))}.b{inset-inline-end:var(--chat-lane-inset-end)}"),
-    ".lane{padding-left:var(--chat-lane-inset-start,0px);padding-right:calc(.75rem + var(--chat-lane-inset-end,0px))}.b{right:var(--chat-lane-inset-end)}",
-  );
+test("leaves the room for the details card logical, so it follows the card", () => {
+  const css = ".lane{padding-inline-start:var(--chat-lane-inset-start,0px);padding-inline-end:calc(.75rem + var(--chat-lane-inset-end,0px))}";
+  assert.equal(mirror(css), css);
 });
 
 test("moves mirrored elements sideways the other way", () => {
