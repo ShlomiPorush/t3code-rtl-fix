@@ -390,6 +390,50 @@ function buildLayoutSource({ enabled }) {
       }
     };
 
+    // T3 Code enables the buttons that scroll the right panel's tabs from
+    // scrollLeft as it is in a left-to-right row, and scrolls with
+    // scrollBy({ left }). In a right-to-left row scrollLeft runs from 0 at
+    // the right to negative values, so for that row the fix presents it the
+    // mirrored way: the distance from the start, and a scroll toward the end
+    // as a positive one. Each button then moves toward the side it now sits
+    // on. Outside the layout the row behaves natively.
+    const tabListSelector = '[data-right-panel-tab-list] > [data-slot="scroll-area-viewport"]';
+    const scrollLeftOf = Object.getOwnPropertyDescriptor(Element.prototype, "scrollLeft");
+    const nativeScrollBy = Element.prototype.scrollBy;
+    const mirroredScroll = (element) => state.applied === true && getComputedStyle(element).direction === "rtl";
+    const fixTabScroll = (scope) => {
+      const found = [];
+      if (scope.nodeType === Node.ELEMENT_NODE) {
+        if (scope.matches(tabListSelector)) found.push(scope);
+        found.push(...scope.querySelectorAll(tabListSelector));
+      }
+      for (const viewport of found) {
+        if (Object.prototype.hasOwnProperty.call(viewport, "scrollLeft")) continue;
+        Object.defineProperty(viewport, "scrollLeft", {
+          configurable: true,
+          get() {
+            const value = scrollLeftOf.get.call(this);
+            return mirroredScroll(this) ? -value : value;
+          },
+          set(value) {
+            scrollLeftOf.set.call(this, mirroredScroll(this) ? -value : value);
+          },
+        });
+        Object.defineProperty(viewport, "scrollBy", {
+          configurable: true,
+          value(first, second) {
+            if (!mirroredScroll(this)) return nativeScrollBy.apply(this, arguments);
+            if (first && typeof first === "object") {
+              return nativeScrollBy.call(this, { ...first, left: typeof first.left === "number" ? -first.left : first.left });
+            }
+            return nativeScrollBy.call(this, -(Number(first) || 0), second);
+          },
+        });
+        // T3 Code works out its buttons again on the next scroll event.
+        viewport.dispatchEvent(new Event("scroll"));
+      }
+    };
+
     const clearIslands = () => {
       const marked = new Set(document.querySelectorAll("[data-t3-rtl-island]"));
       for (const ref of state.islands) {
@@ -460,7 +504,9 @@ function buildLayoutSource({ enabled }) {
       state.pendingRoots.clear();
       if (!state.applied) return;
       for (const scope of scopes) {
-        if (scope.isConnected && scope.nodeType === Node.ELEMENT_NODE) markIslands(scope);
+        if (!scope.isConnected || scope.nodeType !== Node.ELEMENT_NODE) continue;
+        markIslands(scope);
+        fixTabScroll(scope);
       }
       markText(scopes);
     };
@@ -638,6 +684,7 @@ function buildLayoutSource({ enabled }) {
         root.setAttribute("data-t3-rtl-app", "off");
       }
       window.dispatchEvent(new CustomEvent(eventName, { detail: { on } }));
+      for (const viewport of document.querySelectorAll(tabListSelector)) viewport.dispatchEvent(new Event("scroll"));
     };
 
     globalThis[key] = {

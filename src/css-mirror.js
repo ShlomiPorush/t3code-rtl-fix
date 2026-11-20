@@ -179,7 +179,9 @@ function mirrorCss(text, options) {
     return value.replace(URL_TOKEN, (match, double, single, bare) => {
       const url = double ?? single ?? bare;
       const quote = double !== undefined ? '"' : single !== undefined ? "'" : "";
-      if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(url)) return match;
+      // An address with a CSS escape stays as written: resolving it would
+      // need the escape decoded first.
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(url) || url.includes("\\")) return match;
       try {
         return `url(${quote}${new URL(url, baseUrl).href}${quote})`;
       } catch {
