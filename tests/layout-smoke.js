@@ -166,7 +166,7 @@ async function run(port) {
   check(on.plRight === "12px" && on.plLeft === "0px", `padding-left was not mirrored: ${JSON.stringify(on)}`);
   check(on.rightOffset === 0, `left: 0 was not mirrored: ${JSON.stringify(on)}`);
   check(on.borderRight === "3px" && on.borderLeft === "0px", `The border was not mirrored: ${JSON.stringify(on)}`);
-  check(on.align === "start", `text-align: left was not mirrored: ${on.align}`);
+  check(on.align === "right", `A start-aligned English box did not sit on the right of the layout: ${on.align}`);
   check(on.smLeft === "8px", `A rule inside @media was not mirrored: ${JSON.stringify(on)}`);
   check(on.inlineLeft === "5px", `The inline style was not mirrored: ${JSON.stringify(on)}`);
   check(on.scriptedLeft === "6px", `A scripted sheet was changed: ${JSON.stringify(on)}`);

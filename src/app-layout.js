@@ -12,7 +12,10 @@ const LOW_CSS = `@layer t3-rtl-layout {
   :root[data-t3-rtl-app="on"] [data-t3-rtl-text] {
     unicode-bidi: plaintext;
   }
-  :root[data-t3-rtl-app="on"] [data-t3-rtl-text="start"] {
+  /* English text that the per-block rule turned left to right inside the
+     right-to-left workspace, such as a work log row or a thread title,
+     sits on the right like the rest of the row. Messages keep their side. */
+  :root[data-t3-rtl-app="on"] :dir(rtl) > [dir="auto"]:dir(ltr):not(.chat-markdown, .chat-markdown *) {
     text-align: right;
   }
 }`;
@@ -71,7 +74,7 @@ const HIGH_CSS = `
 
 /* An icon that points to a side is mirrored. Its rotation, such as an open
    chevron that points down, turns the other way too (see css-mirror.js). */
-:root[data-t3-rtl-app="on"] :is(${SIDE_ICON_SELECTOR}):not([class*="rtl:"]):not([dir="ltr"] *) {
+:root[data-t3-rtl-app="on"] :is(${SIDE_ICON_SELECTOR}):not([class*="rtl:"]):dir(rtl) {
   scale: -1 1;
   --t3-rtl-turn: -1;
 }
@@ -82,13 +85,38 @@ const HIGH_CSS = `
   direction: ltr;
 }
 
+/* A box that T3 Code aligns to its start, by inheritance or with a class,
+   aligns to the start of the right-to-left layout, while its English text
+   keeps its own order. */
+:root[data-t3-rtl-app="on"] [data-t3-rtl-text="start"] {
+  text-align: right;
+}
+
+/* The thread header keeps its room for the panel buttons on the right, where
+   those buttons stay, and an English title sits next to its project. */
+:root[data-t3-rtl-app="on"] :has(> nav[aria-label="Thread breadcrumb"]).pr-24 {
+  padding-inline-end: 0 !important;
+  padding-right: 6rem !important;
+}
+:root[data-t3-rtl-app="on"] nav[aria-label="Thread breadcrumb"] :is(h2, input):dir(ltr) {
+  text-align: right;
+}
+
 /* Inputs outside messages read their value and placeholder in their own
    order. A placeholder sits on the right, with the layout. */
-:root[data-t3-rtl-app="on"] :is(input, textarea):not([dir]):not([dir="ltr"] *):not(.composer-tiptap *) {
+:root[data-t3-rtl-app="on"] :is(input, textarea):not([dir]):dir(rtl):not(.composer-tiptap *) {
   unicode-bidi: plaintext;
 }
-:root[data-t3-rtl-app="on"] :is(input, textarea):not([dir]):not([dir="ltr"] *):not(.composer-tiptap *):placeholder-shown {
+:root[data-t3-rtl-app="on"] :is(input, textarea):not([dir]):dir(rtl):not(.composer-tiptap *):placeholder-shown {
   text-align: right;
+}
+/* An English placeholder keeps its punctuation at its end. The field keeps
+   the padding it has in the layout, measured by the fix, so its text stays
+   clear of an icon beside it. */
+:root[data-t3-rtl-app="on"] :is(input, textarea)[data-t3-rtl-placeholder="ltr"]:placeholder-shown {
+  direction: ltr;
+  padding-left: var(--t3-rtl-padding-left) !important;
+  padding-right: var(--t3-rtl-padding-right) !important;
 }
 `;
 
@@ -100,6 +128,24 @@ const HIGH_CSS = `
 // from the left, and the file tree keeps its indentation and arrow keys in
 // its own shadow root, so both stay as T3 Code made them.
 const LTR_ISLAND_SELECTOR = [
+  // The sidebar stays on the left, as T3 Code made it, with its own
+  // controls and the window's buttons around it. The rest of the app is
+  // made right to left again below.
+  '[data-slot="sidebar-wrapper"]',
+  // The buttons that open the panels sit in the window's top right corner,
+  // beside the window's own buttons, wherever the workspace is.
+  "[data-workspace-titlebar-controls]",
+  // The columns keep T3 Code's places: the conversation, then the right
+  // panel on the right, with its edge and resize handle on its left. Their
+  // contents are right to left again below.
+  ":has(> [data-chat-column])",
+  '[data-workspace-area="panel"]',
+  // The right panel's tabs read like a browser's tab strip, from the left,
+  // which keeps the corner free for the panel buttons and keeps T3 Code's
+  // scroll buttons working.
+  "[data-right-panel-tabbar]",
+  // The thread details card opens under its button in the right corner.
+  ':has(> [aria-label="Thread details"])',
   'a[aria-label="T3 Code home"] > span',
   ".xterm",
   ":has(> textarea.t3-ghostty-input)",
@@ -114,6 +160,15 @@ const LTR_ISLAND_SELECTOR = [
   "pre",
   "kbd",
   "diffs-container",
+].join(", ");
+
+// Parts inside a left-to-right island that are right to left again: the
+// workspace beside the sidebar.
+const RTL_ISLAND_SELECTOR = [
+  'main[data-slot="sidebar-inset"]',
+  "[data-chat-column]",
+  '[data-workspace-area="panel"] > :not(.cursor-col-resize)',
+  '[aria-label="Thread details"]',
 ].join(", ");
 
 // Text that the right-to-left layout leaves to its own rules: messages and
@@ -146,6 +201,7 @@ function buildLayoutSource({ enabled }) {
   const lowCss = ${JSON.stringify(LOW_CSS)};
   const highCss = ${JSON.stringify(HIGH_CSS)};
   const islandSelector = ${JSON.stringify(LTR_ISLAND_SELECTOR)};
+  const rtlIslandSelector = ${JSON.stringify(RTL_ISLAND_SELECTOR)};
   const textExcludeSelector = ${JSON.stringify(TEXT_EXCLUDE_SELECTOR)};
   const scriptPlacedSelector = ${JSON.stringify(SCRIPT_PLACED_SELECTOR)};
   const mirrorCss = ${mirrorCss.toString()};
@@ -380,58 +436,23 @@ function buildLayoutSource({ enabled }) {
         if (outer) found.push(outer);
       }
       if (typeof scope.querySelectorAll === "function") found.push(...scope.querySelectorAll(islandSelector));
-      for (const element of found) {
-        if (element.hasAttribute("dir")) continue;
-        element.setAttribute("dir", "ltr");
-        element.setAttribute("data-t3-rtl-island", "");
+      const write = (element, direction) => {
+        if (element.hasAttribute("dir")) return;
+        element.setAttribute("dir", direction);
+        element.setAttribute("data-t3-rtl-island", direction);
         // A weak reference finds the island again if T3 Code moves it out of
         // the page and back, without keeping it alive.
         state.islands.push(new WeakRef(element));
-      }
-    };
-
-    // T3 Code enables the buttons that scroll the right panel's tabs from
-    // scrollLeft as it is in a left-to-right row, and scrolls with
-    // scrollBy({ left }). In a right-to-left row scrollLeft runs from 0 at
-    // the right to negative values, so for that row the fix presents it the
-    // mirrored way: the distance from the start, and a scroll toward the end
-    // as a positive one. Each button then moves toward the side it now sits
-    // on. Outside the layout the row behaves natively.
-    const tabListSelector = '[data-right-panel-tab-list] > [data-slot="scroll-area-viewport"]';
-    const scrollLeftOf = Object.getOwnPropertyDescriptor(Element.prototype, "scrollLeft");
-    const nativeScrollBy = Element.prototype.scrollBy;
-    const mirroredScroll = (element) => state.applied === true && getComputedStyle(element).direction === "rtl";
-    const fixTabScroll = (scope) => {
-      const found = [];
+      };
+      for (const element of found) write(element, "ltr");
+      const back = [];
+      for (const element of found) back.push(...element.querySelectorAll(rtlIslandSelector));
       if (scope.nodeType === Node.ELEMENT_NODE) {
-        if (scope.matches(tabListSelector)) found.push(scope);
-        found.push(...scope.querySelectorAll(tabListSelector));
+        const outer = scope.closest(rtlIslandSelector);
+        if (outer) back.push(outer);
       }
-      for (const viewport of found) {
-        if (Object.prototype.hasOwnProperty.call(viewport, "scrollLeft")) continue;
-        Object.defineProperty(viewport, "scrollLeft", {
-          configurable: true,
-          get() {
-            const value = scrollLeftOf.get.call(this);
-            return mirroredScroll(this) ? -value : value;
-          },
-          set(value) {
-            scrollLeftOf.set.call(this, mirroredScroll(this) ? -value : value);
-          },
-        });
-        Object.defineProperty(viewport, "scrollBy", {
-          configurable: true,
-          value(first, second) {
-            if (!mirroredScroll(this)) return nativeScrollBy.apply(this, arguments);
-            if (first && typeof first === "object") {
-              return nativeScrollBy.call(this, { ...first, left: typeof first.left === "number" ? -first.left : first.left });
-            }
-            return nativeScrollBy.call(this, -(Number(first) || 0), second);
-          },
-        });
-        // T3 Code works out its buttons again on the next scroll event.
-        viewport.dispatchEvent(new Event("scroll"));
-      }
+      if (typeof scope.querySelectorAll === "function") back.push(...scope.querySelectorAll(rtlIslandSelector));
+      for (const element of back) write(element, "rtl");
     };
 
     const clearIslands = () => {
@@ -442,8 +463,9 @@ function buildLayoutSource({ enabled }) {
       }
       state.islands = [];
       for (const element of marked) {
+        const written = element.getAttribute("data-t3-rtl-island");
         element.removeAttribute("data-t3-rtl-island");
-        if (element.getAttribute("dir") === "ltr") element.removeAttribute("dir");
+        if (element.getAttribute("dir") === written) element.removeAttribute("dir");
       }
     };
 
@@ -455,8 +477,11 @@ function buildLayoutSource({ enabled }) {
     // paragraph. Excluded parts of the page are skipped whole, and the page is
     // read before anything is written.
     const letter = /\\p{L}/u;
-    const excluded = (element) =>
-      element.matches(textExcludeSelector) || (element !== root && element.hasAttribute("dir"));
+    // An element with a direction of its own is left alone, except the
+    // fix's own right-to-left parts and the root.
+    const ownDirection = (element) =>
+      element !== root && element.hasAttribute("dir") && element.getAttribute("data-t3-rtl-island") !== "rtl";
+    const excluded = (element) => element.matches(textExcludeSelector) || ownDirection(element);
     const filter = {
       acceptNode(node) {
         if (node.nodeType === Node.ELEMENT_NODE) return excluded(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
@@ -470,9 +495,10 @@ function buildLayoutSource({ enabled }) {
       for (const scope of scopes) {
         const start = scope.nodeType === Node.TEXT_NODE ? scope.parentElement : scope;
         if (!start || !start.isConnected || !body.contains(start)) continue;
-        const outside = start.closest(textExcludeSelector);
-        const directed = start.closest("[dir]");
-        if (outside || (directed && directed !== root)) continue;
+        if (start.closest(textExcludeSelector)) continue;
+        let directed = start.closest("[dir]");
+        while (directed && directed !== root && !ownDirection(directed)) directed = directed.parentElement?.closest("[dir]") ?? null;
+        if (directed && directed !== root) continue;
         if (scope.nodeType === Node.TEXT_NODE) {
           if (letter.test(scope.data)) parents.add(start);
           continue;
@@ -496,6 +522,30 @@ function buildLayoutSource({ enabled }) {
 
     const clearText = () => {
       for (const element of document.querySelectorAll("[data-t3-rtl-text]")) element.removeAttribute("data-t3-rtl-text");
+      for (const element of document.querySelectorAll("[data-t3-rtl-placeholder]")) {
+        element.removeAttribute("data-t3-rtl-placeholder");
+        element.style.removeProperty("--t3-rtl-padding-left");
+        element.style.removeProperty("--t3-rtl-padding-right");
+      }
+    };
+
+    // A placeholder that starts with an English letter reads left to right.
+    const latinStart = /^[^p{L}]*[A-Za-z]/u;
+    const markPlaceholders = (scope) => {
+      const fields = [];
+      if (scope.nodeType !== Node.ELEMENT_NODE) return;
+      if (scope.matches("input[placeholder], textarea[placeholder]")) fields.push(scope);
+      fields.push(...scope.querySelectorAll("input[placeholder], textarea[placeholder]"));
+      for (const field of fields) {
+        const value = latinStart.test(field.placeholder || "") && field.matches(":dir(rtl)") ? "ltr" : null;
+        if (value && field.getAttribute("data-t3-rtl-placeholder") !== value) {
+          const style = getComputedStyle(field);
+          field.style.setProperty("--t3-rtl-padding-left", style.paddingLeft);
+          field.style.setProperty("--t3-rtl-padding-right", style.paddingRight);
+          field.setAttribute("data-t3-rtl-placeholder", value);
+        }
+        if (!value && field.hasAttribute("data-t3-rtl-placeholder")) field.removeAttribute("data-t3-rtl-placeholder");
+      }
     };
 
     const flush = () => {
@@ -506,7 +556,7 @@ function buildLayoutSource({ enabled }) {
       for (const scope of scopes) {
         if (!scope.isConnected || scope.nodeType !== Node.ELEMENT_NODE) continue;
         markIslands(scope);
-        fixTabScroll(scope);
+        markPlaceholders(scope);
       }
       markText(scopes);
     };
@@ -629,7 +679,7 @@ function buildLayoutSource({ enabled }) {
         // of the device preview, already moves the way the pointer does. One
         // placed by the mirrored stylesheets inside such an element, such as
         // those of the floating preview, moved to the other side.
-        mirror: state.applied === true && !handle.closest('[dir="ltr"]') && !handle.matches(scriptPlacedSelector),
+        mirror: state.applied === true && handle.matches(":dir(rtl)") && !handle.matches(scriptPlacedSelector),
       };
     };
 
@@ -684,7 +734,6 @@ function buildLayoutSource({ enabled }) {
         root.setAttribute("data-t3-rtl-app", "off");
       }
       window.dispatchEvent(new CustomEvent(eventName, { detail: { on } }));
-      for (const viewport of document.querySelectorAll(tabListSelector)) viewport.dispatchEvent(new Event("scroll"));
     };
 
     globalThis[key] = {

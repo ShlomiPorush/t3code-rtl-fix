@@ -48,8 +48,9 @@ function mirrorCss(text, options) {
   };
   const LISTS = new Set(["transition", "transition-property", "will-change"]);
   // Native window controls never move with the layout, so the space kept for
-  // them stays on its physical side.
-  const KEEP_VALUE = /titlebar-area|--workspace-native-controls|--desktop-window-|--toast-/;
+  // them stays on its physical side. So does the space kept next to the
+  // sidebar's own controls, since the sidebar stays on the left.
+  const KEEP_VALUE = /titlebar-area|--workspace-native-controls|--workspace-titlebar-content|--desktop-window-|--toast-/;
   // Notifications are placed, animated, and swiped by T3 Code from the
   // pointer's physical movement, so their rules stay as they are.
   const KEEP_PRELUDE = /data-position|data-swipe-direction|toast/i;
@@ -66,11 +67,15 @@ function mirrorCss(text, options) {
     "inset-inline-start": "left",
     "inset-inline-end": "right",
   };
-  // A mirrored side takes the window inset of the side it moved to. The
-  // copy is used only under the right-to-left root, so swapping is exact.
+  // A mirrored side takes the window inset of the side it lands on: the
+  // other side in a right-to-left box, its own side in a left-to-right one.
+  // --t3-rtl-x is -1 or 1 there (see app-layout.js), so the inset is picked
+  // by arithmetic.
   const swapSides = (value) =>
-    value.replace(/(--workspace-controls-|safe-area-inset-)(left|right)/g, (match, prefix, side) =>
-      prefix + (side === "left" ? "right" : "left"));
+    value.replace(/(var\(--workspace-controls-|env\(safe-area-inset-)(left|right)\)/g, (match, prefix, side) => {
+      const other = prefix + (side === "left" ? "right" : "left") + ")";
+      return `calc(${match} * (1 + var(--t3-rtl-x, 1)) / 2 + ${other} * (1 - var(--t3-rtl-x, 1)) / 2)`;
+    });
   // Anything that a split by whitespace cannot read safely.
   const OPAQUE = /var\(|env\(|calc\(|attr\(|\//;
 

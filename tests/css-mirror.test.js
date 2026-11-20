@@ -88,7 +88,8 @@ test("keeps the space for native window controls physical", () => {
 test("moves a mirrored control to the window inset of its new side", () => {
   assert.equal(
     mirror(".a{left:var(--workspace-controls-left)}.b{margin-left:calc(var(--workspace-controls-left) + 1px - env(safe-area-inset-left))}"),
-    ".a{inset-inline-start:var(--workspace-controls-right)}.b{margin-inline-start:calc(var(--workspace-controls-right) + 1px - env(safe-area-inset-right))}",
+    ".a{inset-inline-start:calc(var(--workspace-controls-left) * (1 + var(--t3-rtl-x, 1)) / 2 + var(--workspace-controls-right) * (1 - var(--t3-rtl-x, 1)) / 2)}" +
+      ".b{margin-inline-start:calc(calc(var(--workspace-controls-left) * (1 + var(--t3-rtl-x, 1)) / 2 + var(--workspace-controls-right) * (1 - var(--t3-rtl-x, 1)) / 2) + 1px - calc(env(safe-area-inset-left) * (1 + var(--t3-rtl-x, 1)) / 2 + env(safe-area-inset-right) * (1 - var(--t3-rtl-x, 1)) / 2))}",
   );
 });
 
