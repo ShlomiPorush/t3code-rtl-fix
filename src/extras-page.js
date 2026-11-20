@@ -471,6 +471,43 @@ function pageMain(config) {
     return button;
   }
 
+  // One choice of several, as a row of buttons. The arrow keys move the
+  // choice, toward the reading direction of the row.
+  function segmented(label, choices, current, disabled, onChoose) {
+    var group = el("div", "t3x-seg");
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", label);
+    var buttons = choices.map(function (choice) {
+      var button = el("button", "t3x-seg-btn", choice.label);
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", choice.value === current ? "true" : "false");
+      button.setAttribute("aria-label", choice.name);
+      button.tabIndex = choice.value === current ? 0 : -1;
+      button.disabled = !!disabled;
+      button.addEventListener("click", function (event) {
+        if (!event.isTrusted || button.disabled || choice.value === current) return;
+        onChoose(choice.value);
+      });
+      group.appendChild(button);
+      return button;
+    });
+    group.addEventListener("keydown", function (event) {
+      var index = buttons.indexOf(document.activeElement);
+      if (index < 0 || !event.isTrusted) return;
+      var rtl = getComputedStyle(group).direction === "rtl";
+      var step = 0;
+      if (event.key === "ArrowDown" || event.key === (rtl ? "ArrowLeft" : "ArrowRight")) step = 1;
+      else if (event.key === "ArrowUp" || event.key === (rtl ? "ArrowRight" : "ArrowLeft")) step = -1;
+      if (!step) return;
+      event.preventDefault();
+      var nextIndex = (index + step + buttons.length) % buttons.length;
+      buttons[nextIndex].focus();
+      if (!buttons[nextIndex].disabled) onChoose(choices[nextIndex].value);
+    });
+    return group;
+  }
+
   function settingRow(title, description, control) {
     var row = el("div", "t3x-row");
     var text = el("div", "t3x-row-text");
@@ -628,6 +665,19 @@ function pageMain(config) {
       "Mirror the whole app: the sidebar on the right and the composer and panels right to left.",
       sw(settings.rtlLayout, locked, "Right-to-left layout", function (value) {
         change({ type: "set", key: "rtlLayout", value: value });
+      }),
+    ));
+    var currentWidth = settings.chatWidth === undefined ? null : settings.chatWidth;
+    card.appendChild(settingRow(
+      "Chat width",
+      "How wide messages and the composer grow, in pixels, between T3 Code's Comfortable (736) and Wide. Applies while Appearance › Chat width is Comfortable.",
+      segmented("Chat width", [
+        { value: null, label: "Default", name: "Chat width: T3 Code's default" },
+        { value: 52, label: "832", name: "Chat width: 832 pixels" },
+        { value: 58, label: "928", name: "Chat width: 928 pixels" },
+        { value: 64, label: "1024", name: "Chat width: 1024 pixels" },
+      ], currentWidth, locked, function (value) {
+        change({ type: "set", key: "chatWidth", value: value });
       }),
     ));
     card.appendChild(settingRow(
@@ -898,6 +948,15 @@ const PAGE_CSS = `
 .t3x-knob { position: absolute; top: 2px; inset-inline-start: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--background); transition: transform .15s; }
 .t3x-switch[aria-checked="true"] .t3x-knob { transform: translateX(16px); }
 .t3x-switch[aria-checked="true"]:dir(rtl) .t3x-knob { transform: translateX(-16px); }
+.t3x-seg { display: inline-flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.t3x-seg-btn {
+  padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground);
+  font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.t3x-seg-btn:hover:not(:disabled) { color: var(--foreground); }
+.t3x-seg-btn[aria-checked="true"] { background: var(--accent); color: var(--accent-foreground); }
+.t3x-seg-btn:disabled { opacity: .5; cursor: not-allowed; }
+.t3x-seg-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .t3x-select { position: relative; flex: none; }
 .t3x-trigger {
   display: inline-flex; align-items: center; gap: 8px; min-width: 160px; justify-content: space-between;

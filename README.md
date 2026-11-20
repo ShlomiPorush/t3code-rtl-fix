@@ -244,6 +244,10 @@ the fix:
 
 - **Right-to-left layout** turns the mirrored layout of the whole app on or
   off. It is on by default.
+- **Chat width** sets how wide messages and the composer grow: T3 Code's own
+  width (736 pixels), or 832, 928, or 1024 pixels, between T3 Code's
+  Comfortable and Wide. It applies while T3 Code's Appearance > Chat width is
+  Comfortable, so Wide and Full still work as T3 Code made them.
 - **Usage limits in the sidebar** turns the chips on or off.
 - **Accounts** chooses the accounts the chips show. An account you hid stays in
   the list, so you can show it again.

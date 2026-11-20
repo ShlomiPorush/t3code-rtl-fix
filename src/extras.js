@@ -78,6 +78,7 @@ function createExtrasService({
       repoStatus: settings.repoStatus,
       usageLimits: settings.usageLimits,
       usageHiddenAccounts: settings.usageHiddenAccounts,
+      chatWidth: settings.chatWidth,
       writable: settings.writable,
       problem: settings.problem,
     };

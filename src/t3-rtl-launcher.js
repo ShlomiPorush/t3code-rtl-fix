@@ -97,6 +97,15 @@ try {
 }
 let rtlLayout = initialSettings.rtlLayout !== false;
 
+// The chat width chosen in the Extras section. It loads on its own too.
+let buildChatWidthSource = null;
+try {
+  ({ buildChatWidthSource } = require("./chat-width"));
+} catch (error) {
+  log(`The chat width is off: ${error.message}`);
+}
+let chatWidth = initialSettings.chatWidth ?? null;
+
 let repoStatus = null;
 let repoStatusBinding = null;
 let repoStatusRuns = false;
@@ -146,6 +155,11 @@ if (settingsStore) {
     if (nextLayout !== rtlLayout) {
       rtlLayout = nextLayout;
       for (const sessionId of layoutSessions) void switchLayout(sessionId);
+    }
+    const nextWidth = settings.chatWidth ?? null;
+    if (nextWidth !== chatWidth) {
+      chatWidth = nextWidth;
+      for (const sessionId of chatWidthSessions) void switchChatWidth(sessionId);
     }
   });
 }
@@ -214,6 +228,39 @@ async function registerLayout(sessionId) {
   if (previous) {
     await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: previous }, sessionId).catch(() => {});
   }
+}
+
+// The chat width follows the same steps as the layout: a new-document
+// script for each session, replaced when the setting changes, and applied
+// to the open page at once.
+const chatWidthSessions = new Set();
+const chatWidthScripts = new Map();
+
+async function registerChatWidth(sessionId) {
+  if (!buildChatWidthSource) return;
+  const previous = chatWidthScripts.get(sessionId);
+  const { identifier } = await send(
+    "Page.addScriptToEvaluateOnNewDocument",
+    { source: buildChatWidthSource(chatWidth) },
+    sessionId,
+  );
+  chatWidthScripts.set(sessionId, identifier);
+  if (previous) {
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: previous }, sessionId).catch(() => {});
+  }
+}
+
+function switchChatWidth(sessionId) {
+  return queueLayout(sessionId, async () => {
+    if (!chatWidthSessions.has(sessionId)) return;
+    try {
+      await registerChatWidth(sessionId);
+      await send("Runtime.evaluate", { expression: buildChatWidthSource(chatWidth), returnByValue: true }, sessionId);
+      log(`Chat width set to ${chatWidth === null ? "T3 Code's own" : chatWidth + "rem"}`);
+    } catch (error) {
+      log(`Could not change the chat width: ${error.message}`);
+    }
+  });
 }
 
 // Applies a changed setting to an open page at once.
@@ -312,6 +359,17 @@ async function attachAndInject(targetInfo) {
         }
       });
     }
+    if (buildChatWidthSource) {
+      chatWidthSessions.add(sessionId);
+      await queueLayout(sessionId, async () => {
+        try {
+          await registerChatWidth(sessionId);
+          await send("Runtime.evaluate", { expression: buildChatWidthSource(chatWidth), returnByValue: true }, sessionId);
+        } catch (error) {
+          log(`The chat width could not be added: ${error.message}`);
+        }
+      });
+    }
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: injectionSource },
@@ -399,6 +457,8 @@ function handleMessage(message) {
     annotationSessionsLogged.delete(destroyedSession);
     layoutSessions.delete(destroyedSession);
     layoutScripts.delete(destroyedSession);
+    chatWidthSessions.delete(destroyedSession);
+    chatWidthScripts.delete(destroyedSession);
     layoutQueues.delete(destroyedSession);
     dispatch.targetDestroyed(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
