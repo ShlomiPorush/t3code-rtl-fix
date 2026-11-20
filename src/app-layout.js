@@ -19,13 +19,6 @@ const LOW_CSS = `@layer t3-rtl-layout {
     text-align: -webkit-match-parent;
     text-align: match-parent;
   }
-  /* English text that the per-block rule turned left to right inside the
-     right-to-left layout, such as a work log row or a thread title, sits on
-     the right like the rest of its row. Messages keep their side. */
-  :root[data-t3-rtl-app="on"] :dir(rtl) > [dir="auto"]:dir(ltr):not(.chat-markdown, .chat-markdown *) {
-    text-align: -webkit-match-parent;
-    text-align: match-parent;
-  }
 }`;
 
 // Icons that point to a side. T3 Code's own icons that already turn in a
@@ -103,6 +96,16 @@ const HIGH_CSS = `
 /* A box that T3 Code aligns to its start with a class aligns to the start of
    the layout too, not of its English text. */
 :root[data-t3-rtl-app="on"] [data-t3-rtl-text]:is(.text-left, .text-start) {
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
+}
+
+/* English text that the per-block rule turned left to right inside the
+   right-to-left layout, such as a thread title in the sidebar or a work log
+   row, sits on the right like the rest of its row, also where T3 Code aligns
+   it to its start. Messages keep their side, and centered text stays
+   centered. */
+:root[data-t3-rtl-app="on"] :dir(rtl) > :is([dir="auto"], [dir="ltr"]:is(.text-start, .text-left)):dir(ltr):not(.chat-markdown, .chat-markdown *, .text-center, [data-t3-rtl-island]) {
   text-align: -webkit-match-parent;
   text-align: match-parent;
 }

@@ -112,6 +112,9 @@ The whole app is mirrored, as in a right-to-left language:
   conversation keeps room for it there. T3 Code still keeps the floating
   browser preview clear of the card as if the card were on the right, so the
   preview can cover a docked card.
+- Right-click menus are drawn by Windows, not by the page, so they stay left
+  to right. T3 Code ships only the English language pack of its browser
+  engine, so a right-to-left language cannot be set for them.
 
 T3 Code itself is not changed. The fix reads T3 Code's stylesheets and adds a
 copy of each one in which every left or right side becomes the start or end
