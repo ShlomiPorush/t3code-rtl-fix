@@ -82,6 +82,9 @@ need to open DevTools and paste CSS manually.
   and page title in the card that opens from an annotation chip.
 - Messages no longer show through around the composer at the bottom of a
   thread, behind its context row, or in the gap below it.
+- A thread opens at the start of the agent's last reply, so a long reply
+  reads from its first line. See
+  [Opening at the last reply](#opening-at-the-last-reply).
 - T3 Code itself is not patched or repackaged.
 
 ## Right-to-left layout
@@ -236,6 +239,29 @@ it. Escape closes the list.
 - The account list holds the accounts whose provider reports usage, also while
   none of its limits is open. Providers that never report usage are left out.
 - Choose the accounts in the Extras section, or turn the chips off there.
+
+## Opening at the last reply
+
+T3 Code opens a thread at its end, so a long reply shows its last lines
+first. The fix opens the thread with the start of the agent's last reply at
+the top instead. A proposed plan at the end of a thread opens the same way.
+The **Scroll to end** button then shows, as after scrolling up.
+
+T3 Code's own behavior stays in these cases:
+
+- The agent is still working. The thread follows the end of the reply as
+  it is written.
+- The last reply fits on the screen.
+- The last row is not a reply, such as your own message.
+- T3 Code returns to the place where you left the thread. It remembers the
+  place while the app stays open, only when you left the thread away from its
+  end.
+- You open the thread from a citation. It opens at the quoted text.
+- You scroll, click, or type before the thread is placed.
+
+When you send a message while the start of a reply is on the screen, T3 Code
+does not scroll to your message, as when you scroll up yourself. Use
+**Scroll to end** or scroll down to follow the new turn.
 
 ## Extras settings
 
@@ -463,7 +489,9 @@ npm test
 
 The smoke tests verify CSS injection through a Chromium debugging pipe, and the
 right-to-left layout in a real browser: mirrored copies of the stylesheets,
-the exact original layout when it is turned off, and a mirrored resize drag. A
+the exact original layout when it is turned off, and a mirrored resize drag.
+They also verify that a thread opens at the start of its last reply only when
+it should. A
 separate regression test performs a complete installation and removal under
 Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
 enabled and that shipped user-facing text contains no Hebrew.
