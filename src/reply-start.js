@@ -22,8 +22,12 @@ const CONFIG = Object.freeze({
   scrollerSelector: ".messages-timeline-scroll",
   rowSelector: "[data-timeline-row-id]",
   loadingSelector: "[data-timeline-loading]",
-  // Rows that show the agent at work.
+  // Rows that show the agent at work, and the composer's stop button, which
+  // shows while it works even when those rows are not rendered.
   busyKinds: ["working", "work-live"],
+  busySelector: 'button[class~="bg-destructive/90"][class~="rounded-full"]:has(> svg > rect)',
+  // First route segments that name no thread.
+  otherRoutes: ["draft", "settings"],
   // The space above the start of the reply, as T3 Code leaves above a new turn.
   offset: 16,
   // How far from the end still counts as the end.
@@ -44,14 +48,16 @@ function replyStart(config) {
   Object.defineProperty(window, flag, { value: true });
 
   // The first two route segments name the thread, in a hash route or in the
-  // path. Other changes, such as an opened panel, are not a new thread.
+  // path. Other changes, such as an opened panel, are not a new thread. A
+  // route that names no thread gives an empty key.
   const routeKey = () => {
     const route = location.hash.startsWith("#/") ? location.hash.slice(1).split("?")[0] : location.pathname;
-    return route.split("/").filter(Boolean).slice(0, 2).join("/");
+    const segments = route.split("/").filter(Boolean);
+    if (segments.length < 2 || config.otherRoutes.includes(segments[0])) return "";
+    return segments.slice(0, 2).join("/");
   };
 
-  const rowsOf = (scroller) => [...scroller.querySelectorAll(config.rowSelector)];
-  const signatureOf = (rows) => rows.map((row) => row.dataset.timelineRowId).join("\n");
+  const idsOf = (scroller) => [...scroller.querySelectorAll(config.rowSelector)].map((row) => row.dataset.timelineRowId);
   const currentScroller = () => {
     const scroller = document.querySelector(config.scrollerSelector);
     return scroller && scroller.querySelector(config.rowSelector) ? scroller : null;
@@ -76,8 +82,10 @@ function replyStart(config) {
   };
 
   // The row whose start the thread opens on, or null.
-  const replyRow = (scroller, rows) => {
+  const replyRow = (scroller) => {
+    const rows = [...scroller.querySelectorAll(config.rowSelector)];
     if (rows.some((row) => config.busyKinds.includes(row.dataset.timelineRowKind))) return null;
+    if (document.querySelector(config.busySelector)) return null;
     let last = null;
     let lastBottom = -Infinity;
     for (const row of rows) {
@@ -91,7 +99,7 @@ function replyStart(config) {
     const kind = last.dataset.timelineRowKind;
     const reply = (kind === "message" && last.dataset.messageRole === "assistant") || kind === "proposed-plan";
     if (!reply) return null;
-    const hidden = scroller.getBoundingClientRect().top + config.offset - last.getBoundingClientRect().top;
+    const hidden = scroller.getBoundingClientRect().top - last.getBoundingClientRect().top;
     return hidden > 1 ? last : null;
   };
 
@@ -99,7 +107,7 @@ function replyStart(config) {
   // at the top while the rows above it are measured.
   const place = (scroller, row) => {
     const id = row.dataset.timelineRowId;
-    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true, cancelable: true }));
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
     const job = { frame: 0 };
     visit = job;
     let frames = 0;
@@ -121,8 +129,11 @@ function replyStart(config) {
     step();
   };
 
-  const start = (previousSignature) => {
+  // previousIds are the rows shown when the route changed, which belong to
+  // the thread before it.
+  const start = (previousIds) => {
     stop();
+    const previous = new Set(previousIds);
     const job = { frame: 0, started: performance.now(), shown: 0, metrics: "", stable: 0, sawEnd: false };
     visit = job;
     const tick = guard(() => {
@@ -130,11 +141,10 @@ function replyStart(config) {
       job.frame = requestAnimationFrame(tick);
       const now = performance.now();
       const scroller = currentScroller();
-      const rows = scroller ? rowsOf(scroller) : [];
-      const signature = signatureOf(rows);
-      // Wait for the rows of this thread, not the ones still shown from the
-      // thread before it.
-      if (!scroller || signature === previousSignature || document.querySelector(config.loadingSelector)) {
+      const ids = scroller ? idsOf(scroller) : [];
+      // Wait for the rows of this thread. A row still shown from the thread
+      // before it means the list is not this thread's yet.
+      if (!scroller || ids.some((id) => previous.has(id)) || document.querySelector(config.loadingSelector)) {
         job.stable = 0;
         if (now - job.started > config.loadTimeout) stop();
         return;
@@ -143,18 +153,27 @@ function replyStart(config) {
       if (now - job.shown > config.settleTimeout) return stop();
       // A thread T3 Code opens fresh is scrolled to its very end first, and
       // T3 Code may then settle it a little above. A place T3 Code remembers
-      // is restored directly.
-      if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= config.endTolerance) job.sawEnd = true;
-      const metrics = [scroller.scrollTop, scroller.scrollHeight, scroller.clientHeight, signature].join("|");
+      // is restored directly. A list too short to scroll is at its end before
+      // T3 Code places it, so that end does not count.
+      const fromEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      if (fromEnd <= config.endTolerance && scroller.scrollTop > 0) job.sawEnd = true;
+      const metrics = [scroller.scrollTop, scroller.scrollHeight, scroller.clientHeight, ids.join(" ")].join("|");
       if (metrics !== job.metrics) {
         job.metrics = metrics;
         job.stable = 0;
         return;
       }
       if (++job.stable < config.stableFrames) return;
+      // A list still at its top may not be placed yet, so the visit waits for
+      // T3 Code to scroll it to the end until the time is up. A list placed
+      // elsewhere is a place T3 Code restored.
+      if (!job.sawEnd) {
+        if (scroller.scrollTop > 0) return stop();
+        job.stable = 0;
+        return;
+      }
       stop();
-      if (!job.sawEnd) return;
-      const row = replyRow(scroller, rows);
+      const row = replyRow(scroller);
       if (row) place(scroller, row);
     });
     job.frame = requestAnimationFrame(tick);
@@ -165,16 +184,20 @@ function replyStart(config) {
     const key = routeKey();
     if (key === lastKey) return;
     lastKey = key;
+    if (!key) return stop();
     const scroller = currentScroller();
-    start(scroller ? signatureOf(rowsOf(scroller)) : "");
+    start(scroller ? idsOf(scroller) : []);
   };
 
-  // The person's own scrolling, clicking, or typing wins.
+  // The person's own scrolling, clicking, or typing wins. A click that no
+  // pointer made, such as one from assistive technology, counts too.
   const onInput = (event) => {
-    if (event.isTrusted && visit) stop();
+    if (!event.isTrusted || !visit) return;
+    if (event.type === "click" && event.detail !== 0) return;
+    stop();
   };
 
-  for (const type of ["wheel", "keydown", "pointerdown", "touchstart"]) {
+  for (const type of ["wheel", "keydown", "pointerdown", "touchstart", "click"]) {
     window.addEventListener(type, onInput, { capture: true, passive: true });
   }
   if (window.navigation && typeof window.navigation.addEventListener === "function") {
@@ -182,7 +205,9 @@ function replyStart(config) {
   }
   window.addEventListener("popstate", guard(onRoute));
   window.addEventListener("hashchange", guard(onRoute));
-  guard(start)("");
+  // A thread already shown when this script arrives was placed before it,
+  // and stays as it is.
+  if (lastKey && !currentScroller()) guard(start)([]);
 }
 
 function buildReplyStartSource(config = CONFIG) {

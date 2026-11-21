@@ -43,20 +43,23 @@ body { margin: 0; }
   window.fake = {
     // Shows the rows of a newly opened thread after a delay, at the end, or
     // at a remembered offset. settleAbove moves the view up a little after
-    // reaching the end, as T3 Code does.
-    show(rows, { delay = 150, at = "end", settleAbove = 0 } = {}) {
+    // reaching the end, as T3 Code does. endAfter keeps the rows at the top
+    // for a while before scrolling to the end. firstRows shows other rows of
+    // the thread first, as a list whose rows are still being measured.
+    show(rows, { delay = 150, at = "end", settleAbove = 0, endAfter = 0, firstRows = null } = {}) {
       released = at !== "end";
-      resting = false;
-      setTimeout(() => {
-        root.replaceChildren(...rows.map(([kind, role, height]) => {
-          const row = document.createElement("div");
-          row.dataset.timelineRowId = "row-" + (rowNumber += 1);
-          row.dataset.timelineRowKind = kind;
-          if (role) row.dataset.messageRole = role;
-          row.style.height = height + "px";
-          return row;
-        }));
+      resting = !!endAfter;
+      const build = (list) => root.replaceChildren(...list.map(([kind, role, height]) => {
+        const row = document.createElement("div");
+        row.dataset.timelineRowId = "row-" + (rowNumber += 1);
+        row.dataset.timelineRowKind = kind;
+        if (role) row.dataset.messageRole = role;
+        row.style.height = height + "px";
+        return row;
+      }));
+      const place = () => {
         if (at === "end") {
+          resting = false;
           toEnd();
           if (settleAbove) {
             resting = true;
@@ -65,7 +68,36 @@ body { margin: 0; }
         } else {
           scroller.scrollTop = at;
         }
+      };
+      setTimeout(() => {
+        if (firstRows) {
+          build(firstRows);
+          setTimeout(() => { build(rows); place(); }, 30);
+          return;
+        }
+        build(rows);
+        if (endAfter) {
+          scroller.scrollTop = 0;
+          setTimeout(place, endAfter);
+        } else {
+          place();
+        }
       }, delay);
+    },
+    // A virtualized list changes which of its rows are rendered.
+    renderOtherRow() {
+      const row = root.lastElementChild;
+      if (row) row.dataset.timelineRowId = "row-" + (rowNumber += 1);
+    },
+    // The composer's stop button, shown while the agent works.
+    setBusy(busy) {
+      document.getElementById("stop")?.remove();
+      if (!busy) return;
+      const button = document.createElement("button");
+      button.id = "stop";
+      button.className = "flex rounded-full bg-destructive/90";
+      button.innerHTML = '<svg width="12" height="12"><rect x="2" y="2" width="8" height="8"></rect></svg>';
+      document.body.appendChild(button);
     },
     state() {
       const rows = [...root.children];
@@ -185,6 +217,56 @@ async function run(port) {
 
   const restored = await open(LONG, { at: 300 });
   check(restored.scrollTop === 300, `A remembered place was not kept: ${JSON.stringify(restored)}`);
+
+  // A restored thread that reaches its end soon after, such as from the
+  // Scroll to end button, stays there.
+  const restoredWheels = restored.wheels;
+  await open(LONG, { at: 300 }, async () => {
+    await wait(500);
+    await evaluate("document.querySelector('.messages-timeline-scroll').scrollTop = 1e6");
+  });
+  const toEndAfterRestore = await evaluate("fake.state()");
+  check(toEndAfterRestore.fromEnd === 0 && toEndAfterRestore.wheels === restoredWheels, `A restored thread moved after reaching its end: ${JSON.stringify(toEndAfterRestore)}`);
+
+  // Rows shown first in a list too short to scroll are at its end before
+  // T3 Code restores the remembered place.
+  const grown = await open(LONG, { at: 300, firstRows: [["message", "user", 60]] });
+  check(grown.scrollTop === 300 && grown.released, `A remembered place was lost after the list grew: ${JSON.stringify(grown)}`);
+
+  // T3 Code scrolls to the end only after the rows stood still for a while.
+  const late = await open(LONG, { endAfter: 300 });
+  check(late.lastTop === CONFIG.offset && late.released, `A long reply placed late did not open at its start: ${JSON.stringify(late)}`);
+
+  // A reply whose start is just inside the screen is not moved.
+  const inside = await open([["message", "user", 100], ["message", "assistant", 392]]);
+  check(inside.fromEnd === 0 && !inside.released && inside.lastTop === 8, `A reply that starts on the screen moved: ${JSON.stringify(inside)}`);
+
+  // The agent works while its working row is outside the rendered rows.
+  await evaluate("fake.setBusy(true)");
+  const stopShown = await open(LONG);
+  await evaluate("fake.setBusy(false)");
+  check(stopShown.fromEnd === 0 && !stopShown.released, `A thread with the stop button shown moved: ${JSON.stringify(stopShown)}`);
+
+  // The rows of the thread before change while the new one loads. They are
+  // not taken for the new thread. That thread stays at its end, because the
+  // person scrolled while it opened.
+  await open(LONG, { delay: 300 }, async () => {
+    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 300, y: 240, deltaX: 0, deltaY: 1 }, sessionId);
+  });
+  const wheelsBefore = (await evaluate("fake.state()")).wheels;
+  thread += 1;
+  await evaluate(`history.pushState({}, "", "/environment/thread-${thread}"); fake.show(${JSON.stringify([["message", "user", 60], ["message", "assistant", 120]])}, { delay: 400 })`);
+  await wait(100);
+  await evaluate("fake.renderOtherRow()");
+  await wait(900);
+  const outgoing = await evaluate("fake.state()");
+  check(outgoing.wheels === wheelsBefore, `The thread before the new one was moved: ${JSON.stringify(outgoing)}`);
+
+  // A new thread before its first message is no thread yet.
+  await evaluate(`history.pushState({}, "", "/draft/new"); fake.show(${JSON.stringify(LONG)})`);
+  await wait(900);
+  const draft = await evaluate("fake.state()");
+  check(draft.fromEnd === 0 && !draft.released, `A draft route moved the list: ${JSON.stringify(draft)}`);
 
   // The person scrolls before the thread is placed.
   const scrolled = await open(LONG, { delay: 300 }, async () => {
