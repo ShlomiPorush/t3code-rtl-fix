@@ -28,6 +28,13 @@ const CONFIG = Object.freeze({
   busySelector: 'button[class~="bg-destructive/90"][class~="rounded-full"]:has(> svg > rect)',
   // First route segments that name no thread.
   otherRoutes: ["draft", "settings"],
+  // T3 Code opens a citation's source with this in the address, and scrolls
+  // to the quoted text itself.
+  citationMarker: "#assistant-citation=",
+  // T3 Code remembers the place in a thread left farther than this from its
+  // end, for up to this many threads, and opens it there again.
+  rememberDistance: 40,
+  rememberedThreads: 100,
   // The space above the start of the reply, as T3 Code leaves above a new turn.
   offset: 16,
   // How far from the end still counts as the end.
@@ -51,13 +58,31 @@ function replyStart(config) {
   // path. Other changes, such as an opened panel, are not a new thread. A
   // route that names no thread gives an empty key.
   const routeKey = () => {
-    const route = location.hash.startsWith("#/") ? location.hash.slice(1).split("?")[0] : location.pathname;
+    const route = location.hash.startsWith("#/") ? location.hash.slice(1).split(/[?#]/)[0] : location.pathname;
     const segments = route.split("/").filter(Boolean);
     if (segments.length < 2 || config.otherRoutes.includes(segments[0])) return "";
     return segments.slice(0, 2).join("/");
   };
+  const citationOpen = () => location.href.includes(config.citationMarker);
 
-  const idsOf = (scroller) => [...scroller.querySelectorAll(config.rowSelector)].map((row) => row.dataset.timelineRowId);
+  // The threads T3 Code opens at a remembered place, as far as the page can
+  // tell: those left away from their end since the page loaded.
+  const remembered = new Set();
+  const rememberLeaving = (key) => {
+    const scroller = currentScroller();
+    if (!key || !scroller) return;
+    remembered.delete(key);
+    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= config.rememberDistance) return;
+    remembered.add(key);
+    if (remembered.size > config.rememberedThreads) remembered.delete(remembered.values().next().value);
+  };
+
+  // Message rows only: other rows, such as the worktree setup row, have the
+  // same id in every thread.
+  const idsOf = (scroller) =>
+    [...scroller.querySelectorAll(config.rowSelector)]
+      .filter((row) => row.dataset.timelineRowKind === "message")
+      .map((row) => row.dataset.timelineRowId);
   const currentScroller = () => {
     const scroller = document.querySelector(config.scrollerSelector);
     return scroller && scroller.querySelector(config.rowSelector) ? scroller : null;
@@ -138,6 +163,7 @@ function replyStart(config) {
     visit = job;
     const tick = guard(() => {
       if (visit !== job) return;
+      if (citationOpen()) return stop();
       job.frame = requestAnimationFrame(tick);
       const now = performance.now();
       const scroller = currentScroller();
@@ -168,8 +194,7 @@ function replyStart(config) {
       // T3 Code to scroll it to the end until the time is up. A list placed
       // elsewhere is a place T3 Code restored.
       if (!job.sawEnd) {
-        if (scroller.scrollTop > 0) return stop();
-        job.stable = 0;
+        if (scroller.scrollTop > 0) stop();
         return;
       }
       stop();
@@ -183,8 +208,10 @@ function replyStart(config) {
   const onRoute = () => {
     const key = routeKey();
     if (key === lastKey) return;
+    // The list still shows the thread being left.
+    rememberLeaving(lastKey);
     lastKey = key;
-    if (!key) return stop();
+    if (!key || remembered.has(key)) return stop();
     const scroller = currentScroller();
     start(scroller ? idsOf(scroller) : []);
   };

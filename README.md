@@ -256,6 +256,7 @@ T3 Code's own behavior stays in these cases:
 - T3 Code returns to the place where you left the thread. It remembers the
   place while the app stays open, only when you left the thread away from its
   end.
+- You open the thread from a citation. It opens at the quoted text.
 - You scroll, click, or type before the thread is placed.
 
 When you send a message while the start of a reply is on the screen, T3 Code

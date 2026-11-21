@@ -49,9 +49,10 @@ body { margin: 0; }
     show(rows, { delay = 150, at = "end", settleAbove = 0, endAfter = 0, firstRows = null } = {}) {
       released = at !== "end";
       resting = !!endAfter;
-      const build = (list) => root.replaceChildren(...list.map(([kind, role, height]) => {
+      // A row may have a fixed id, as T3 Code gives some rows in every thread.
+      const build = (list) => root.replaceChildren(...list.map(([kind, role, height, id]) => {
         const row = document.createElement("div");
-        row.dataset.timelineRowId = "row-" + (rowNumber += 1);
+        row.dataset.timelineRowId = id || "row-" + (rowNumber += 1);
         row.dataset.timelineRowKind = kind;
         if (role) row.dataset.messageRole = role;
         row.style.height = height + "px";
@@ -267,6 +268,30 @@ async function run(port) {
   await wait(900);
   const draft = await evaluate("fake.state()");
   check(draft.fromEnd === 0 && !draft.released, `A draft route moved the list: ${JSON.stringify(draft)}`);
+
+  // A citation's source opens where T3 Code scrolls to the quoted text.
+  thread += 1;
+  await evaluate(`history.pushState({}, "", "/environment/thread-${thread}#assistant-citation=quote"); fake.show(${JSON.stringify(LONG)})`);
+  await wait(900);
+  const citation = await evaluate("fake.state()");
+  check(citation.fromEnd === 0 && !citation.released, `A citation's source moved: ${JSON.stringify(citation)}`);
+
+  // Rows with the same id in every thread do not hide the new thread.
+  const SETUP = ["worktree-setup", null, 40, "worktree-setup-row"];
+  await open([SETUP, ["message", "user", 60], ["message", "assistant", 120]]);
+  const shared = await open([SETUP, ["message", "user", 60], ["message", "assistant", 1500]]);
+  check(shared.lastTop === CONFIG.offset && shared.released, `A thread after one with a shared row id did not open at its reply: ${JSON.stringify(shared)}`);
+
+  // A thread left away from its end opens where T3 Code remembers, even when
+  // a taller window puts that place at the end.
+  const left = await open(LONG);
+  const leftKey = `/environment/thread-${thread}`;
+  check(left.lastTop === CONFIG.offset, `A long reply did not open at its start: ${JSON.stringify(left)}`);
+  await open([["message", "user", 60], ["message", "assistant", 120]]);
+  await evaluate(`history.pushState({}, "", "${leftKey}"); fake.show(${JSON.stringify(LONG)})`);
+  await wait(900);
+  const returned = await evaluate("fake.state()");
+  check(returned.fromEnd === 0 && !returned.released, `A thread left away from its end was moved on return: ${JSON.stringify(returned)}`);
 
   // The person scrolls before the thread is placed.
   const scrolled = await open(LONG, { delay: 300 }, async () => {
