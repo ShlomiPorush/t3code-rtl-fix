@@ -106,6 +106,15 @@ try {
 }
 let chatWidth = initialSettings.chatWidth ?? null;
 
+// Opens a thread at the start of the agent's last reply. It loads on its own
+// too, so a failure leaves the rest of the fix running.
+let replyStartSource = null;
+try {
+  replyStartSource = require("./reply-start").buildReplyStartSource();
+} catch (error) {
+  log(`Opening threads at the start of the last reply is off: ${error.message}`);
+}
+
 let repoStatus = null;
 let repoStatusBinding = null;
 let repoStatusRuns = false;
@@ -381,6 +390,14 @@ async function attachAndInject(targetInfo) {
       sessionId,
     );
     log(`RTL fix injected into ${targetInfo.url}`);
+    if (replyStartSource) {
+      try {
+        await send("Page.addScriptToEvaluateOnNewDocument", { source: replyStartSource }, sessionId);
+        await send("Runtime.evaluate", { expression: replyStartSource, returnByValue: true }, sessionId);
+      } catch (error) {
+        log(`Opening threads at the start of the last reply could not be added: ${error.message}`);
+      }
+    }
     if (repoStatus) {
       try {
         await repoStatus.attach(sessionId);

@@ -125,6 +125,7 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "app-layout.js"),
     (Join-Path $sourceDirectory "css-mirror.js"),
     (Join-Path $sourceDirectory "chat-width.js"),
+    (Join-Path $sourceDirectory "reply-start.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )
