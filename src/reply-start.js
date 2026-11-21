@@ -31,9 +31,10 @@ const CONFIG = Object.freeze({
   // T3 Code opens a citation's source with this in the address, and scrolls
   // to the quoted text itself.
   citationMarker: "#assistant-citation=",
-  // T3 Code remembers the place in a thread left farther than this from its
-  // end, for up to this many threads, and opens it there again.
-  rememberDistance: 40,
+  // T3 Code shows its Scroll to end button once the person scrolled away from
+  // the end. It remembers the last threads left, this many, and opens one
+  // left with the button shown at the same place again.
+  scrollToEndSelector: "[data-scroll-to-end]",
   rememberedThreads: 100,
   // The space above the start of the reply, as T3 Code leaves above a new turn.
   offset: 16,
@@ -65,16 +66,20 @@ function replyStart(config) {
   };
   const citationOpen = () => location.href.includes(config.citationMarker);
 
-  // The threads T3 Code opens at a remembered place, as far as the page can
-  // tell: those left away from their end since the page loaded.
-  const remembered = new Set();
+  // The threads left since the page loaded, the last left at the end, each
+  // with whether it was left away from its end, as T3 Code keeps them.
+  const left = new Map();
+  // The open thread and the message rows shown when it was opened, which
+  // belong to the thread before it.
+  let entered = { key: "", previous: new Set() };
   const rememberLeaving = (key) => {
     const scroller = currentScroller();
-    if (!key || !scroller) return;
-    remembered.delete(key);
-    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= config.rememberDistance) return;
-    remembered.add(key);
-    if (remembered.size > config.rememberedThreads) remembered.delete(remembered.values().next().value);
+    if (!key || key !== entered.key || !scroller) return;
+    // The list may still show the thread before, if this one never showed.
+    if (idsOf(scroller).some((id) => entered.previous.has(id))) return;
+    left.delete(key);
+    left.set(key, !!document.querySelector(config.scrollToEndSelector));
+    if (left.size > config.rememberedThreads) left.delete(left.keys().next().value);
   };
 
   // Message rows only: other rows, such as the worktree setup row, have the
@@ -205,15 +210,18 @@ function replyStart(config) {
   };
 
   let lastKey = routeKey();
+  entered = { key: lastKey, previous: new Set() };
   const onRoute = () => {
     const key = routeKey();
     if (key === lastKey) return;
     // The list still shows the thread being left.
     rememberLeaving(lastKey);
     lastKey = key;
-    if (!key || remembered.has(key)) return stop();
     const scroller = currentScroller();
-    start(scroller ? idsOf(scroller) : []);
+    const previous = scroller ? idsOf(scroller) : [];
+    entered = { key, previous: new Set(previous) };
+    if (!key || left.get(key)) return stop();
+    start(previous);
   };
 
   // The person's own scrolling, clicking, or typing wins. A click that no

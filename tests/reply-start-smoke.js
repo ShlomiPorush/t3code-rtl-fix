@@ -39,6 +39,15 @@ body { margin: 0; }
   }, { passive: true });
   const toEnd = () => { scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight; };
   setInterval(() => { if (!released && !resting) toEnd(); }, 50);
+  // T3 Code shows its Scroll to end button after the person scrolled away
+  // from the end.
+  const scrollToEnd = document.createElement("button");
+  scrollToEnd.dataset.scrollToEnd = "";
+  setInterval(() => {
+    const away = released && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 2;
+    if (away && !scrollToEnd.isConnected) document.body.appendChild(scrollToEnd);
+    if (!away && scrollToEnd.isConnected) scrollToEnd.remove();
+  }, 20);
   let rowNumber = 0;
   window.fake = {
     // Shows the rows of a newly opened thread after a delay, at the end, or
@@ -292,6 +301,31 @@ async function run(port) {
   await wait(900);
   const returned = await evaluate("fake.state()");
   check(returned.fromEnd === 0 && !returned.released, `A thread left away from its end was moved on return: ${JSON.stringify(returned)}`);
+
+  // A thread T3 Code settled a little above its end, still following it, is
+  // opened at its end again, so a long reply that came since opens at its
+  // start.
+  const near = await open([["message", "user", 60], ["message", "assistant", 1500], ["message", "user", 60], ["message", "assistant", 120]], { settleAbove: 46 });
+  const nearKey = `/environment/thread-${thread}`;
+  check(near.fromEnd === 46 && !near.released, `A thread settled above its end moved: ${JSON.stringify(near)}`);
+  await open([["message", "user", 60], ["message", "assistant", 120]]);
+  await evaluate(`history.pushState({}, "", "${nearKey}"); fake.show(${JSON.stringify(LONG)})`);
+  await wait(900);
+  const nearAgain = await evaluate("fake.state()");
+  check(nearAgain.lastTop === CONFIG.offset && nearAgain.released, `A thread left following its end did not open at its new reply: ${JSON.stringify(nearAgain)}`);
+
+  // A thread passed through before it showed is not remembered with the
+  // place of the thread shown before it.
+  await open(LONG);
+  thread += 1;
+  const skippedKey = `/environment/thread-${thread}`;
+  await evaluate(`history.pushState({}, "", "${skippedKey}"); fake.show(${JSON.stringify(LONG)}, { delay: 600 })`);
+  await wait(100);
+  await open([["message", "user", 60], ["message", "assistant", 120]]);
+  await evaluate(`history.pushState({}, "", "${skippedKey}"); fake.show(${JSON.stringify(LONG)})`);
+  await wait(900);
+  const skipped = await evaluate("fake.state()");
+  check(skipped.lastTop === CONFIG.offset && skipped.released, `A thread passed through quickly did not open at its reply later: ${JSON.stringify(skipped)}`);
 
   // The person scrolls before the thread is placed.
   const scrolled = await open(LONG, { delay: 300 }, async () => {
