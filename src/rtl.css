@@ -172,11 +172,13 @@
   padding-inline-start: 1.5rem !important;
 }
 
-[data-t3-rtl-turn-plan][dir="rtl"] > button > svg:first-child {
+/* In the right-to-left layout the whole row is mirrored already, and its
+   chevron is mirrored with the other side icons. */
+:root:not([data-t3-rtl-app="on"]) [data-t3-rtl-turn-plan][dir="rtl"] > button > svg:first-child {
   order: 1;
 }
 
-[data-t3-rtl-turn-plan][dir="rtl"]
+:root:not([data-t3-rtl-app="on"]) [data-t3-rtl-turn-plan][dir="rtl"]
   > button[aria-expanded="false"]
   > svg:first-child {
   transform: scaleX(-1);
@@ -194,7 +196,8 @@
 
 /* Mirror the Cancel and Save row while the comment reads right to left. The
    row is the only child element besides the box and its character counter. */
-[data-citation-comment-editor="true"]:has(textarea:dir(rtl)) > div {
+/* In the right-to-left layout the row is mirrored already. */
+:root:not([data-t3-rtl-app="on"]) [data-citation-comment-editor="true"]:has(textarea:dir(rtl)) > div {
   flex-direction: row-reverse;
 }
 
@@ -264,7 +267,7 @@ ul[aria-label="Related threads"] span.block.truncate {
   direction: rtl;
 }
 
-[class~="group/timeline-row"]:has(
+:root:not([data-t3-rtl-app="on"]) [class~="group/timeline-row"]:has(
     > div > div.items-baseline p.items-baseline > span:first-child:dir(rtl)
   )
   > div
@@ -306,6 +309,13 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
   text-align: start !important;
 }
 
+/* In the right-to-left layout an empty composer starts on the right, so its
+   placeholder sits there too, in its own reading order. */
+:root[data-t3-rtl-app="on"]
+  div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
+  text-align: right !important;
+}
+
 div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
   > span.ml-2 {
   margin-left: 0 !important;
@@ -338,4 +348,10 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
    whole chat and keeps its own layout. */
 [data-chat-composer-overlay="true"].bottom-0 {
   background-color: var(--background) !important;
+}
+
+/* In the right-to-left layout the repository status section and its details
+   read right to left like the rest of the thread details card. */
+:root[data-t3-rtl-app="on"] :is([data-t3-rtl-repo-status], .t3-rtl-repo-status-tip) {
+  direction: rtl;
 }

@@ -76,16 +76,40 @@ test("T3 Code's home follows T3CODE_HOME like T3 Code does", () => {
 
 test("only the allowed settings and values are accepted", () => {
   assert.deepEqual(applyChange({}, { type: "set", key: "usageLimits", value: false }), { usageLimits: false });
+  assert.deepEqual(applyChange({}, { type: "set", key: "rtlLayout", value: false }), { rtlLayout: false });
+  assert.equal(applyChange({}, { type: "set", key: "rtlLayout", value: "off" }), null);
   assert.equal(applyChange({}, { type: "set", key: "usageLimits", value: "no" }), null);
   assert.equal(applyChange({}, { type: "set", key: "evil", value: true }), null);
   assert.equal(applyChange({}, { type: "set", key: "__proto__", value: true }), null);
   assert.equal(applyChange({}, { type: "hideAccount", id: "../x", hidden: true }), null);
   assert.deepEqual(applyChange({ keep: 1 }, { type: "hideAccount", id: "codex", hidden: true }), { keep: 1, usageHiddenAccounts: ["codex"] });
   assert.deepEqual(pick({ repoStatus: false, usageHiddenAccounts: ["a", "a", 5, "b/c"], other: FORBIDDEN }), {
+    rtlLayout: true,
     repoStatus: false,
     usageLimits: true,
     usageHiddenAccounts: ["a"],
+    chatWidth: null,
   });
+});
+
+test("the chat width takes only the offered widths", () => {
+  assert.deepEqual(applyChange({}, { type: "set", key: "chatWidth", value: 58 }), { chatWidth: 58 });
+  assert.deepEqual(applyChange({ chatWidth: 58 }, { type: "set", key: "chatWidth", value: null }), { chatWidth: null });
+  assert.equal(applyChange({}, { type: "set", key: "chatWidth", value: 57 }), null);
+  assert.equal(applyChange({}, { type: "set", key: "chatWidth", value: "58" }), null);
+  assert.equal(applyChange({}, { type: "set", key: "chatWidth", value: "58rem; } body { display: none" }), null);
+  assert.equal(pick({ chatWidth: 64 }).chatWidth, 64);
+  assert.equal(pick({ chatWidth: 1e6 }).chatWidth, null);
+  assert.equal(pick({ chatWidth: "64" }).chatWidth, null);
+});
+
+test("the chat width replaces only T3 Code's Comfortable width", () => {
+  const { chatWidthCss, buildChatWidthSource } = require("../src/chat-width");
+  assert.equal(chatWidthCss(58), ':root:not([data-chat-width="wide"], [data-chat-width="full"]) { --chat-content-max-width: 58rem; }');
+  assert.equal(chatWidthCss(null), "");
+  assert.equal(chatWidthCss(999), "");
+  assert.doesNotThrow(() => new Function(buildChatWidthSource(58)));
+  assert.doesNotThrow(() => new Function(buildChatWidthSource(null)));
 });
 
 test("quick changes from the same starting state all persist, and unknown keys stay on disk only", async (t) => {
@@ -124,7 +148,7 @@ test("a settings file that cannot be parsed is never overwritten", async (t) => 
 test("a byte order mark is accepted and a missing file means the defaults", async (t) => {
   const { home, fix } = layout(t);
   const store = createSettingsStore({ directory: fix, t3Home: home });
-  assert.deepEqual(pick(store.get()), { repoStatus: true, usageLimits: true, usageHiddenAccounts: [] });
+  assert.deepEqual(pick(store.get()), { rtlLayout: true, repoStatus: true, usageLimits: true, usageHiddenAccounts: [], chatWidth: null });
   fs.writeFileSync(path.join(fix, "settings.json"), "\uFEFF{\"repoStatus\":false}", "utf8");
   assert.equal(createSettingsStore({ directory: fix, t3Home: home }).get().repoStatus, false);
 });

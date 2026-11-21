@@ -368,6 +368,7 @@ function buildInjectionSource(css) {
   if (previousState?.onTableScroll) {
     document.removeEventListener("scroll", previousState.onTableScroll, true);
   }
+  if (previousState?.onLayout) window.removeEventListener("t3-rtl-layout", previousState.onLayout);
 
   const state = {
     observer: null,
@@ -375,6 +376,7 @@ function buildInjectionSource(css) {
     composerRules: new Map(),
     tableResizeObserver: null,
     onTableScroll: null,
+    onLayout: null,
   };
   globalThis[stateKey] = state;
 
@@ -612,7 +614,8 @@ function buildInjectionSource(css) {
       editor.setAttribute(composerMarker, id);
     }
     const selectors = { rtl: [], ltr: [] };
-    let previous = "ltr";
+    // An empty composer starts on the side of the app's layout.
+    let previous = document.documentElement.getAttribute("data-t3-rtl-app") === "on" ? "rtl" : "ltr";
     // Walks the blocks in document order. A list, list item or quote takes the
     // direction of its first paragraph, which puts its marker, gutter or
     // border on the side where that paragraph starts. Every block gets a rule,
@@ -688,6 +691,13 @@ function buildInjectionSource(css) {
       if (scroll) syncTableScroll(event.target, scroll);
     };
     document.addEventListener("scroll", state.onTableScroll, true);
+    // The layout of the whole app changes where an empty composer starts and
+    // which tables read right to left.
+    state.onLayout = () => {
+      updateComposers(new Set(document.querySelectorAll(composerRootSelector)));
+      alignTableScrolls(document);
+    };
+    window.addEventListener("t3-rtl-layout", state.onLayout);
     applyDirections(document);
     updateComposers(new Set(document.querySelectorAll(composerRootSelector)));
     state.observer = new MutationObserver((records) => {

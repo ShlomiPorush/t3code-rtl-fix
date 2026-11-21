@@ -12,14 +12,17 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { isChatWidth } = require("./chat-width");
 
 const INSTANCE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_FILE_BYTES = 256 * 1024;
 
 const DEFAULTS = Object.freeze({
+  rtlLayout: true,
   repoStatus: true,
   usageLimits: true,
   usageHiddenAccounts: Object.freeze([]),
+  chatWidth: null,
 });
 
 // T3 Code reads its home from T3CODE_HOME, trimmed, with a leading ~ expanded
@@ -55,9 +58,11 @@ function pick(raw) {
     ? [...new Set(source.usageHiddenAccounts.filter((id) => typeof id === "string" && INSTANCE_ID.test(id)))]
     : [];
   return {
+    rtlLayout: typeof source.rtlLayout === "boolean" ? source.rtlLayout : DEFAULTS.rtlLayout,
     repoStatus: typeof source.repoStatus === "boolean" ? source.repoStatus : DEFAULTS.repoStatus,
     usageLimits: typeof source.usageLimits === "boolean" ? source.usageLimits : DEFAULTS.usageLimits,
     usageHiddenAccounts: hidden,
+    chatWidth: isChatWidth(source.chatWidth) ? source.chatWidth : DEFAULTS.chatWidth,
   };
 }
 
@@ -113,8 +118,12 @@ function applyChange(raw, message) {
   if (!message || typeof message !== "object") return null;
   const next = { ...raw };
   if (message.type === "set") {
-    if ((message.key === "repoStatus" || message.key === "usageLimits") && typeof message.value === "boolean") {
+    if ((message.key === "rtlLayout" || message.key === "repoStatus" || message.key === "usageLimits") && typeof message.value === "boolean") {
       next[message.key] = message.value;
+      return next;
+    }
+    if (message.key === "chatWidth" && isChatWidth(message.value)) {
+      next.chatWidth = message.value;
       return next;
     }
     return null;

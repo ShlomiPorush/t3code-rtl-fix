@@ -85,7 +85,26 @@ try {
 } catch (error) {
   log(`Extras settings are off: ${error.message}`);
 }
-const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true };
+const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true, rtlLayout: true };
+
+// The right-to-left layout of the whole app, which the Extras section turns
+// on and off. It loads on its own, so a failure leaves the per-message fix.
+let buildLayoutSource = null;
+try {
+  ({ buildLayoutSource } = require("./app-layout"));
+} catch (error) {
+  log(`The right-to-left layout is off: ${error.message}`);
+}
+let rtlLayout = initialSettings.rtlLayout !== false;
+
+// The chat width chosen in the Extras section. It loads on its own too.
+let buildChatWidthSource = null;
+try {
+  ({ buildChatWidthSource } = require("./chat-width"));
+} catch (error) {
+  log(`The chat width is off: ${error.message}`);
+}
+let chatWidth = initialSettings.chatWidth ?? null;
 
 let repoStatus = null;
 let repoStatusBinding = null;
@@ -132,6 +151,16 @@ if (settingsStore) {
   }
   settingsStore.onChange((settings) => {
     repoStatus?.setEnabled(settings.repoStatus && repoStatusRuns);
+    const nextLayout = settings.rtlLayout !== false;
+    if (nextLayout !== rtlLayout) {
+      rtlLayout = nextLayout;
+      for (const sessionId of layoutSessions) void switchLayout(sessionId);
+    }
+    const nextWidth = settings.chatWidth ?? null;
+    if (nextWidth !== chatWidth) {
+      chatWidth = nextWidth;
+      for (const sessionId of chatWidthSessions) void switchChatWidth(sessionId);
+    }
   });
 }
 
@@ -171,6 +200,86 @@ const pending = new Map();
 const sessionsByTarget = new Map();
 const attachingTargets = new Set();
 const annotationSessionsLogged = new Set();
+// The T3 Code pages that get the layout, from the moment they are attached,
+// and the new-document script of the layout in each, by session.
+const layoutSessions = new Set();
+const layoutScripts = new Map();
+
+// Layout work for each session runs one step at a time, so quick changes,
+// such as one from a second window, never lose track of a script.
+const layoutQueues = new Map();
+function queueLayout(sessionId, step) {
+  const next = (layoutQueues.get(sessionId) || Promise.resolve()).then(step, step);
+  layoutQueues.set(sessionId, next.catch(() => {}));
+  return next;
+}
+
+// A reload or a new document starts in the saved layout. The new script is
+// added before the old one is removed, so no document starts without one.
+async function registerLayout(sessionId) {
+  if (!buildLayoutSource) return;
+  const previous = layoutScripts.get(sessionId);
+  const { identifier } = await send(
+    "Page.addScriptToEvaluateOnNewDocument",
+    { source: buildLayoutSource({ enabled: rtlLayout }) },
+    sessionId,
+  );
+  layoutScripts.set(sessionId, identifier);
+  if (previous) {
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: previous }, sessionId).catch(() => {});
+  }
+}
+
+// The chat width follows the same steps as the layout: a new-document
+// script for each session, replaced when the setting changes, and applied
+// to the open page at once.
+const chatWidthSessions = new Set();
+const chatWidthScripts = new Map();
+
+async function registerChatWidth(sessionId) {
+  if (!buildChatWidthSource) return;
+  const previous = chatWidthScripts.get(sessionId);
+  const { identifier } = await send(
+    "Page.addScriptToEvaluateOnNewDocument",
+    { source: buildChatWidthSource(chatWidth) },
+    sessionId,
+  );
+  chatWidthScripts.set(sessionId, identifier);
+  if (previous) {
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: previous }, sessionId).catch(() => {});
+  }
+}
+
+function switchChatWidth(sessionId) {
+  return queueLayout(sessionId, async () => {
+    if (!chatWidthSessions.has(sessionId)) return;
+    try {
+      await registerChatWidth(sessionId);
+      await send("Runtime.evaluate", { expression: buildChatWidthSource(chatWidth), returnByValue: true }, sessionId);
+      log(`Chat width set to ${chatWidth === null ? "T3 Code's own" : chatWidth + "rem"}`);
+    } catch (error) {
+      log(`Could not change the chat width: ${error.message}`);
+    }
+  });
+}
+
+// Applies a changed setting to an open page at once.
+function switchLayout(sessionId) {
+  return queueLayout(sessionId, async () => {
+    if (!layoutSessions.has(sessionId)) return;
+    try {
+      await registerLayout(sessionId);
+      await send(
+        "Runtime.evaluate",
+        { expression: `globalThis.__t3RtlLayout && globalThis.__t3RtlLayout.set(${rtlLayout})`, returnByValue: true },
+        sessionId,
+      );
+      log(`Right-to-left layout turned ${rtlLayout ? "on" : "off"}`);
+    } catch (error) {
+      log(`Could not switch the right-to-left layout: ${error.message}`);
+    }
+  });
+}
 
 function send(method, params = {}, sessionId) {
   const id = nextMessageId++;
@@ -235,6 +344,32 @@ async function attachAndInject(targetInfo) {
 
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
+    if (buildLayoutSource) {
+      layoutSessions.add(sessionId);
+      await queueLayout(sessionId, async () => {
+        try {
+          await registerLayout(sessionId);
+          await send(
+            "Runtime.evaluate",
+            { expression: buildLayoutSource({ enabled: rtlLayout }), returnByValue: true },
+            sessionId,
+          );
+        } catch (error) {
+          log(`The right-to-left layout could not be added: ${error.message}`);
+        }
+      });
+    }
+    if (buildChatWidthSource) {
+      chatWidthSessions.add(sessionId);
+      await queueLayout(sessionId, async () => {
+        try {
+          await registerChatWidth(sessionId);
+          await send("Runtime.evaluate", { expression: buildChatWidthSource(chatWidth), returnByValue: true }, sessionId);
+        } catch (error) {
+          log(`The chat width could not be added: ${error.message}`);
+        }
+      });
+    }
     await send(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: injectionSource },
@@ -320,6 +455,11 @@ function handleMessage(message) {
   if (message.method === "Target.targetDestroyed") {
     const destroyedSession = sessionsByTarget.get(message.params?.targetId);
     annotationSessionsLogged.delete(destroyedSession);
+    layoutSessions.delete(destroyedSession);
+    layoutScripts.delete(destroyedSession);
+    chatWidthSessions.delete(destroyedSession);
+    chatWidthScripts.delete(destroyedSession);
+    layoutQueues.delete(destroyedSession);
     dispatch.targetDestroyed(destroyedSession);
     sessionsByTarget.delete(message.params?.targetId);
   }
