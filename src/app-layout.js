@@ -168,6 +168,13 @@ const LTR_ISLAND_SELECTOR = [
   // sides, and each edge handle names its compass side, so the handles stay
   // on those sides and move with the pointer.
   "[data-preview-mini-player-resize]",
+  // The floating preview's buttons sit in its top right corner, held by a
+  // grip that T3 Code places from that corner.
+  "[data-preview-mini-player] > .group",
+  // A previewed page is placed and scaled from its top left corner inside
+  // its viewport, which T3 Code also scrolls from the left, so in the
+  // mirrored layout the page would leave the viewport.
+  "[data-preview-viewport]",
   "file-tree-container",
   // T3 Code shows a long path or branch name as its head and its tail side
   // by side, with the middle cut, so the two parts keep their order.
@@ -176,6 +183,10 @@ const LTR_ISLAND_SELECTOR = [
   "kbd",
   "diffs-container",
 ].join(", ");
+
+// Parts of T3 Code's own interface inside an island that are laid out with
+// the app again, such as the device toolbar over a previewed page.
+const RTL_RETURN_SELECTOR = "[data-preview-viewport] [data-browser-device-toolbar]";
 
 // Text that the right-to-left layout leaves to its own rules: messages and
 // other Markdown, the composer, code, fields, and islands.
@@ -207,6 +218,7 @@ function buildLayoutSource({ enabled }) {
   const lowCss = ${JSON.stringify(LOW_CSS)};
   const highCss = ${JSON.stringify(HIGH_CSS)};
   const islandSelector = ${JSON.stringify(LTR_ISLAND_SELECTOR)};
+  const returnSelector = ${JSON.stringify(RTL_RETURN_SELECTOR)};
   const textExcludeSelector = ${JSON.stringify(TEXT_EXCLUDE_SELECTOR)};
   const scriptPlacedSelector = ${JSON.stringify(SCRIPT_PLACED_SELECTOR)};
   const layoutAutoSelector = ${JSON.stringify(LAYOUT_AUTO_SELECTOR)};
@@ -434,22 +446,27 @@ function buildLayoutSource({ enabled }) {
     // The fix marks what it changed in the page itself, so nothing that T3
     // Code removes is kept alive by the fix.
     const markIslands = (scope) => {
-      const found = [];
-      // An island can be recognized by content that appears inside it later,
-      // such as the terminal's buttons, so the scope's ancestors count too.
-      if (scope.nodeType === Node.ELEMENT_NODE) {
-        const outer = scope.closest(islandSelector);
-        if (outer) found.push(outer);
-      }
-      if (typeof scope.querySelectorAll === "function") found.push(...scope.querySelectorAll(islandSelector));
-      for (const element of found) {
-        if (element.hasAttribute("dir")) continue;
-        element.setAttribute("dir", "ltr");
-        element.setAttribute("data-t3-rtl-island", "");
-        // A weak reference finds the island again if T3 Code moves it out of
-        // the page and back, without keeping it alive.
-        state.islands.push(new WeakRef(element));
-      }
+      const mark = (selector, dir, attribute) => {
+        const found = [];
+        // An island can be recognized by content that appears inside it
+        // later, such as the terminal's buttons, so the scope's ancestors
+        // count too.
+        if (scope.nodeType === Node.ELEMENT_NODE) {
+          const outer = scope.closest(selector);
+          if (outer) found.push(outer);
+        }
+        if (typeof scope.querySelectorAll === "function") found.push(...scope.querySelectorAll(selector));
+        for (const element of found) {
+          if (element.hasAttribute("dir")) continue;
+          element.setAttribute("dir", dir);
+          element.setAttribute(attribute, "");
+          // A weak reference finds the element again if T3 Code moves it out
+          // of the page and back, without keeping it alive.
+          state.islands.push(new WeakRef(element));
+        }
+      };
+      mark(islandSelector, "ltr", "data-t3-rtl-island");
+      mark(returnSelector, "rtl", "data-t3-rtl-return");
     };
 
     // T3 Code enables the buttons that scroll the right panel's tabs from
@@ -497,15 +514,19 @@ function buildLayoutSource({ enabled }) {
     };
 
     const clearIslands = () => {
-      const marked = new Set(document.querySelectorAll("[data-t3-rtl-island]"));
+      const marks = [["data-t3-rtl-island", "ltr"], ["data-t3-rtl-return", "rtl"]];
+      const marked = new Set(document.querySelectorAll("[data-t3-rtl-island], [data-t3-rtl-return]"));
       for (const ref of state.islands) {
         const element = ref.deref();
-        if (element && element.hasAttribute("data-t3-rtl-island")) marked.add(element);
+        if (element && marks.some(([attribute]) => element.hasAttribute(attribute))) marked.add(element);
       }
       state.islands = [];
       for (const element of marked) {
-        element.removeAttribute("data-t3-rtl-island");
-        if (element.getAttribute("dir") === "ltr") element.removeAttribute("dir");
+        for (const [attribute, dir] of marks) {
+          if (!element.hasAttribute(attribute)) continue;
+          element.removeAttribute(attribute);
+          if (element.getAttribute("dir") === dir) element.removeAttribute("dir");
+        }
       }
     };
 
@@ -517,7 +538,10 @@ function buildLayoutSource({ enabled }) {
     // paragraph. Excluded parts of the page are skipped whole, and the page is
     // read before anything is written.
     const letter = /\\p{L}/u;
-    const directedSelector = "[dir]:not(" + layoutAutoSelector + ")";
+    // A part laid out with the app again inside an island is read like the
+    // rest of the app.
+    const returnedSelector = "[data-t3-rtl-return]";
+    const directedSelector = "[dir]:not(" + layoutAutoSelector + ", " + returnedSelector + ")";
     const excluded = (element) =>
       element.matches(textExcludeSelector) || (element !== root && element.matches(directedSelector));
     const filter = {
@@ -530,12 +554,16 @@ function buildLayoutSource({ enabled }) {
       const body = document.body;
       if (!body) return;
       const parents = new Set();
+      const all = new Set(scopes);
       for (const scope of scopes) {
+        if (typeof scope.querySelectorAll === "function") for (const part of scope.querySelectorAll(returnedSelector)) all.add(part);
+      }
+      for (const scope of all) {
         const start = scope.nodeType === Node.TEXT_NODE ? scope.parentElement : scope;
         if (!start || !start.isConnected || !body.contains(start)) continue;
         const outside = start.closest(textExcludeSelector);
-        const directed = start.closest(directedSelector);
-        if (outside || (directed && directed !== root)) continue;
+        const directed = start.closest(directedSelector + ", " + returnedSelector);
+        if (outside || (directed && directed !== root && !directed.matches(returnedSelector))) continue;
         if (scope.nodeType === Node.TEXT_NODE) {
           if (letter.test(scope.data)) parents.add(start);
           continue;

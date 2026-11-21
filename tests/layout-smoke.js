@@ -26,6 +26,7 @@ const LINK_CSS = `@layer theme, base, components, utilities;
   .var-short { margin: var(--m); margin-left: 2px; }
   .pl-3 { padding-left: 12px; }
   .left-0 { left: 0; }
+  .right-0 { right: 0; }
   .border-l { border-left-style: solid; border-left-width: 3px; }
   .text-left { text-align: left; }
   @media (width >= 1px) { .sm\\:pr-2 { padding-right: 8px; } }
@@ -57,6 +58,20 @@ const PAGE = `<!doctype html><html><head>
   <div id="mini-handle" data-preview-mini-player-resize class="ml-4" style="cursor: ew-resize; width: 20px; height: 20px;"></div>
   <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
   <span id="plain-auto" dir="auto">English title</span>
+</div>
+<section id="floating" data-preview-mini-player="key" style="position: fixed; left: 20px; top: 300px; width: 200px; height: 120px;">
+  <div id="floating-grab" class="group" style="right: 8px; top: 8px; position: absolute; width: 12px; height: 12px;">
+    <div id="floating-pill" class="right-0" style="position: absolute; top: 0; width: 90px; height: 32px;"></div>
+  </div>
+  <div id="floating-content" style="position: absolute; inset: 0;">Reconnecting preview…</div>
+</section>
+<div id="viewport" data-preview-viewport="tab" style="left: 300px; top: 300px; width: 100px; height: 80px; position: fixed; overflow: hidden;">
+  <div style="position: relative; width: 100px; height: 80px;">
+    <div id="viewport-toolbar" role="toolbar" data-browser-device-toolbar style="display: flex;"><span id="viewport-device">Galaxy S8+</span></div>
+    <div style="left: 0px; top: 0px; width: 100px; height: 80px; position: absolute;">
+      <div id="viewport-page" class="left-0" style="position: absolute; top: 0; width: 400px; height: 320px; transform: scale(0.25); transform-origin: top left;"></div>
+    </div>
+  </div>
 </div>
 </body></html>`;
 
@@ -134,6 +149,7 @@ async function run(port) {
     const s = (id) => getComputedStyle(document.getElementById(id));
     const pos = document.getElementById("pos").getBoundingClientRect();
     const left = document.getElementById("left").getBoundingClientRect();
+    const box = (id) => document.getElementById(id).getBoundingClientRect();
     return {
       dir: document.documentElement.getAttribute("dir"),
       mlLeft: s("ml").marginLeft, mlRight: s("ml").marginRight,
@@ -154,6 +170,11 @@ async function run(port) {
       cardTitleAlign: s("card-title").textAlign,
       cardTextMarked: document.getElementById("card-text").hasAttribute("data-t3-rtl-text"),
       plainAutoDir: s("plain-auto").direction,
+      pillOffset: Math.round(box("floating-grab").right - box("floating-pill").right),
+      pageOffset: Math.round(box("viewport-page").left - box("viewport").left),
+      floatingDirs: ["floating", "floating-grab", "floating-content", "viewport", "viewport-toolbar"]
+        .map((id) => [document.getElementById(id).getAttribute("dir"), s(id).direction].join(":")),
+      deviceMarked: document.getElementById("viewport-device").hasAttribute("data-t3-rtl-text"),
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
     };
@@ -183,6 +204,15 @@ async function run(port) {
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
+  // The floating preview and the page inside a preview are placed and scaled
+  // by T3 Code from their physical sides, so they keep them.
+  check(on.pillOffset === 0, `The floating preview's buttons left its corner: ${on.pillOffset}px`);
+  check(on.pageOffset === 0, `The previewed page left its viewport: ${on.pageOffset}px`);
+  // Only the grip and the viewport keep their side. The rest of the floating
+  // preview and the device toolbar over a page are laid out with the app.
+  check(JSON.stringify(on.floatingDirs) === JSON.stringify([":rtl", "ltr:ltr", ":rtl", "ltr:ltr", "rtl:rtl"]),
+    `The preview's parts did not get their directions: ${JSON.stringify(on.floatingDirs)}`);
+  check(on.deviceMarked, "English text in the device toolbar did not keep its reading order");
 
   // A style whose text changes is mirrored again.
   await evaluate(`document.getElementById("inline-style").textContent = ".inline-pr { padding-right: 11px; }"`);

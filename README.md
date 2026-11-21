@@ -105,6 +105,9 @@ The whole app is mirrored, as in a right-to-left language:
   punctuation stays at the end of the sentence.
 - Code, terminals, diffs, the file tree, paths and branch names, keyboard
   keys, and the T3 Code logo stay left to right.
+- A previewed page and the floating preview's buttons stay left to right, so
+  the page fills its frame and the buttons stay in the floating preview's top
+  right corner. The device toolbar over a page follows the layout.
 - Dragging the edge of the sidebar or a panel moves it the way the pointer
   moves.
 - The thread details card is on the left, under its button, whether it is
