@@ -726,6 +726,13 @@ function pageMain(config) {
         change({ type: "set", key: "repoStatus", value: value });
       }),
     ));
+    card.appendChild(settingRow(
+      "Working section in the boring sidebar",
+      "Show T3 Code's Working section with the boring sidebar, at the top above Pinned. Needs Sidebar › Working section on. Applies the next time T3 Code opens.",
+      sw(settings.boringWorkingShelf === true, locked, "Working section in the boring sidebar", function (value) {
+        change({ type: "set", key: "boringWorkingShelf", value: value });
+      }),
+    ));
     var message = errorText();
     if (message) {
       var error = el("p", "t3x-error", message);

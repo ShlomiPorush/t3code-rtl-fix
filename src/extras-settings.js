@@ -23,7 +23,9 @@ const DEFAULTS = Object.freeze({
   usageLimits: true,
   usageHiddenAccounts: Object.freeze([]),
   chatWidth: null,
+  boringWorkingShelf: false,
 });
+const BOOLEAN_KEYS = new Set(["rtlLayout", "repoStatus", "usageLimits", "boringWorkingShelf"]);
 
 // T3 Code reads its home from T3CODE_HOME, trimmed, with a leading ~ expanded
 // and a relative path taken from the home folder. Empty means ~/.t3.
@@ -63,6 +65,8 @@ function pick(raw) {
     usageLimits: typeof source.usageLimits === "boolean" ? source.usageLimits : DEFAULTS.usageLimits,
     usageHiddenAccounts: hidden,
     chatWidth: isChatWidth(source.chatWidth) ? source.chatWidth : DEFAULTS.chatWidth,
+    boringWorkingShelf:
+      typeof source.boringWorkingShelf === "boolean" ? source.boringWorkingShelf : DEFAULTS.boringWorkingShelf,
   };
 }
 
@@ -118,7 +122,7 @@ function applyChange(raw, message) {
   if (!message || typeof message !== "object") return null;
   const next = { ...raw };
   if (message.type === "set") {
-    if ((message.key === "rtlLayout" || message.key === "repoStatus" || message.key === "usageLimits") && typeof message.value === "boolean") {
+    if (BOOLEAN_KEYS.has(message.key) && typeof message.value === "boolean") {
       next[message.key] = message.value;
       return next;
     }

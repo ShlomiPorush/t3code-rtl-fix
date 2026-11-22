@@ -36,7 +36,7 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
-for f in rtl.css injection.js t3-rtl-launcher.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js; do
+for f in rtl.css injection.js t3-rtl-launcher.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js; do
   [ -f "$SRC/$f" ] || { echo "Missing file: src/$f"; exit 1; }
 done
 
@@ -74,7 +74,8 @@ if [ -n "$NODE_BIN" ]; then echo "Using Node.js: $NODE_BIN"; else echo "Node.js 
 mkdir -p "$INSTALL_DIR"
 cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
   "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
-  "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" "$INSTALL_DIR/"
+  "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
+  "$SRC/working-shelf.js" "$INSTALL_DIR/"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
 cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"

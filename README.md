@@ -276,6 +276,30 @@ When you send a message while the start of a reply is on the screen, T3 Code
 does not scroll to your message, as when you scroll up yourself. Use
 **Scroll to end** or scroll down to follow the new turn.
 
+## Working section in the boring sidebar
+
+T3 Code folds threads that are working into a **Working** section, but not
+when the boring sidebar (Labs > Boring sidebar, group by project) is on. Turn
+on **Working section in the boring sidebar** in the Extras section to have it
+there too:
+
+- A thread that is working leaves its project folder for the Working section,
+  and returns to its folder when it is done or needs you.
+- The Working section sits at the top of the sidebar, above Pinned. New thread
+  drafts stay above it. Snoozed and Settled stay at the bottom.
+- A project folder whose only active thread is working hides until the thread
+  returns, as T3 Code already does when a thread is snoozed or settled.
+- T3 Code's own Sidebar > Working section setting still turns the section on
+  or off. It is on by default.
+- The sidebar without the boring mode does not change.
+
+The option is off by default. It applies the next time T3 Code opens.
+
+To do this, the launcher changes T3 Code's sidebar code as the app loads it.
+When a T3 Code update changes that code, the launcher leaves it as it is and
+writes one line to `launcher.log`, and the boring sidebar has no Working
+section again until the fix is updated.
+
 ## Extras settings
 
 The Labs page of T3 Code's settings ends with an **Extras** section, added by
@@ -292,8 +316,12 @@ the fix:
   the list, so you can show it again.
 - **Repository status** turns the repository status section on or off. On
   macOS with an older Node.js, the switch is off and says why.
+- **Working section in the boring sidebar** shows T3 Code's Working section
+  at the top of the boring sidebar. It is off by default. See
+  [Working section in the boring sidebar](#working-section-in-the-boring-sidebar).
 
-Changes apply at once, without a restart. They are saved in `settings.json`
+Changes apply at once, without a restart, except the Working section in the
+boring sidebar, which applies the next time T3 Code opens. They are saved in `settings.json`
 beside `rtl.css` in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
@@ -447,6 +475,15 @@ repairs the shortcuts and shows the message once. It only touches shortcuts
 that the installer of the fix changed, so the uninstaller still restores all
 of them.
 
+When the Working section in the boring sidebar is on, the launcher asks
+Chromium to pause the response for T3 Code's main script,
+`t3code://app/assets/main-*.js`, before the first window loads. It changes the
+sidebar code in that response only when every place it changes is found
+exactly once, and otherwise passes the script on unchanged. Every other
+request is not touched. A window that opens later in the same session gets
+the same script from Chromium's cache, which is why the option applies the
+next time T3 Code opens.
+
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.
 
@@ -487,6 +524,8 @@ tests/     Unit, browser smoke, and Windows installer tests
   then stop showing until the fix is updated.
 - The usage chips and the Extras section are not added to T3 Code's
   development build.
+- The Working section in the boring sidebar depends on how T3 Code's sidebar
+  code is written. A T3 Code update can turn it off until the fix is updated.
 - In the right-to-left layout, a new window can show T3 Code's own layout for
   a moment when T3 Code first opens, before the fix reaches it.
 - The first installation cannot inject into an instance that is already open.

@@ -115,6 +115,31 @@ try {
   log(`Opening threads at the start of the last reply is off: ${error.message}`);
 }
 
+// The Working section in the boring sidebar. It rewrites T3 Code's sidebar
+// code as the page loads it, only while the Extras switch is on. It loads on
+// its own too.
+let boringWorkingShelf = initialSettings.boringWorkingShelf === true;
+let workingShelf = null;
+let workingShelfWatching = false;
+try {
+  const { createWorkingShelfService } = require("./working-shelf");
+  workingShelf = createWorkingShelfService({
+    send: (...args) => send(...args),
+    isEnabled: () => boringWorkingShelf,
+    log,
+  });
+} catch (error) {
+  log(`The Working section in the boring sidebar is off: ${error.message}`);
+}
+
+// Interception starts with the first switch on and then stays, so a request
+// that is paused while the switch turns off is still answered.
+async function watchWorkingShelf() {
+  if (!workingShelf || workingShelfWatching || !boringWorkingShelf) return;
+  workingShelfWatching = true;
+  workingShelfWatching = await workingShelf.enable();
+}
+
 let repoStatus = null;
 let repoStatusBinding = null;
 let repoStatusRuns = false;
@@ -165,6 +190,8 @@ if (settingsStore) {
       rtlLayout = nextLayout;
       for (const sessionId of layoutSessions) void switchLayout(sessionId);
     }
+    boringWorkingShelf = settings.boringWorkingShelf === true;
+    void watchWorkingShelf();
     const nextWidth = settings.chatWidth ?? null;
     if (nextWidth !== chatWidth) {
       chatWidth = nextWidth;
@@ -290,7 +317,18 @@ function switchLayout(sessionId) {
   });
 }
 
+// Once the pipe closes, nothing more is sent, and every request still waiting
+// fails, so no caller waits for an answer that cannot come.
+let cdpClosed = false;
+function closeConnection(reason) {
+  if (cdpClosed) return;
+  cdpClosed = true;
+  for (const request of pending.values()) request.reject(new Error(reason));
+  pending.clear();
+}
+
 function send(method, params = {}, sessionId) {
+  if (cdpClosed) return Promise.reject(new Error("The debugging pipe is closed"));
   const id = nextMessageId++;
   const message = { id, method, params };
   if (sessionId) message.sessionId = sessionId;
@@ -423,6 +461,12 @@ async function attachAndInject(targetInfo) {
 function handleMessage(message) {
   if (dispatch.handle(message)) return;
 
+  // Fetch is enabled for the browser, so its pauses come without a session.
+  if (message.method === "Fetch.requestPaused" && !message.sessionId) {
+    if (workingShelf) void workingShelf.handlePaused(message.params);
+    return;
+  }
+
   if (
     message.method === "Runtime.bindingCalled" &&
     message.params?.name === ANNOTATION_BINDING
@@ -500,12 +544,10 @@ cdpOutput.on("data", (chunk) => {
 
 cdpInput.on("error", (error) => log(`CDP input error: ${error.message}`));
 cdpOutput.on("error", (error) => log(`CDP output error: ${error.message}`));
+cdpOutput.on("close", () => closeConnection("The debugging pipe closed before the CDP request completed"));
 
 child.on("exit", (code, signal) => {
-  for (const request of pending.values()) {
-    request.reject(new Error("T3 Code closed before the CDP request completed"));
-  }
-  pending.clear();
+  closeConnection("T3 Code closed before the CDP request completed");
   log(`T3 Code exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
   // T3 Code exits before an update is installed, and the update's installer
   // reopens it directly, without the fix. The Windows helper waits a few
@@ -533,6 +575,9 @@ function startUpdateHelper() {
 }
 
 async function initialize() {
+  // Before the first window loads its script. A failure here only leaves the
+  // Working section as T3 Code has it.
+  await watchWorkingShelf();
   try {
     await send("Target.setDiscoverTargets", { discover: true });
     const { targetInfos = [] } = await send("Target.getTargets");
