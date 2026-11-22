@@ -334,7 +334,12 @@ function createRunningRecord({ filePath, source, log }) {
     remove() {
       if (!active) return;
       active = false;
-      if (ownsFile()) fs.rmSync(filePath, { force: true });
+      try {
+        if (ownsFile()) fs.rmSync(filePath, { force: true });
+      } catch (error) {
+        // A record left behind only makes an installer ask for a restart.
+        log(`Could not remove ${filePath}: ${error.message}`);
+      }
     },
   };
 }

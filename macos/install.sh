@@ -87,8 +87,11 @@ mkdir -p "$INSTALL_DIR"
 # shlock holds the lock for this script's process and takes over, in one
 # step, a lock whose process has ended. The lock goes when this script ends.
 LOCK_FILE="$INSTALL_DIR/install.lock"
+# An empty lock folder left by an earlier test build of this installer.
+[ -d "$LOCK_FILE" ] && rmdir "$LOCK_FILE" 2>/dev/null || true
 if ! /usr/bin/shlock -f "$LOCK_FILE" -p $$; then
   echo "Another install of T3 Code RTL Fix is running. Run this one again when it ends."
+  echo "If no install is running, delete $LOCK_FILE and run this one again."
   exit 1
 fi
 trap 'rm -f "$LOCK_FILE"' EXIT
