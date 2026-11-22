@@ -99,6 +99,23 @@ state = {
   },
 };
 window.__panelCalls = [];
+// T3 Code's issue action, which a test adds to the store. Without it, the
+// store is that of a T3 Code that cannot open an issue in its panel.
+window.__openIssue = (threadRef, surface) => {
+  window.__panelCalls.push({ threadRef, surface });
+  if (window.__panelIgnores) return;
+  const id = ["issue", surface.projectId, surface.tracker, surface.host, surface.scope, surface.key].join(":");
+  const key = threadRef.environmentId + ":" + threadRef.threadId;
+  const panel = state.byThreadKey[key] || { surfaces: [] };
+  set({ byThreadKey: {
+    ...state.byThreadKey,
+    [key]: { isOpen: true, surfaces: [...panel.surfaces.filter((item) => item.id !== id), { id, kind: "issue", ...surface }], activeSurfaceId: id },
+  } });
+  if (window.__panelHidden || document.querySelector("[data-right-panel-surface-content]")) return;
+  const content = document.createElement("div");
+  content.setAttribute("data-right-panel-surface-content", "");
+  document.body.appendChild(content);
+};
 // Another store of the same chunk, without the pull request action.
 export const a = { getState: () => ({ remember() {} }) };
 export const d = {
@@ -335,6 +352,7 @@ async function run() {
   await checkTooltip(sessionId);
   await checkTooltipLinks(sessionId);
   await checkPullRequestInApp(sessionId);
+  await checkIssueInApp(sessionId);
   await checkDrag(sessionId);
   await checkPlainItemClick(sessionId);
   await checkCardStaysOpen(sessionId);
@@ -531,6 +549,7 @@ async function checkTooltipLinks(sessionId) {
     field.focus();
     return 1;
   })()`);
+  // The panel's store has no issue action yet, so the issue opens on GitHub.
   await clickAt(sessionId, item);
   const url = await openedAfter(sessionId, before + 1, "the issue to open");
   if (url !== "https://github.com/o/r/issues/7") throw new Error(`Unexpected issue page: ${url}`);
@@ -709,6 +728,90 @@ async function checkPullRequestInApp(sessionId) {
   if (opened.length !== before + 6) throw new Error(`A pull request opened after the section was turned off: ${JSON.stringify(opened.slice(before + 6))}`);
   await evaluate(sessionId, `(window.__panelHidden = false, window.__t3RtlFixRepoStatusEnabled(true), 1)`);
   await waitFor(sessionId, `!!document.querySelector("[data-t3-rtl-repo-status]")`, "the section when it is turned on again");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+}
+
+// Clicks the first issue in the Issues tooltip.
+async function clickIssue(sessionId, modifiers = 0) {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
+  await waitFor(sessionId, `!document.querySelector(".t3-rtl-repo-status-tip[data-open]")`, "the tooltip to close before an issue click");
+  await hoverRow(sessionId, "issues");
+  await waitFor(
+    sessionId,
+    `document.querySelector(".t3-rtl-repo-status-tip[data-shown] a.t3-rtl-tip-item")?.dataset.link === "issues/7"`,
+    "the Issues tooltip",
+  );
+  const item = await center(sessionId, ".t3-rtl-repo-status-tip a.t3-rtl-tip-item");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y }, sessionId);
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", { type, x: item.x, y: item.y, button: "left", clickCount: 1, modifiers }, sessionId);
+  }
+  await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close after an issue click");
+}
+
+// An issue opens in T3 Code's panel, as an issue link in a message does.
+// T3 Code's pull request setting does not apply to it. Ctrl, a store that
+// does not take it, or a panel that does not show leaves it to GitHub.
+async function checkIssueInApp(sessionId) {
+  const key = `${environmentId}:${threadWithRepo}`;
+  await evaluate(sessionId, `(() => {
+    document.querySelector("[data-right-panel-surface-content]")?.remove();
+    window.__panelCalls = [];
+    window.__panelStore.setState({ byThreadKey: {}, openIssue: window.__openIssue });
+    window.desktopBridge = { getClientSettings: async () => ({ pullRequestLinksOpenInApp: false }) };
+    return 1;
+  })()`);
+  const before = opened.length;
+  await clickIssue(sessionId);
+  await waitFor(sessionId, `window.__panelCalls.length === 1 && !!document.querySelector("[data-right-panel-surface-content]")`, "the issue to open in the panel");
+  // The same fields as T3 Code's own GitHub issue link.
+  const expectedCall = JSON.stringify([{
+    threadRef: { environmentId, threadId: threadWithRepo },
+    surface: { projectId: "p-1", tracker: "github", host: "github.com", scope: "o/r", key: "7", url: "https://github.com/o/r/issues/7" },
+  }]);
+  const calls = await evaluate(sessionId, PANEL_CALLS);
+  if (calls !== expectedCall) throw new Error(`Unexpected panel calls: ${calls}`);
+  await wait(300);
+  await Promise.all(handled);
+  if (opened.length !== before) throw new Error(`An issue opened in the panel also opened ${JSON.stringify(opened.slice(before))}`);
+
+  // Ctrl opens GitHub.
+  await clickIssue(sessionId, 2);
+  const withCtrl = await openedAfter(sessionId, before + 1, "the issue to open on GitHub with Ctrl");
+  if (withCtrl !== "https://github.com/o/r/issues/7") throw new Error(`Unexpected issue page: ${withCtrl}`);
+
+  // A store that does not take the issue opens GitHub, even while another
+  // repository's issue with the same number is active.
+  await evaluate(sessionId, `(window.__panelStore.setState({ byThreadKey: { ${JSON.stringify(key)}: {
+    isOpen: true,
+    activeSurfaceId: "other",
+    surfaces: [{ id: "other", kind: "issue", projectId: "p-1", tracker: "github", host: "github.com", scope: "x/y", key: "7" }],
+  } } }), window.__panelIgnores = true, 1)`);
+  await clickIssue(sessionId);
+  await openedAfter(sessionId, before + 2, "the issue to open on GitHub when the store ignores it");
+  await evaluate(sessionId, `(window.__panelIgnores = false, window.__panelStore.setState({ byThreadKey: {} }), 1)`);
+
+  // A panel that does not show opens GitHub, and the panel forgets the issue.
+  await evaluate(sessionId, `(document.querySelector("[data-right-panel-surface-content]").remove(), window.__panelHidden = true, 1)`);
+  await clickIssue(sessionId);
+  await openedAfter(sessionId, before + 3, "the issue to open on GitHub when the panel does not show");
+  if (!(await evaluate(sessionId, `!Object.hasOwn(window.__panelStore.getState().byThreadKey, ${JSON.stringify(key)})`))) {
+    throw new Error("An issue that did not show stayed in the panel");
+  }
+
+  await wait(300);
+  await Promise.all(handled);
+  const count = await evaluate(sessionId, "window.__panelCalls.length");
+  if (count !== 3) throw new Error(`Unexpected number of panel calls: ${count}`);
+  if (JSON.stringify(opened.slice(before)) !== JSON.stringify(Array(3).fill("https://github.com/o/r/issues/7"))) {
+    throw new Error(`Unexpected issue pages: ${JSON.stringify(opened.slice(before))}`);
+  }
+  await evaluate(sessionId, `(() => {
+    window.__panelHidden = false;
+    window.__panelStore.setState({ byThreadKey: {}, openIssue: undefined });
+    window.desktopBridge = { getClientSettings: async () => ({}) };
+    return 1;
+  })()`);
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
 }
 

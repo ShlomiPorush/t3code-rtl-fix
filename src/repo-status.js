@@ -1721,9 +1721,10 @@ function buildRepoStatusPageSource() {
   };
 
   // T3 Code opens a pull request link in a message in the thread's panel when
-  // its "Open pull requests in T3 Code" setting is on. A pull request in a
-  // tooltip opens the same way, through the store of that panel. T3 Code has
-  // no public way to do this, so any doubt opens GitHub instead.
+  // its "Open pull requests in T3 Code" setting is on, and an issue link
+  // there whenever its server can show issues. A pull request or an issue in
+  // a tooltip opens the same way, through the store of that panel. T3 Code
+  // has no public way to do this, so any doubt opens GitHub instead.
   let panelStore = null;
   const panelStoreUrls = async () => {
     const urls = new Set();
@@ -1777,6 +1778,7 @@ function buildRepoStatusPageSource() {
   };
   const within = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
   const pullLink = /^pull\\/([1-9][0-9]{0,9})$/;
+  const issueLink = /^issues\\/([1-9][0-9]{0,9})$/;
   const threadKey = (thread) => (thread ? thread.environmentId + ":" + thread.threadId : null);
   // T3 Code's link parser writes each part of the repository this way.
   const repositoryName = (repo) => repo.split("/").map((part) => {
@@ -1804,23 +1806,55 @@ function buildRepoStatusPageSource() {
     };
     check();
   });
-  // Resolves to whether the pull request opened in T3 Code's panel, or to
-  // null when it should open nowhere. The thread and the project are those
-  // of the click.
-  const openPullRequestInApp = async (link, repo, thread, projectId, clickEpoch) => {
-    const match = pullLink.exec(link);
+  // What a link opens in the panel: the store action, the fields of T3 Code's
+  // own link, so both open one tab, and whether the active tab is that one.
+  const panelTarget = (link, repo, projectId) => {
+    const url = "https://github.com/" + repo + "/" + link;
+    const pull = pullLink.exec(link);
+    if (pull) {
+      const number = Number(pull[1]);
+      const repository = repositoryName(repo);
+      return {
+        action: "openPullRequest",
+        allowed: opensPullRequestsInApp,
+        surface: { projectId, host: "github.com", repository, number, url },
+        matches: (active) => active.kind === "pull-request" && active.projectId === projectId &&
+          active.host === "github.com" && active.repository === repository && active.number === number,
+      };
+    }
+    const issue = issueLink.exec(link);
+    if (!issue) return null;
+    // T3 Code's GitHub issue link names the repository in lower case and
+    // the issue by its number as text.
+    const scope = repo.toLowerCase();
+    const key = String(Number(issue[1]));
+    return {
+      action: "openIssue",
+      // T3 Code has no setting for issues. A store with this action belongs
+      // to a T3 Code whose server shows issues.
+      allowed: async () => true,
+      surface: { projectId, tracker: "github", host: "github.com", scope, key, url },
+      matches: (active) => active.kind === "issue" && active.projectId === projectId && active.tracker === "github" &&
+        active.host === "github.com" && typeof active.scope === "string" && active.scope.toLowerCase() === scope &&
+        active.key === key,
+    };
+  };
+  // Resolves to whether the pull request or the issue opened in T3 Code's
+  // panel, or to null when it should open nowhere. The thread and the
+  // project are those of the click.
+  const openInApp = async (link, repo, thread, projectId, clickEpoch) => {
+    const target = panelTarget(link, repo, projectId);
     const key = threadKey(thread);
     const moved = () => epoch !== clickEpoch || !stillShown(repo, projectId, key);
     if (moved()) return null;
-    const store = await within((async () => ((await opensPullRequestsInApp()) ? findPanelStore() : null))(), 2000);
+    if (!target) return false;
+    const found = await within((async () => ((await target.allowed()) ? findPanelStore() : null))(), 2000);
     // A page that moved to another thread or repository meanwhile opens
     // nothing, so the click does not reach the thread left behind.
     if (moved()) return null;
+    const store = found && typeof found.getState().byThreadKey === "object" &&
+      typeof found.getState()[target.action] === "function" ? found : null;
     if (!store) return false;
-    const number = Number(match[1]);
-    const repository = repositoryName(repo);
-    // The same fields as T3 Code's own link, so both open one tab.
-    const surface = { projectId, host: "github.com", repository, number, url: "https://github.com/" + repo + "/" + link };
     let before;
     let after;
     // Takes back this click's change, unless the panel changed since.
@@ -1837,13 +1871,11 @@ function buildRepoStatusPageSource() {
     };
     try {
       before = store.getState().byThreadKey[key];
-      store.getState().openPullRequest(thread, surface);
+      store.getState()[target.action](thread, target.surface);
       after = store.getState().byThreadKey[key];
       const surfaces = after && after.isOpen && Array.isArray(after.surfaces) ? after.surfaces : [];
       const active = surfaces.find((item) => item && item.id === after.activeSurfaceId);
-      const opened = !!active && active.kind === "pull-request" && active.projectId === projectId &&
-        active.host === "github.com" && active.repository === repository && active.number === number;
-      if (!opened) {
+      if (!active || !target.matches(active)) {
         undo();
         return false;
       }
@@ -1858,24 +1890,25 @@ function buildRepoStatusPageSource() {
     }
     const shown = await panelShown(moved);
     // A section turned off meanwhile takes back this click's change, so the
-    // panel does not show the pull request later.
+    // panel does not show the item later.
     if (shown === null && epoch !== clickEpoch) {
       undo();
       return null;
     }
-    // The pull request waits in the panel of the thread left behind.
+    // The item waits in the panel of the thread left behind.
     if (shown !== false) return shown;
     undo();
     return false;
   };
-  // One pull request opens at a time, so a click that gives up takes back
-  // only its own change.
+  // One item opens at a time, so a click that gives up takes back only its
+  // own change.
   let opening = Promise.resolve();
   const openLink = (link, repo, external) => {
     const browser = () => notify({ type: "open", link, repo });
     const thread = threadRef();
     const projectId = current && typeof current.projectId === "string" ? current.projectId : "";
-    if (external || !pullLink.test(link || "") || !projectId || !stillShown(repo, projectId, threadKey(thread))) {
+    const inApp = pullLink.test(link || "") || issueLink.test(link || "");
+    if (external || !inApp || !projectId || !stillShown(repo, projectId, threadKey(thread))) {
       browser();
       return;
     }
@@ -1884,7 +1917,7 @@ function buildRepoStatusPageSource() {
       if (epoch === clickEpoch && enabled) browser();
     };
     opening = opening
-      .then(() => (epoch === clickEpoch ? openPullRequestInApp(link, repo, thread, projectId, clickEpoch) : null))
+      .then(() => (epoch === clickEpoch ? openInApp(link, repo, thread, projectId, clickEpoch) : null))
       .then((opened) => {
         if (opened === false) fallback();
       }, fallback);

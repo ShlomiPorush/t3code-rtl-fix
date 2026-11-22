@@ -165,10 +165,12 @@ open one, and Escape to return to the row.
 
 A pull request opens in the thread's panel in T3 Code, as a pull request link
 in a message does, when T3 Code's **Open pull requests in T3 Code** setting is
-on. Ctrl-click, Cmd-click, or a middle click opens it on GitHub instead. T3
-Code has no public way to open a pull request from outside it, so the fix uses
-T3 Code's own panel code. When that does not work, for example after a T3 Code
-update, the pull request opens on GitHub.
+on. An issue opens in the same panel, as an issue link in a message does. T3
+Code has no setting for issues. Ctrl-click, Cmd-click, or a middle click opens
+either one on GitHub instead. T3 Code has no public way to open them from
+outside it, so the fix uses T3 Code's own panel code. When that does not work,
+for example after a T3 Code update, the pull request or the issue opens on
+GitHub.
 
 Drag an item into the message box to quote it. The quote is its number and
 title, or its name, followed by its address on GitHub when it has one, such as
