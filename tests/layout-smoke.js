@@ -26,6 +26,9 @@ const LINK_CSS = `@layer theme, base, components, utilities;
   .var-short { margin: var(--m); margin-left: 2px; }
   .pl-3 { padding-left: 12px; }
   .left-0 { left: 0; }
+  .right-0 { right: 0; }
+  .cursor-nesw-resize { cursor: nesw-resize; }
+  .bg-fill { background-color: rgb(1, 2, 3); }
   .border-l { border-left-style: solid; border-left-width: 3px; }
   .text-left { text-align: left; }
   @media (width >= 1px) { .sm\\:pr-2 { padding-right: 8px; } }
@@ -54,9 +57,31 @@ const PAGE = `<!doctype html><html><head>
   <div id="rail" class="rail box"></div>
   <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
-  <div id="mini-handle" data-preview-mini-player-resize class="ml-4" style="cursor: ew-resize; width: 20px; height: 20px;"></div>
   <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
   <span id="plain-auto" dir="auto">English title</span>
+</div>
+<div id="floating-layer" style="position: fixed; left: 0; top: 300px; width: 400px; height: 200px;">
+<section id="floating" data-preview-mini-player="key" style="left: 20px; top: 0px; width: 200px; height: 120px; position: absolute;">
+  <div id="floating-grab" class="group" style="right: 8px; top: 8px; position: absolute; width: 12px; height: 12px;">
+    <div id="floating-pill" class="right-0" style="position: absolute; top: 0; width: 90px; height: 32px;"><button id="floating-button" type="button">x</button></div>
+  </div>
+  <div id="floating-bg" class="z-[47] bg-fill" style="position: absolute; inset: 0;"></div>
+  <div data-browser-surface-slot="tab" style="position: absolute; inset: 0;"></div>
+  <div id="floating-content" style="position: absolute; inset: 0;">Reconnecting preview…</div>
+  <div id="floating-east" data-preview-mini-player-resize="east" class="right-0" style="position: absolute; top: 40px; width: 8px; height: 8px; cursor: ew-resize;"></div>
+  <div id="floating-northeast" data-preview-mini-player-resize="northeast" class="right-0 cursor-nesw-resize" style="position: absolute; top: 0; width: 8px; height: 8px;"></div>
+</section>
+</div>
+<div data-chat-canvas style="position: fixed; left: 0; top: 520px; width: 400px; height: 60px;">
+  <div id="find-bar" data-thread-find-bar class="right-0" style="position: absolute; top: 0; width: 100px; height: 20px;"></div>
+</div>
+<div id="viewport" data-preview-viewport="tab" style="left: 300px; top: 300px; width: 100px; height: 80px; position: fixed; overflow: hidden;">
+  <div style="position: relative; width: 100px; height: 80px;">
+    <div id="viewport-toolbar" role="toolbar" data-browser-device-toolbar style="display: flex;"><span id="viewport-device">Galaxy S8+</span></div>
+    <div style="left: 0px; top: 0px; width: 100px; height: 80px; position: absolute;">
+      <div id="viewport-page" class="left-0" style="position: absolute; top: 0; width: 400px; height: 320px; transform: scale(0.25); transform-origin: top left;"></div>
+    </div>
+  </div>
 </div>
 </body></html>`;
 
@@ -134,6 +159,7 @@ async function run(port) {
     const s = (id) => getComputedStyle(document.getElementById(id));
     const pos = document.getElementById("pos").getBoundingClientRect();
     const left = document.getElementById("left").getBoundingClientRect();
+    const box = (id) => document.getElementById(id).getBoundingClientRect();
     return {
       dir: document.documentElement.getAttribute("dir"),
       mlLeft: s("ml").marginLeft, mlRight: s("ml").marginRight,
@@ -154,12 +180,29 @@ async function run(port) {
       cardTitleAlign: s("card-title").textAlign,
       cardTextMarked: document.getElementById("card-text").hasAttribute("data-t3-rtl-text"),
       plainAutoDir: s("plain-auto").direction,
+      pillOffset: Math.round(box("floating-grab").right - box("floating-pill").right),
+      floatingLeft: Math.round(box("floating").left - box("floating-layer").left),
+      floatingEast: Math.round(box("floating-east").left - box("floating").left),
+      floatingCorner: s("floating-northeast").cursor,
+      floatingBg: s("floating-bg").backgroundColor,
+      findBarShown: Math.round(Element.prototype.getBoundingClientRect.call(document.getElementById("find-bar")).left),
+      findBarPresented: Math.round(box("find-bar").left),
+      pageOffset: Math.round(box("viewport-page").left - box("viewport").left),
+      floatingDirs: ["floating", "floating-grab", "floating-content", "viewport", "viewport-toolbar"]
+        .map((id) => [document.getElementById(id).getAttribute("dir"), s(id).direction].join(":")),
+      deviceMarked: document.getElementById("viewport-device").hasAttribute("data-t3-rtl-text"),
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
     };
   })()`;
   const original = await evaluate(measure);
   check(original.mlLeft === "16px" && original.copies === 0 && original.disabled === 0, `Off state is not T3 Code's own: ${JSON.stringify(original)}`);
+
+  // T3 Code measures the floating preview again on a scroll, so it is told
+  // when the preview moves to the other side.
+  await evaluate(`window.__previewScrolls = 0; window.addEventListener("scroll", (event) => {
+    if (event.target.id === "floating") window.__previewScrolls += 1;
+  }, true); true`);
 
   // On, in place.
   await evaluate("globalThis.__t3RtlLayout.set(true)");
@@ -183,6 +226,29 @@ async function run(port) {
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
+  // The floating preview and the page inside a preview are placed and scaled
+  // by T3 Code from their physical sides, so they keep them.
+  check(on.pillOffset === 0, `The floating preview's buttons left its corner: ${on.pillOffset}px`);
+  // T3 Code keeps the conversation clear of the floating preview on the end
+  // of the conversation, which the layout moves to the left, so the preview
+  // is shown mirrored there, with its edge handles on the other sides.
+  check(on.floatingLeft === 180, `The floating preview was not mirrored to the other side: ${on.floatingLeft}px`);
+  check(on.floatingEast === 0 && on.floatingCorner === "nwse-resize",
+    `The floating preview's handles did not move to the other sides: ${JSON.stringify(on)}`);
+  // A browser page is drawn outside the preview, which the mirrored layer
+  // draws above it, so the preview's own background lets it show through.
+  check(on.floatingBg === "rgba(0, 0, 0, 0)", `The preview's background covers the page: ${on.floatingBg}`);
+  // The find bar is on the left with the preview, and T3 Code is shown its
+  // place mirrored, as the preview's own.
+  check(on.findBarShown === 0 && on.findBarPresented === 300,
+    `The find bar's place was not presented mirrored: ${JSON.stringify(on)}`);
+  check(on.pageOffset === 0, `The previewed page left its viewport: ${on.pageOffset}px`);
+  // Only the grip and the viewport keep their side. The rest of the floating
+  // preview and the device toolbar over a page are laid out with the app.
+  check(JSON.stringify(on.floatingDirs) === JSON.stringify([":rtl", "ltr:ltr", ":rtl", "ltr:ltr", "rtl:rtl"]),
+    `The preview's parts did not get their directions: ${JSON.stringify(on.floatingDirs)}`);
+  check(on.deviceMarked, "English text in the device toolbar did not keep its reading order");
+  check(await evaluate("window.__previewScrolls") === 2, "The floating preview was not measured at once and again when the layout turned on");
 
   // A style whose text changes is mirrored again.
   await evaluate(`document.getElementById("inline-style").textContent = ".inline-pr { padding-right: 11px; }"`);
@@ -232,18 +298,23 @@ async function run(port) {
     grip.dispatchEvent(new PointerEvent("pointerup", options(80, 10)));
     return seen;
   })()`);
+  // The mirrored floating preview follows the pointer when it is resized
+  // from an edge or moved by its grip.
   const mini = await evaluate(`(() => {
-    const handle = document.getElementById("mini-handle");
     const seen = [];
-    handle.addEventListener("pointermove", (event) => seen.push(event.clientX));
-    const options = (x) => ({ bubbles: true, pointerId: 11, clientX: x, clientY: 5, button: 0 });
-    handle.dispatchEvent(new PointerEvent("pointerdown", options(100)));
-    handle.dispatchEvent(new PointerEvent("pointermove", options(80)));
-    handle.dispatchEvent(new PointerEvent("pointerup", options(80)));
-    return { seen, dir: handle.getAttribute("dir"), left: getComputedStyle(handle).marginLeft };
+    const options = (x, id) => ({ bubbles: true, pointerId: id, clientX: x, clientY: 5, button: 0 });
+    for (const [part, id] of [["floating-east", 11], ["floating-pill", 12], ["floating-button", 13]]) {
+      const element = document.getElementById(part);
+      element.addEventListener("pointermove", (event) => seen.push(part + ":" + event.clientX));
+      element.dispatchEvent(new PointerEvent("pointerdown", options(100, id)));
+      element.dispatchEvent(new PointerEvent("pointermove", options(80, id)));
+      element.dispatchEvent(new PointerEvent("pointerup", options(80, id)));
+    }
+    return seen;
   })()`);
-  check(mini.dir === "ltr" && mini.left === "16px" && mini.seen[0] === 80,
-    `A floating preview handle left its physical side: ${JSON.stringify(mini)}`);
+  // A button in the grip does not start a drag, so its pointer is left alone.
+  check(JSON.stringify(mini) === JSON.stringify(["floating-east:120", "floating-pill:120", "floating-button:80", "floating-pill:80"]),
+    `A drag on the floating preview was not mirrored: ${JSON.stringify(mini)}`);
   check(innerDrag[0] === 120 && innerDrag[1] === "grip:80", `Handles inside a placed element were not judged by their own place: ${JSON.stringify(innerDrag)}`);
 
   // A second injection into the same document takes over from the first,
@@ -252,6 +323,7 @@ async function run(port) {
   await wait(400);
   const again = await evaluate(measure);
   check(again.dir === "rtl" && again.copies === 2 && again.disabled === 2, `A second injection did not take over: ${JSON.stringify(again)}`);
+  check(again.findBarPresented === 300, `A second injection lost the find bar's mirrored place: ${again.findBarPresented}`);
 
   // Off again gives back the exact original values.
   await evaluate("globalThis.__t3RtlLayout.set(false)");
@@ -262,6 +334,7 @@ async function run(port) {
       `Off did not restore ${key}: ${JSON.stringify(off[key])} instead of ${JSON.stringify(original[key])}`);
   }
   check(off.inlineRight === "11px", `Off did not restore the changed inline style: ${JSON.stringify(off)}`);
+  check(await evaluate("window.__previewScrolls") >= 5, "The floating preview was not measured again when the layout turned off");
 
   // A new document starts in the saved layout.
   await send("Page.addScriptToEvaluateOnNewDocument", { source: buildLayoutSource({ enabled: true }) }, sessionId);
