@@ -192,6 +192,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     FIXTURE.replace("let t=[],Gi=Un!==null&&Un.length>0,Ki;", "let t=[],Ki;t=0,Gi=Un!==null&&Un.length>0,Ki;"),
     // The look is not the one the row is rendered with.
     FIXTURE.replace("{thread:e,variant:a,", "{thread:e,variant:r,"),
+    FIXTURE.replace("{thread:e,variant:a,", "{savedvariant:a,variant:r,"),
     FIXTURE.replace("`slim`;return(0,Z.jsx)", "`slim`;a=`card`;return(0,Z.jsx)"),
   ];
   for (const variant of variants) {
@@ -433,11 +434,17 @@ test("a change of the switch reloads only after the browser watches the script",
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
   assert.match(body, /if \(!watching \|\| change !== workingShelfChanges\) return;/);
   assert.match(launcher, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
-  // A window counts from its attach, before anything else is sent to it.
+  assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
+  // A window counts from its attach, before anything else is sent to it, and
+  // until it closes, even when a fix fails to inject.
   const attached = launcher.indexOf("sessionsByTarget.set(targetId, sessionId);");
-  const added = launcher.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);");
+  const added = launcher.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);");
   assert.ok(attached > 0 && added > attached && added < launcher.indexOf('send("Page.enable"', attached));
-  assert.match(launcher, /appPageSessions\.delete\(destroyedSession\)/);
+  assert.match(launcher, /appPages\.delete\(message\.params\?\.targetId\)/);
+  assert.equal((launcher.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
+  // A window that attached during a change reloads after its fixes are in.
+  const inject = launcher.slice(launcher.indexOf("async function attachAndInject("), launcher.indexOf("function handleMessage("));
+  assert.ok(inject.indexOf("changedWhileAttaching &&") > inject.indexOf("await extras.attach(sessionId)"));
 });
 
 test("the launcher watches before the first window and keeps the RTL fix when watching fails", () => {

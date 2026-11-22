@@ -157,7 +157,7 @@ async function switchWorkingShelf(next) {
   const change = ++workingShelfChanges;
   const watching = next ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
   if (!watching || change !== workingShelfChanges) return;
-  const reloaded = await workingShelf.reloadWindows([...appPageSessions]);
+  const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
   log(`Working section in the boring sidebar turned ${next ? "on" : "off"}, ${reloaded} windows reloaded`);
 }
 
@@ -261,8 +261,9 @@ const annotationSessionsLogged = new Set();
 const layoutSessions = new Set();
 const layoutScripts = new Map();
 // The regular T3 Code windows, which load the script the Working section
-// in the boring sidebar changes.
-const appPageSessions = new Set();
+// in the boring sidebar changes, by target. A window stays here from its
+// attach until it closes, even when a fix fails to inject into it.
+const appPages = new Map();
 
 // Layout work for each session runs one step at a time, so quick changes,
 // such as one from a second window, never lose track of a script.
@@ -398,6 +399,7 @@ async function attachAndInject(targetInfo) {
   }
 
   attachingTargets.add(targetId);
+  const changesBeforeAttach = workingShelfChanges;
   try {
     const attached = await send("Target.attachToTarget", {
       targetId,
@@ -406,7 +408,8 @@ async function attachAndInject(targetInfo) {
     const sessionId = attached.sessionId;
     sessionsByTarget.set(targetId, sessionId);
     // At once, so a change of the switch from now on reloads this window too.
-    if (isPage && isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);
+    if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
+    const changedWhileAttaching = workingShelfChanges !== changesBeforeAttach;
 
     if (!isPage) {
       await watchAnnotations(send, sessionId);
@@ -475,8 +478,12 @@ async function attachAndInject(targetInfo) {
         log(`Extras could not be added: ${error.message}`);
       }
     }
+    // A change of the switch while this window was attaching may have been
+    // sent before the window was on the list. Reload it once it has every fix.
+    if (appPages.has(targetId) && changedWhileAttaching && workingShelfWatch && (await workingShelfWatch)) {
+      await workingShelf.reloadWindows([sessionId]);
+    }
   } catch (error) {
-    appPageSessions.delete(sessionsByTarget.get(targetId));
     sessionsByTarget.delete(targetId);
     log(`Injection failed for target ${targetId}: ${error.message}`);
   } finally {
@@ -544,7 +551,7 @@ function handleMessage(message) {
     annotationSessionsLogged.delete(destroyedSession);
     layoutSessions.delete(destroyedSession);
     layoutScripts.delete(destroyedSession);
-    appPageSessions.delete(destroyedSession);
+    appPages.delete(message.params?.targetId);
     chatWidthSessions.delete(destroyedSession);
     chatWidthScripts.delete(destroyedSession);
     layoutQueues.delete(destroyedSession);

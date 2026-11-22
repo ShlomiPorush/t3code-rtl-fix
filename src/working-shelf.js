@@ -169,7 +169,7 @@ function patchSidebarChunk(source) {
     source,
     new RegExp(
       `[,;](${ID})=(${ID})\\?${ID}\\?\`folder-multiline\`:\`folder\`:(${ID})===\`active\`\\|\\|\\3===\`pinned\`\\|\\|\\3===\`working\`\\?\`card\`:\`slim\`` +
-        `;return\\(0,${ID}\\.jsx\\)\\(${ID},\\{[^{}]*?variant:\\1[,}]`,
+        `;return\\(0,${ID}\\.jsx\\)\\(${ID},\\{(?:[^{}]*?,)?variant:\\1[,}]`,
     ),
     "row look",
   );
