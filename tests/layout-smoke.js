@@ -60,6 +60,13 @@ const PAGE = `<!doctype html><html><head>
   <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
   <span id="plain-auto" dir="auto">English title</span>
 </div>
+<div id="menu">
+  <div id="menu-skill" data-composer-item-id="skill:codex:bro"><span style="display: flex;"><span id="menu-skill-name">bro</span><span id="menu-skill-desc" class="text-left" style="flex: 1;">תיאור בעברית</span><span id="menu-skill-tip" data-popup-open>more</span></span></div>
+  <div id="menu-command" data-composer-item-id="provider-slash-command:codex:goal"><span>/goal</span></div>
+  <div id="menu-thread" data-composer-item-id="thread:env:1"><span id="menu-thread-title">שיחה</span></div>
+  <div id="menu-path" data-composer-item-id="path:file:README.md"><span>README.md</span></div>
+</div>
+<div><div id="menu-tooltip" data-slot="tooltip-popup" dir="auto">Adiutor, the owner's board.</div></div>
 <div id="floating-layer" style="position: fixed; left: 0; top: 300px; width: 400px; height: 200px;">
 <section id="floating" data-preview-mini-player="key" style="left: 20px; top: 0px; width: 200px; height: 120px; position: absolute;">
   <div id="floating-grab" class="group" style="right: 8px; top: 8px; position: absolute; width: 12px; height: 12px;">
@@ -191,6 +198,10 @@ async function run(port) {
       floatingDirs: ["floating", "floating-grab", "floating-content", "viewport", "viewport-toolbar"]
         .map((id) => [document.getElementById(id).getAttribute("dir"), s(id).direction].join(":")),
       deviceMarked: document.getElementById("viewport-device").hasAttribute("data-t3-rtl-text"),
+      menuDirs: ["menu-skill", "menu-command", "menu-thread", "menu-path"].map((id) => s(id).direction).join(","),
+      menuDescAlign: s("menu-skill-desc").textAlign,
+      menuDescBidi: s("menu-skill-desc").unicodeBidi,
+      menuTooltipAlign: s("menu-tooltip").textAlign,
       copies: document.querySelectorAll("[data-t3-rtl-mirror]").length,
       disabled: Array.from(document.styleSheets).filter((sheet) => sheet.disabled).length,
     };
@@ -248,6 +259,14 @@ async function run(port) {
   check(JSON.stringify(on.floatingDirs) === JSON.stringify([":rtl", "ltr:ltr", ":rtl", "ltr:ltr", "rtl:rtl"]),
     `The preview's parts did not get their directions: ${JSON.stringify(on.floatingDirs)}`);
   check(on.deviceMarked, "English text in the device toolbar did not keep its reading order");
+  // Commands, skills, and models in the composer menu keep T3 Code's layout,
+  // while threads and files are laid out with the app. A description keeps
+  // its own reading order on the left of its row, and the full description
+  // of a highlighted row sits on the side where its text starts.
+  check(on.menuDirs === "ltr,ltr,rtl,rtl", `The composer menu rows did not get their directions: ${on.menuDirs}`);
+  check(on.menuDescAlign === "left" && on.menuDescBidi === "plaintext",
+    `A description in a left-to-right menu row did not keep its order on the left: ${JSON.stringify(on)}`);
+  check(on.menuTooltipAlign === "start", `The full description did not sit on the side where it starts: ${on.menuTooltipAlign}`);
   check(await evaluate("window.__previewScrolls") === 2, "The floating preview was not measured at once and again when the layout turned on");
 
   // A style whose text changes is mirrored again.

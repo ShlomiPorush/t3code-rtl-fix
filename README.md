@@ -108,6 +108,12 @@ The whole app is mirrored, as in a right-to-left language:
   punctuation stays at the end of the sentence.
 - Code, terminals, diffs, the file tree, paths and branch names, keyboard
   keys, and the T3 Code logo stay left to right.
+- In the menu that opens from the composer, commands, skills, and models stay
+  left to right, with the name on the left and the source badge on the
+  right. A Hebrew description keeps its reading order after the name, and
+  the full description of a highlighted row starts on the side where its
+  text starts. Threads, files, and pull requests in the same menu follow the
+  layout, so a Hebrew thread title or file name sits on the right.
 - A previewed page and the floating preview's buttons stay left to right, so
   the page fills its frame and the buttons stay in the floating preview's top
   right corner. The device toolbar over a page follows the layout.
