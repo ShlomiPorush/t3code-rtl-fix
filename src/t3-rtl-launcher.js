@@ -149,7 +149,8 @@ function watchWorkingShelf() {
 // A change of the switch reloads T3 Code's windows, so it applies without a
 // restart. Without interception no window has a changed script, so there is
 // nothing to reload.
-// Quick changes reload once, for the last one.
+// A change that a later one overtakes before its reload starts does not
+// reload.
 let workingShelfChanges = 0;
 async function switchWorkingShelf(next) {
   if (next === boringWorkingShelf) return;
@@ -400,6 +401,7 @@ async function attachAndInject(targetInfo) {
 
   attachingTargets.add(targetId);
   const changesBeforeAttach = workingShelfChanges;
+  let changedWhileAttaching = false;
   try {
     const attached = await send("Target.attachToTarget", {
       targetId,
@@ -409,7 +411,7 @@ async function attachAndInject(targetInfo) {
     sessionsByTarget.set(targetId, sessionId);
     // At once, so a change of the switch from now on reloads this window too.
     if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
-    const changedWhileAttaching = workingShelfChanges !== changesBeforeAttach;
+    changedWhileAttaching = workingShelfChanges !== changesBeforeAttach;
 
     if (!isPage) {
       await watchAnnotations(send, sessionId);
@@ -478,16 +480,18 @@ async function attachAndInject(targetInfo) {
         log(`Extras could not be added: ${error.message}`);
       }
     }
-    // A change of the switch while this window was attaching may have been
-    // sent before the window was on the list. Reload it once it has every fix.
-    if (appPages.has(targetId) && changedWhileAttaching && workingShelfWatch && (await workingShelfWatch)) {
-      await workingShelf.reloadWindows([sessionId]);
-    }
   } catch (error) {
     sessionsByTarget.delete(targetId);
     log(`Injection failed for target ${targetId}: ${error.message}`);
   } finally {
     attachingTargets.delete(targetId);
+  }
+  // A change of the switch while this window was attaching may have been sent
+  // before the window was on the list. Reload it after the attempt to add
+  // every fix, whether that attempt failed or not.
+  const sessionId = appPages.get(targetId);
+  if (sessionId && changedWhileAttaching && workingShelfWatch && (await workingShelfWatch)) {
+    await workingShelf.reloadWindows([sessionId]);
   }
 }
 

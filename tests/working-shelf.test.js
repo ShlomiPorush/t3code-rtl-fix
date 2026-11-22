@@ -442,9 +442,10 @@ test("a change of the switch reloads only after the browser watches the script",
   assert.ok(attached > 0 && added > attached && added < launcher.indexOf('send("Page.enable"', attached));
   assert.match(launcher, /appPages\.delete\(message\.params\?\.targetId\)/);
   assert.equal((launcher.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
-  // A window that attached during a change reloads after its fixes are in.
+  // A window that attached during a change reloads after the attempt to add
+  // its fixes, even a failed one.
   const inject = launcher.slice(launcher.indexOf("async function attachAndInject("), launcher.indexOf("function handleMessage("));
-  assert.ok(inject.indexOf("changedWhileAttaching &&") > inject.indexOf("await extras.attach(sessionId)"));
+  assert.ok(inject.indexOf("changedWhileAttaching &&") > inject.indexOf("} finally {"));
 });
 
 test("the launcher watches before the first window and keeps the RTL fix when watching fails", () => {
