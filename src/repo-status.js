@@ -1827,7 +1827,7 @@ function buildRepoStatusPageSource() {
     // T3 Code's GitHub issue link names the repository in lower case and
     // the issue by its number as text.
     const scope = repo.toLowerCase();
-    const key = String(Number(issue[1]));
+    const key = issue[1];
     return {
       action: "openIssue",
       // T3 Code has no setting for issues. A store with this action belongs
