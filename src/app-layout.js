@@ -59,6 +59,12 @@ const SCRIPT_PLACED_SELECTOR = [
 // hover card, not a line of text.
 const LAYOUT_AUTO_SELECTOR = '[dir="auto"]:has(svg)';
 
+// Rows of the composer menu that read left to right, by the prefix of the
+// item id T3 Code gives each row.
+const COMPOSER_LTR_ITEM_SELECTORS = ["skill:", "slash:", "provider-slash-command:", "model:"].map(
+  (prefix) => `[data-composer-item-id^="${prefix}"]`,
+);
+
 // The floating browser or device preview over the conversation, and the grip
 // that holds its buttons and moves it.
 const MINI_PLAYER_SELECTOR = "[data-preview-mini-player]";
@@ -162,6 +168,19 @@ const HIGH_CSS = `
   text-align: match-parent;
 }
 
+/* A command, skill, or model row of the composer menu reads left to right.
+   Its name and description each keep their own reading order, so a Hebrew
+   description still reads from its start, and stay on the left, next to
+   each other. The full description, shown in a tooltip outside the menu
+   while its row is highlighted, sits on the side where its text starts. */
+:root[data-t3-rtl-app="on"] [data-composer-item-id][data-t3-rtl-island] span:not(:has(*)) {
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+:root[data-t3-rtl-app="on"]:has([data-composer-item-id][data-t3-rtl-island] [data-popup-open]) [data-slot="tooltip-popup"] {
+  text-align: start !important;
+}
+
 /* A path or branch name keeps its order and sits on the right of a
    right-to-left row. */
 :root[data-t3-rtl-app="on"] :dir(rtl) > [data-t3-rtl-island]:has(> span.peer.whitespace-pre + span.whitespace-pre) {
@@ -213,6 +232,12 @@ const LTR_ISLAND_SELECTOR = [
   "pre",
   "kbd",
   "diffs-container",
+  // Commands, skills, and models in the composer menu are English
+  // identifiers with English descriptions, so their rows keep T3 Code's
+  // layout. Threads, files, and pull requests in the same menu can be titled
+  // in Hebrew, so they stay with the app. Each row is its own element, so a
+  // mark never carries over to a row of another kind.
+  ...COMPOSER_LTR_ITEM_SELECTORS,
 ].join(", ");
 
 // Parts of T3 Code's own interface inside an island that are laid out with
