@@ -47,6 +47,9 @@ const REORDER =
   '(a=>{const w=a.filter(e=>e.kind==="marker"?e.marker==="working-header":e.section==="working");' +
   "return w.length===0?a:[...w,...a.filter(e=>!w.includes(e))]})";
 
+// The patch's own name for "the sidebar shows project folders".
+const FOLDERS_FLAG = "t3RtlFixHasFolders$";
+
 // How far after the start of the sidebar hook its row lists are built.
 const HOOK_WINDOW = 8000;
 
@@ -114,16 +117,25 @@ function patchSidebarChunk(source) {
     ),
   );
   if (returned.problem) return unchanged(returned.problem);
+  // Nothing else in the hook sets the keyboard order over it.
+  if (allMatches(source.slice(gate.match.index, hookEnd), /orderedThreadKeys:/).length !== 1) {
+    return unchanged("keyboard order: set more than once");
+  }
   const keysStart = keys.match.index + 1 + keys.match[1].length;
 
   // The sidebar component: its project folders F and its rows K are declared
-  // together, the rows are handed on to the list that keys React's state, and
-  // the folders are rendered without their active threads. All of it in one
-  // function, so F is in scope everywhere it is used below.
-  const declared = single(source, new RegExp(`[,;]${ID}=(${ID})!==null&&\\1\\.length>0,(${ID});`), "rows");
+  // in one let statement, the rows are handed on to the list that keys
+  // React's state, and the folders are rendered without their active threads.
+  const declared = single(
+    source,
+    new RegExp(`\\blet (?:[^;{}()\`'"]*?,)?${ID}=(${ID})!==null&&\\1\\.length>0,(${ID});`),
+    "rows",
+  );
   if (declared.problem) return unchanged(declared.problem);
+  if (source.includes(FOLDERS_FLAG)) return unchanged("already changed");
   const F = declared.match[1];
   const K = escapeId(declared.match[2]);
+  const declaredEnd = declared.match.index + declared.match[0].length - 1;
   const rows = single(
     source,
     new RegExp(`${K}=${ID}\\}let (${ID})=${K},(${ID});${ID}\\[\\d+\\]===\\1\\?\\2=${ID}\\[\\d+\\]:\\(\\2=\\1\\.map\\(`),
@@ -153,18 +165,19 @@ function patchSidebarChunk(source) {
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
   if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
 
-  // F is read where the rows are declared. Where the patch adds it, it is
-  // read inside try, and only a list of project folders as the sidebar builds
-  // them counts. A build in which another value, or none, has that name there
-  // gets T3 Code's own layout at that place instead of an error. Every other
+  // Whether there are project folders is recorded in the statement where
+  // T3 Code itself reads them, in a name of the patch's own that no minified
+  // name can be. The places that read it do so inside try, so a place that
+  // cannot see it keeps T3 Code's own layout instead of failing. Every other
   // added name is already used at the place it is added to.
-  const hasFolders =
-    `(()=>{try{return Array.isArray(${F})&&${F}.every(x=>x!==null&&typeof x=="object"&&"group"in x&&"hiddenThreads"in x)}catch{return!1}})()`;
+  const hasFolders = `(()=>{try{return ${FOLDERS_FLAG}===!0}catch{return!1}})()`;
 
   // The rows hand-off: "}let Q=K,J;" becomes "}let Q=hasFolders?reorder(K):K,J;".
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
   const edits = [
+    // "let …,G=F!==null&&F.length>0,K;" also declares the flag.
+    { start: declaredEnd, end: declaredEnd, text: `,${FOLDERS_FLAG}=${F}!==null` },
     // Show the Working section with the boring sidebar too.
     { start: gateStart, end: gateStart + gate.match[3].length, text: "" },
     // Working threads first in the keyboard order when there are folders.

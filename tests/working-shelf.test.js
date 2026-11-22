@@ -127,7 +127,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     ["H=b?j:hK(j,l)", "H=b?j:hK(M,l)", ";H2=b?j:hK(j,l);"],
     ["U=u===null?null:", "U=u==null?null:", ";U=u===null?null:0;"],
     ["W=[...k,...U===null?A:U.flatMap(wK),...H,", "W=[...k,...U==null?A:U.flatMap(wK),...H,", ";W=[...k,...U===null?A:U.flatMap(wK),...H,0];"],
-    ["Gi=Un!==null&&Un.length>0,Ki;", "Gi=Un!=null&&Un.length>0,Ki;", ";Gx=Un!==null&&Un.length>0,Kx;"],
+    ["Gi=Un!==null&&Un.length>0,Ki;", "Gi=Un!=null&&Un.length>0,Ki;", ";let Gx=Un!==null&&Un.length>0,Kx;"],
     ["}let qi=Ki,Ji;", "}var qi=Ki,Ji;", "Ki=z}let qi=Ki,Ji;t[0]===qi?Ji=t[1]:(Ji=qi.map(0));"],
     ["if(Un!==null&&i.section===`active`)continue", "if(Un!=null&&i.section===`active`)continue", "if(Un!==null&&i.section===`active`)continue;"],
     ["marker:`working-header`,className:`mt-auto`", "marker:`working-header`,className:`mt-4`", "[{marker:`working-header`,className:`mt-auto`}];"],
@@ -161,6 +161,12 @@ test("the patch changes nothing unless every site matches exactly once", () => {
       "return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:W.map(x=>x)}",
       "let helper={orderedThreadKeys:W.map(x=>x)};return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:k.concat(A,H)}",
     ),
+    FIXTURE.replace(
+      "return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:W.map(x=>x)}",
+      "let base={...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:W.map(x=>x)};return{...base,orderedThreadKeys:k.concat(A,H)}",
+    ),
+    // The rows and folders are not declared together by let.
+    FIXTURE.replace("let t=[],Gi=Un!==null&&Un.length>0,Ki;", "let t=[],Ki;t=0,Gi=Un!==null&&Un.length>0,Ki;"),
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
@@ -179,6 +185,7 @@ test("a site that cannot see the project folders gets T3 Code's layout, not an e
     "not yet set": `(Dn,On,Y)=>{const h=${headers};let Un=[];return h}`,
     "another value": `(Dn,On,Y)=>{let Un=[1,{a:1}];return ${headers}}`,
     "another null": `(Dn,On,Y)=>{let Un=[];Un=null;return ${headers}}`,
+    "another empty list": `(Dn,On,Y)=>{let Un=[];return ${headers}}`,
   };
   for (const [name, body] of Object.entries(bodies)) {
     const variant = FIXTURE.replace(`const headers=${headers};`, "const headers=mk(Dn,On,Y);") + `\nconst mk=${body};`;
@@ -270,7 +277,7 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
-  assert.equal((result.source.match(/"hiddenThreads"in x/g) || []).length, 4, "the folders are checked at the four added places");
+  assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 5, "the flag is set once and read at the four added places");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
     const file = path.join(directory, "main.mjs");
