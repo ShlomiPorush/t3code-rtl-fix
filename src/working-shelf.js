@@ -10,7 +10,7 @@
 // - with the boring sidebar only, the section sits at the top of the
 //   sidebar, above Pinned, in the rows, in their keyboard order, and in the
 //   spacing that keeps the other shelves at the bottom, and its rows look
-//   like the rows in the project folders.
+//   like the rows in the project folders, with their project's icon.
 //
 // Every site must match exactly once before anything changes. Otherwise the
 // code is passed on byte for byte, so a T3 Code update that changes this code
@@ -175,6 +175,60 @@ function patchSidebarChunk(source) {
   );
   if (look.problem) return unchanged(look.problem);
   const lookStart = look.match.index + 1 + look.match[1].length;
+  // The same row gets `shelf:working` as its navigation parent when it is in
+  // the Working list, which is how the row component tells a Working row.
+  const parent = single(
+    source,
+    new RegExp(`navigationParent:(${ID})\\?\\?\\((${ID})===\`working\`\\|\\|[^()]*?\\?\`shelf:\\$\\{\\2\\}\``),
+    "working parent",
+  );
+  if (parent.problem) return unchanged(parent.problem);
+  const lookEnd = look.match.index + look.match[0].length;
+  if (
+    parent.match[1] !== look.match[2] ||
+    parent.match[2] !== look.match[3] ||
+    !look.match[0].endsWith(",") ||
+    parent.match.index < lookEnd ||
+    /[{}]/.test(source.slice(lookEnd, parent.match.index))
+  ) {
+    return unchanged("working parent: not the rendered row's");
+  }
+
+  // T3 Code's row component, for a row that is not a card: its folder flag A
+  // (a folder row, one or two lines), the project icon it hides in folder
+  // rows, cached by A, and the indent of folder rows under their folder.
+  const flags = single(
+    source,
+    new RegExp(`if\\((${ID})!==\`card\`\\)\\{let (${ID})=\\1===\`folder-multiline\`,(${ID})=\\1===\`folder\`\\|\\|\\2,`),
+    "row flags",
+  );
+  if (flags.problem) return unchanged(flags.problem);
+  const A = escapeId(flags.match[3]);
+  const icon = single(
+    source,
+    new RegExp(
+      `(${ID})\\[(\\d+)\\]!==${A}\\|\\|\\1\\[\\d+\\]!==(${ID})\\.isActive\\|\\|\\1\\[\\d+\\]!==\\3\\.project\\|\\|\\1\\[\\d+\\]!==(${ID})\\?` +
+        `\\(${ID}=${A}\\?null:\\(0,${ID}\\.jsx\\)\\(\`span\`,\\{className:${ID}\\(\`flex shrink-0 items-center transition-opacity\`,` +
+        `\\(!\\3\\.isActive\\|\\|\\4===\`unsettle\`\\)&&\`[^\`]*\`\\),` +
+        `children:\\3\\.project\\?\\(0,${ID}\\.jsx\\)\\(${ID},\\{project:\\3\\.project,className:\`size-4\`\\}\\):null\\}\\),\\1\\[\\2\\]=${A},`,
+    ),
+    "row icon",
+  );
+  if (icon.problem) return unchanged(icon.problem);
+  const props = icon.match[3];
+  const indent = single(
+    source,
+    new RegExp(
+      `"data-sidebar-parent":(${ID})\\.navigationParent,[^{}]*?className:${ID}\\(${ID},${escapeId(flags.match[2])}\\?\`[^\`]*\`:\`[^\`]*\`,${A}&&\`ps-9\`\\)`,
+    ),
+    "row indent",
+  );
+  if (indent.problem) return unchanged(indent.problem);
+  if (indent.match[1] !== props) return unchanged("row indent: not the row's own");
+  const indentEnd = indent.match.index + indent.match[0].length;
+  if (!(flags.match.index < icon.match.index && icon.match.index < indent.match.index) || hasFunction(source, flags.match.index, indentEnd)) {
+    return unchanged("row: sites not in one component");
+  }
 
   const componentSites = [rows, render, working, snoozed, settled, look].map((site) => site.match.index);
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
@@ -190,7 +244,34 @@ function patchSidebarChunk(source) {
   // The rows hand-off: "}let Q=K,J;" becomes "}let Q=hasFolders?reorder(K):K,J;".
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
+
+  // A folder row is a Working row only with this patch, so the row component
+  // needs no flag: a folder row whose parent is `shelf:working` shows its
+  // project icon, at full strength, in the place of the folder indent. The
+  // icon's cache key also records the parent, because a thread that moves
+  // between Working and its folder keeps the same row.
+  const inWorking = `${props}.navigationParent===\`shelf:working\``;
+  const [cache, slot] = [icon.match[1], icon.match[2]];
+  const a = flags.match[3];
+  const iconParts = [
+    [`${cache}[${slot}]!==${a}||`, `${cache}[${slot}]!==""+${a}+(${inWorking})||`],
+    [`=${a}?null:`, `=${a}&&!(${inWorking})?null:`],
+    [`(!${props}.isActive||`, `(!${props}.isActive&&!${a}||`],
+    [`${cache}[${slot}]=${a},`, `${cache}[${slot}]=""+${a}+(${inWorking}),`],
+  ];
+  let iconText = icon.match[0];
+  for (const [from, to] of iconParts) {
+    if (iconText.split(from).length !== 2) return unchanged("row icon: not read once");
+    iconText = iconText.replace(from, () => to);
+  }
+  const indentFrom = `,${a}&&\`ps-9\`)`;
+  const indentAt = indent.match.index + indent.match[0].length - indentFrom.length;
+
   const edits = [
+    // The project icon in Working rows.
+    { start: icon.match.index, end: icon.match.index + icon.match[0].length, text: iconText },
+    // No folder indent in Working rows: the icon takes its place.
+    { start: indentAt, end: indentEnd, text: `,${a}&&!(${inWorking})&&\`ps-9\`)` },
     // "let …,G=F!==null&&F.length>0,K;" also declares the flag.
     { start: declaredEnd, end: declaredEnd, text: `,${FOLDERS_FLAG}=${F}!==null` },
     // Show the Working section with the boring sidebar too.

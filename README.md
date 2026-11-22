@@ -288,8 +288,8 @@ there too:
 - The Working section sits at the top of the sidebar, above Pinned. New thread
   drafts stay above it. Snoozed and Settled stay at the bottom.
 - Threads in the Working section are plain rows, like the rows in the project
-  folders, not the cards of T3 Code's own Working section. Like the rows in a
-  folder, they do not show the project. Hover a row to see it.
+  folders, not the cards of T3 Code's own Working section. Each row starts with
+  its project's icon. Hover a row to see the project's name.
 - A project folder whose only active thread is working hides until the thread
   returns, as T3 Code already does when a thread is snoozed or settled. A
   pinned project, or the project you filtered the sidebar to, stays.

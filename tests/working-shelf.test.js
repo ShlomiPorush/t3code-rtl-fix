@@ -11,7 +11,23 @@ const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require(".
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
 // patch that breaks a name fails here and not only in the app.
+//
+// T3 Code's row component for rows that are not cards, cut down to the
+// project icon and the row's class, with its cache t kept across renders.
+const ROW_FLAGS = "if(C!==`card`){let r=C===`folder-multiline`,a=C===`folder`||r,";
+const ROW_ICON =
+  "t[195]!==a||t[196]!==e.isActive||t[197]!==e.project||t[198]!==w?(d=a?null:(0,Z.jsx)(`span`,{className:Y(`flex shrink-0 items-center transition-opacity`," +
+  "(!e.isActive||w===`unsettle`)&&`opacity-40 grayscale`),children:e.project?(0,Z.jsx)(Lw,{project:e.project,className:`size-4`}):null})," +
+  "t[195]=a,t[196]=e.isActive,t[197]=e.project,t[198]=w,t[199]=d):d=t[199];";
+const ROW_INDENT =
+  '"data-sidebar-parent":e.navigationParent,"data-testid":a?`sidebar-row-folder`:`sidebar-row-slim`,' +
+  "className:Y(Ft,r?`flex flex-col justify-center px-2.5 py-1.5`:`flex h-9 items-center gap-2.5 px-2.5`,a&&`ps-9`)";
+const ROW_COMPONENT =
+  "function rowLook(t,C,e,w){const Z={jsx:(c,p)=>p},Lw=0,Ft=`row`,Y=(...v)=>v.filter(Boolean).join(` `);" +
+  `${ROW_FLAGS}d;${ROW_ICON}return{icon:d,row:{${ROW_INDENT}}}}return null}`;
+
 const FIXTURE = [
+  ROW_COMPONENT,
   "let SETTINGS={sidebarWorkingShelfEnabled:true};",
   "function setWorking(v){SETTINGS={sidebarWorkingShelfEnabled:v}}",
   "function DK(e){return e.sidebarWorkingShelfEnabled}",
@@ -27,12 +43,12 @@ const FIXTURE = [
     "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
   "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
   "const headers=[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];",
-  "const ce=!1,Z={jsx:(c,p)=>p.variant},xG=0,look=(e,t,n)=>{let r=1,a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return(0,Z.jsx)(xG,{thread:e,variant:a,navigationParent:n})};",
+  "const ce=!1,Z={jsx:(c,p)=>p.variant},xG=0,look=(e,t,n)=>{let r=1,a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return(0,Z.jsx)(xG,{thread:e,variant:a,navigationParent:n??(t===`working`||t===`snoozed`||t===`settled`?`shelf:${t}`:void 0)})};",
   "return{Ji,rendered,headers,Gi,look}}",
 ].join("\n");
 
 function load(source) {
-  const loaded = new Function(`${source}\nreturn { setWorking, gK, GK };`)();
+  const loaded = new Function(`${source}\nreturn { setWorking, gK, GK, rowLook };`)();
   const Y = (value) => value || undefined;
   return {
     setWorking: loaded.setWorking,
@@ -41,6 +57,7 @@ function load(source) {
     render: (folders, list) => loaded.GK(folders, list, [], [], Y).rendered,
     headers: (folders, working, snoozed) => loaded.GK(folders, [], working, snoozed, Y).headers,
     look: (folders, section, inFolder) => loaded.GK(folders, [], [], [], Y).look({}, section, inFolder),
+    rowLook: loaded.rowLook,
   };
 }
 
@@ -133,6 +150,36 @@ test("with project folders, Working rows look like folder rows; without, rows lo
   }
 });
 
+test("a Working folder row shows its project icon in the place of the indent; other rows look as T3 Code has them", () => {
+  const { source } = patchSidebarChunk(FIXTURE);
+  const original = load(FIXTURE);
+  const patched = load(source);
+  const props = (navigationParent, isActive) => ({ navigationParent, isActive, project: "P" });
+  for (const variant of ["folder", "folder-multiline"]) {
+    for (const isActive of [true, false]) {
+      const row = patched.rowLook([], variant, props("shelf:working", isActive), "settle");
+      assert.deepEqual(row.icon, { className: "flex shrink-0 items-center transition-opacity", children: { project: "P", className: "size-4" } });
+      assert.doesNotMatch(row.row.className, /ps-9/);
+      assert.equal(original.rowLook([], variant, props("shelf:working", isActive), "settle").icon, null);
+    }
+  }
+  for (const variant of ["folder", "folder-multiline", "slim", "card"]) {
+    for (const parent of ["project:x", "shelf:snoozed", "shelf:settled", undefined]) {
+      for (const isActive of [true, false]) {
+        for (const action of ["settle", "unsettle", "unsnooze"]) {
+          const args = [variant, props(parent, isActive), action];
+          assert.deepEqual(patched.rowLook([], ...args), original.rowLook([], ...args), `${args.join(" ")}`);
+        }
+      }
+    }
+  }
+  // T3 Code keeps a row when its thread moves between Working and its folder.
+  const cache = [];
+  assert.notEqual(patched.rowLook(cache, "folder", props("shelf:working", false), "settle").icon, null);
+  assert.equal(patched.rowLook(cache, "folder", props("project:x", false), "settle").icon, null);
+  assert.notEqual(patched.rowLook(cache, "folder", props("shelf:working", false), "settle").icon, null);
+});
+
 test("the patch changes nothing unless every site matches exactly once", () => {
   // Each site: the text in the fixture, a change that breaks it, and a second
   // copy that matches it again.
@@ -156,6 +203,14 @@ test("the patch changes nothing unless every site matches exactly once", () => {
       "t===`active`||t===`pinned`?`card`:`slim`",
       ";const l2=(e,t,n)=>{let r=0,a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return(0,Z.jsx)(xG,{variant:a})};",
     ],
+    [
+      "navigationParent:n??(t===`working`",
+      "navigationParent:n??(t===`busy`",
+      ";const p2={navigationParent:n??(t===`working`||0?`shelf:${t}`:0)};",
+    ],
+    [ROW_FLAGS, ROW_FLAGS.replace("||r,", ","), `;function rl2(C){${ROW_FLAGS}d}}`],
+    ["(d=a?null:", "(d=a?void 0:", `;function rl3(t,C,e,w){${ROW_FLAGS}d;${ROW_ICON}}}`],
+    ["a&&`ps-9`)", "a&&`ps-8`)", `;function rl4(e,r,a){return{${ROW_INDENT}}}`],
   ];
   for (const [site, broken, copy] of sites) {
     assert.equal(FIXTURE.split(site).length, 2, `the fixture has ${site} once`);
@@ -194,6 +249,13 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     FIXTURE.replace("{thread:e,variant:a,", "{thread:e,variant:r,"),
     FIXTURE.replace("{thread:e,variant:a,", "{savedvariant:a,variant:r,"),
     FIXTURE.replace("`slim`;return(0,Z.jsx)", "`slim`;a=`card`;return(0,Z.jsx)"),
+    // The Working parent is not the rendered row's.
+    FIXTURE.replace("navigationParent:n??(t===`working`", "navigationParent:r??(t===`working`"),
+    FIXTURE.replace("variant:a,navigationParent:", "variant:a},{navigationParent:"),
+    // The row's icon, flag, and indent are not one component's.
+    FIXTURE.replace("(d=a?null:", "(d=r?null:"),
+    FIXTURE.replace('"data-sidebar-parent":e.navigationParent', '"data-sidebar-parent":q.navigationParent'),
+    FIXTURE.replace("return{icon:d,row:{", "return{icon:d,row:function(){},x:{"),
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
@@ -305,6 +367,11 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
   assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 6, "the flag is set once and read at the five added places");
+  assert.equal(
+    (result.source.match(/[\w$]+\.navigationParent===`shelf:working`/g) || []).length,
+    4,
+    "the row component reads the Working parent in the icon's cache key, the icon, its cache, and the indent",
+  );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
     const file = path.join(directory, "main.mjs");
