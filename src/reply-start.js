@@ -30,6 +30,9 @@ const CONFIG = Object.freeze({
   // The folded work of a turn, such as "Worked for 1m 40s", shown right above
   // the reply. The thread opens with it above the reply.
   foldKind: "turn-fold",
+  // The most space between the fold and the reply for the fold to count as
+  // right above it.
+  foldGap: 2,
   // First route segments that name no thread.
   otherRoutes: ["draft", "settings"],
   // T3 Code opens a citation's source with this in the address, and scrolls
@@ -49,8 +52,10 @@ const CONFIG = Object.freeze({
   // How long the new thread may take to show, and to settle once shown.
   loadTimeout: 10000,
   settleTimeout: 3000,
-  // Frames to keep the start of the reply in place while rows are measured.
+  // Frames to keep the start of the reply in place while rows are rendered
+  // and measured, and frames with no change before the place counts as kept.
   placeFrames: 30,
+  settledFrames: 6,
 });
 
 function replyStart(config) {
@@ -133,23 +138,31 @@ function replyStart(config) {
     const kind = last.dataset.timelineRowKind;
     const reply = (kind === "message" && last.dataset.messageRole === "assistant") || kind === "proposed-plan";
     if (!reply) return null;
-    const top = last.getBoundingClientRect().top;
-    if (scroller.getBoundingClientRect().top - top <= 1) return null;
-    // The row right above the reply, when it is the folded work of its turn.
+    const hidden = scroller.getBoundingClientRect().top - last.getBoundingClientRect().top;
+    return hidden > 1 ? last : null;
+  };
+
+  // The folded work of the reply's turn, when it is the row right above the
+  // reply, or null. T3 Code renders only the rows near the screen, so the row
+  // may show only once the start of the reply is near.
+  const foldAbove = (scroller, reply) => {
+    const top = reply.getBoundingClientRect().top;
     let above = null;
     let aboveBottom = -Infinity;
-    for (const row of rows) {
+    for (const row of scroller.querySelectorAll(config.rowSelector)) {
       const bottom = row.getBoundingClientRect().bottom;
-      if (row !== last && bottom <= top + 1 && bottom > aboveBottom) {
+      if (row !== reply && bottom <= top + 1 && bottom > aboveBottom) {
         above = row;
         aboveBottom = bottom;
       }
     }
-    return above && above.dataset.timelineRowKind === config.foldKind ? above : last;
+    const adjacent = above && top - aboveBottom <= config.foldGap;
+    return adjacent && above.dataset.timelineRowKind === config.foldKind ? above : null;
   };
 
-  // Releases T3 Code's follow of the end, then keeps the start of the reply
-  // at the top while the rows above it are measured.
+  // Releases T3 Code's follow of the end, then keeps the start of the reply,
+  // or the folded work right above it, at the top while the rows above it
+  // are rendered and measured.
   const place = (scroller, row) => {
     const id = row.dataset.timelineRowId;
     scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
@@ -159,8 +172,9 @@ function replyStart(config) {
     let settled = 0;
     const step = guard(() => {
       if (visit !== job || !scroller.isConnected) return;
-      const target = [...scroller.querySelectorAll(config.rowSelector)].find((r) => r.dataset.timelineRowId === id);
-      if (!target) return stop();
+      const reply = [...scroller.querySelectorAll(config.rowSelector)].find((r) => r.dataset.timelineRowId === id);
+      if (!reply) return stop();
+      const target = foldAbove(scroller, reply) || reply;
       const delta = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - config.offset;
       if (Math.abs(delta) > 1) {
         scroller.scrollTop += delta;
@@ -168,7 +182,7 @@ function replyStart(config) {
       } else {
         settled += 1;
       }
-      if (settled >= 3 || ++frames >= config.placeFrames) return stop();
+      if (settled >= config.settledFrames || ++frames >= config.placeFrames) return stop();
       job.frame = requestAnimationFrame(step);
     });
     step();
