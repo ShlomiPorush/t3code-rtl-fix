@@ -28,6 +28,7 @@ const LINK_CSS = `@layer theme, base, components, utilities;
   .left-0 { left: 0; }
   .right-0 { right: 0; }
   .cursor-nesw-resize { cursor: nesw-resize; }
+  .bg-fill { background-color: rgb(1, 2, 3); }
   .border-l { border-left-style: solid; border-left-width: 3px; }
   .text-left { text-align: left; }
   @media (width >= 1px) { .sm\\:pr-2 { padding-right: 8px; } }
@@ -64,6 +65,8 @@ const PAGE = `<!doctype html><html><head>
   <div id="floating-grab" class="group" style="right: 8px; top: 8px; position: absolute; width: 12px; height: 12px;">
     <div id="floating-pill" class="right-0" style="position: absolute; top: 0; width: 90px; height: 32px;"><button id="floating-button" type="button">x</button></div>
   </div>
+  <div id="floating-bg" class="z-[47] bg-fill" style="position: absolute; inset: 0;"></div>
+  <div data-browser-surface-slot="tab" style="position: absolute; inset: 0;"></div>
   <div id="floating-content" style="position: absolute; inset: 0;">Reconnecting preview…</div>
   <div id="floating-east" data-preview-mini-player-resize="east" class="right-0" style="position: absolute; top: 40px; width: 8px; height: 8px; cursor: ew-resize;"></div>
   <div id="floating-northeast" data-preview-mini-player-resize="northeast" class="right-0 cursor-nesw-resize" style="position: absolute; top: 0; width: 8px; height: 8px;"></div>
@@ -181,6 +184,7 @@ async function run(port) {
       floatingLeft: Math.round(box("floating").left - box("floating-layer").left),
       floatingEast: Math.round(box("floating-east").left - box("floating").left),
       floatingCorner: s("floating-northeast").cursor,
+      floatingBg: s("floating-bg").backgroundColor,
       findBarShown: Math.round(Element.prototype.getBoundingClientRect.call(document.getElementById("find-bar")).left),
       findBarPresented: Math.round(box("find-bar").left),
       pageOffset: Math.round(box("viewport-page").left - box("viewport").left),
@@ -231,6 +235,9 @@ async function run(port) {
   check(on.floatingLeft === 180, `The floating preview was not mirrored to the other side: ${on.floatingLeft}px`);
   check(on.floatingEast === 0 && on.floatingCorner === "nwse-resize",
     `The floating preview's handles did not move to the other sides: ${JSON.stringify(on)}`);
+  // A browser page is drawn outside the preview, which the mirrored layer
+  // draws above it, so the preview's own background lets it show through.
+  check(on.floatingBg === "rgba(0, 0, 0, 0)", `The preview's background covers the page: ${on.floatingBg}`);
   // The find bar is on the left with the preview, and T3 Code is shown its
   // place mirrored, as the preview's own.
   check(on.findBarShown === 0 && on.findBarPresented === 300,

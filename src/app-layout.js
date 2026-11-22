@@ -96,6 +96,13 @@ const HIGH_CSS = `
 :root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) > ${MINI_PLAYER_SELECTOR} {
   scale: -1 1;
 }
+/* A browser page is drawn outside the preview, between the preview's
+   background and its buttons. The layer draws the whole preview above the
+   page, so the background, which is solid in some themes, lets the page
+   show through. Its shadow stays. */
+:root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) > ${MINI_PLAYER_SELECTOR}:has(> [data-browser-surface-slot]) > [class~="z-[47]"] {
+  background-color: transparent;
+}
 /* Its corner handles move to the other corners, so their cursors slant the
    other way. */
 :root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) :is([data-preview-mini-player-resize="northeast"], [data-preview-mini-player-resize="southwest"]) {
