@@ -120,7 +120,8 @@ try {
 // its own too.
 let boringWorkingShelf = initialSettings.boringWorkingShelf === true;
 let workingShelf = null;
-let workingShelfWatching = false;
+// Resolves to whether the browser watches T3 Code's script.
+let workingShelfWatch = null;
 try {
   const { createWorkingShelfService } = require("./working-shelf");
   workingShelf = createWorkingShelfService({
@@ -134,10 +135,27 @@ try {
 
 // Interception starts with the first switch on and then stays, so a request
 // that is paused while the switch turns off is still answered.
-async function watchWorkingShelf() {
-  if (!workingShelf || workingShelfWatching || !boringWorkingShelf) return;
-  workingShelfWatching = true;
-  workingShelfWatching = await workingShelf.enable();
+function watchWorkingShelf() {
+  if (!workingShelf || !boringWorkingShelf) return Promise.resolve(false);
+  if (!workingShelfWatch) {
+    workingShelfWatch = workingShelf.enable().then((watching) => {
+      if (!watching) workingShelfWatch = null;
+      return watching;
+    });
+  }
+  return workingShelfWatch;
+}
+
+// A change of the switch reloads T3 Code's windows, so it applies without a
+// restart. Without interception no window has a changed script, so there is
+// nothing to reload.
+async function switchWorkingShelf(next) {
+  if (next === boringWorkingShelf) return;
+  boringWorkingShelf = next;
+  const watching = next ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
+  if (!watching) return;
+  const reloaded = await workingShelf.reloadWindows([...appPageSessions]);
+  log(`Working section in the boring sidebar turned ${next ? "on" : "off"}, ${reloaded} windows reloaded`);
 }
 
 let repoStatus = null;
@@ -190,8 +208,7 @@ if (settingsStore) {
       rtlLayout = nextLayout;
       for (const sessionId of layoutSessions) void switchLayout(sessionId);
     }
-    boringWorkingShelf = settings.boringWorkingShelf === true;
-    void watchWorkingShelf();
+    void switchWorkingShelf(settings.boringWorkingShelf === true);
     const nextWidth = settings.chatWidth ?? null;
     if (nextWidth !== chatWidth) {
       chatWidth = nextWidth;
@@ -240,6 +257,9 @@ const annotationSessionsLogged = new Set();
 // and the new-document script of the layout in each, by session.
 const layoutSessions = new Set();
 const layoutScripts = new Map();
+// The regular T3 Code windows, which load the script the Working section
+// in the boring sidebar changes.
+const appPageSessions = new Set();
 
 // Layout work for each session runs one step at a time, so quick changes,
 // such as one from a second window, never lose track of a script.
@@ -391,6 +411,7 @@ async function attachAndInject(targetInfo) {
 
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
+    if (isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);
     if (buildLayoutSource) {
       layoutSessions.add(sessionId);
       await queueLayout(sessionId, async () => {
@@ -518,6 +539,7 @@ function handleMessage(message) {
     annotationSessionsLogged.delete(destroyedSession);
     layoutSessions.delete(destroyedSession);
     layoutScripts.delete(destroyedSession);
+    appPageSessions.delete(destroyedSession);
     chatWidthSessions.delete(destroyedSession);
     chatWidthScripts.delete(destroyedSession);
     layoutQueues.delete(destroyedSession);

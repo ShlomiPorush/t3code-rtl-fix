@@ -27,7 +27,8 @@ const FIXTURE = [
     "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
   "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
   "const headers=[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];",
-  "return{Ji,rendered,headers,Gi}}",
+  "const ce=!1,look=(e,t,n)=>{let a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return a};",
+  "return{Ji,rendered,headers,Gi,look}}",
 ].join("\n");
 
 function load(source) {
@@ -39,6 +40,7 @@ function load(source) {
     rowsOf: (folders, list) => loaded.GK(folders, list, [], [], Y),
     render: (folders, list) => loaded.GK(folders, list, [], [], Y).rendered,
     headers: (folders, working, snoozed) => loaded.GK(folders, [], working, snoozed, Y).headers,
+    look: (folders, section, inFolder) => loaded.GK(folders, [], [], [], Y).look({}, section, inFolder),
   };
 }
 
@@ -115,6 +117,22 @@ test("with project folders, the first shelf at the bottom is Snoozed or Settled"
   }
 });
 
+test("with project folders, Working rows look like folder rows; without, rows look as T3 Code has them", () => {
+  const { source } = patchSidebarChunk(FIXTURE);
+  const original = load(FIXTURE);
+  const patched = load(source);
+  assert.equal(original.look([], "working", false), "card");
+  assert.equal(patched.look([], "working", false), "folder");
+  for (const folders of [[], null]) {
+    for (const section of ["active", "pinned", "working", "snoozed", "settled"]) {
+      for (const inFolder of [true, false]) {
+        if (folders !== null && section === "working" && !inFolder) continue;
+        assert.equal(patched.look(folders, section, inFolder), original.look(folders, section, inFolder), `${section} ${inFolder}`);
+      }
+    }
+  }
+});
+
 test("the patch changes nothing unless every site matches exactly once", () => {
   // Each site: the text in the fixture, a change that breaks it, and a second
   // copy that matches it again.
@@ -133,6 +151,11 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     ["marker:`working-header`,className:`mt-auto`", "marker:`working-header`,className:`mt-4`", "[{marker:`working-header`,className:`mt-auto`}];"],
     ["Y(Dn.length===0&&`mt-auto`)", "Y(Dn.length<1&&`mt-auto`)", "[{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)}];"],
     ["Y(Dn.length+On.length===0&&`mt-auto`)", "Y(Dn.length+On.length<1&&`mt-auto`)", "[{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];"],
+    [
+      "t===`active`||t===`pinned`||t===`working`?`card`:`slim`",
+      "t===`active`||t===`pinned`?`card`:`slim`",
+      ";const l2=(e,t,n)=>{let a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`};",
+    ],
   ];
   for (const [site, broken, copy] of sites) {
     assert.equal(FIXTURE.split(site).length, 2, `the fixture has ${site} once`);
@@ -277,7 +300,7 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
-  assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 5, "the flag is set once and read at the four added places");
+  assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 6, "the flag is set once and read at the five added places");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
     const file = path.join(directory, "main.mjs");
@@ -380,6 +403,34 @@ test("two windows loading at once each get one answer", async () => {
   await Promise.all([service.handlePaused(paused({ requestId: "a" })), service.handlePaused(paused({ requestId: "b" }))]);
   const answers = connection.calls.filter((call) => call.method !== "Fetch.getResponseBody").map((call) => call.params.requestId).sort();
   assert.deepEqual(answers, ["a", "b"]);
+});
+
+test("windows reload without the cache, and one that cannot reload is only logged", async () => {
+  const calls = [];
+  const logs = [];
+  const send = async (method, params, sessionId) => {
+    calls.push({ method, params, sessionId });
+    if (sessionId === "gone") throw new Error("Page.reload: no session");
+    return {};
+  };
+  const service = createWorkingShelfService({ send, isEnabled: () => true, log: (m) => logs.push(m) });
+  assert.equal(await service.reloadWindows(["a", "gone", "b"]), 2);
+  assert.deepEqual(calls, ["a", "gone", "b"].map((sessionId) => ({ method: "Page.reload", params: { ignoreCache: true }, sessionId })));
+  assert.match(logs.join("\n"), /could not be reloaded/);
+  assert.equal(await service.reloadWindows([]), 0);
+});
+
+test("a change of the switch reloads only after the browser watches the script", () => {
+  const launcher = fs.readFileSync(path.join(__dirname, "..", "src", "t3-rtl-launcher.js"), "utf8");
+  const start = launcher.indexOf("async function switchWorkingShelf(");
+  assert.ok(start > 0);
+  const body = launcher.slice(start, launcher.indexOf("\n}\n", start));
+  assert.match(body, /if \(next === boringWorkingShelf\) return;/);
+  assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("reloadWindows"), "watching starts before the reload");
+  assert.match(body, /if \(!watching\) return;/);
+  assert.match(launcher, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
+  assert.match(launcher, /if \(isRegularT3Page\(targetInfo\)\) appPageSessions\.add\(sessionId\)/);
+  assert.match(launcher, /appPageSessions\.delete\(destroyedSession\)/);
 });
 
 test("the launcher watches before the first window and keeps the RTL fix when watching fails", () => {

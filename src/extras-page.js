@@ -728,7 +728,7 @@ function pageMain(config) {
     ));
     card.appendChild(settingRow(
       "Working section in the boring sidebar",
-      "Show T3 Code's Working section with the boring sidebar, at the top above Pinned. Needs Sidebar › Working section on. Applies the next time T3 Code opens.",
+      "Show T3 Code's Working section with the boring sidebar, at the top above Pinned. Needs Sidebar › Working section on. A change reloads the window. Running sessions keep running.",
       sw(settings.boringWorkingShelf === true, locked, "Working section in the boring sidebar", function (value) {
         change({ type: "set", key: "boringWorkingShelf", value: value });
       }),

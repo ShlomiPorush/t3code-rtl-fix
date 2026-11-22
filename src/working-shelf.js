@@ -9,7 +9,8 @@
 //   T3 Code's own "Working section" setting, and
 // - with the boring sidebar only, the section sits at the top of the
 //   sidebar, above Pinned, in the rows, in their keyboard order, and in the
-//   spacing that keeps the other shelves at the bottom.
+//   spacing that keeps the other shelves at the bottom, and its rows look
+//   like the rows in the project folders.
 //
 // Every site must match exactly once before anything changes. Otherwise the
 // code is passed on byte for byte, so a T3 Code update that changes this code
@@ -161,7 +162,18 @@ function patchSidebarChunk(source) {
   );
   if (settled.problem) return unchanged(settled.problem);
 
-  const componentSites = [rows, render, working, snoozed, settled].map((site) => site.match.index);
+  // The look of each row: a row in a project folder is a plain folder row,
+  // and a row in the Working, Pinned, or Active list is a card.
+  const look = single(
+    source,
+    new RegExp(
+      `=(${ID})\\?(${ID})\\?\`folder-multiline\`:\`folder\`:(${ID})===\`active\`\\|\\|\\3===\`pinned\`\\|\\|\\3===\`working\`\\?\`card\`:\`slim\``,
+    ),
+    "row look",
+  );
+  if (look.problem) return unchanged(look.problem);
+
+  const componentSites = [rows, render, working, snoozed, settled, look].map((site) => site.match.index);
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
   if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
 
@@ -207,6 +219,13 @@ function patchSidebarChunk(source) {
       start: settled.match.index,
       end: settled.match.index + settled.match[0].length,
       text: `marker:\`settled-header\`,className:${settled.match[1]}(((${hasFolders}?0:${settled.match[2]}.length)+${settled.match[3]}.length===0)&&\`mt-auto\`)`,
+    },
+    // Working rows look like the rows in the project folders when there are
+    // folders: "=n?" becomes "=n||hasFolders&&t===`working`?".
+    {
+      start: look.match.index,
+      end: look.match.index + 1 + look.match[1].length + 1,
+      text: `=${look.match[1]}||${hasFolders}&&${look.match[3]}===\`working\`?`,
     },
   ].sort((a, b) => a.start - b.start);
 
@@ -283,7 +302,23 @@ function createWorkingShelfService({ send, isEnabled, log = () => {} } = {}) {
     }
   }
 
-  return { enable, handlePaused };
+  // Reloads T3 Code's windows without the cache, so each one loads the
+  // sidebar script again and gets it as the switch now says. Only the windows
+  // reload: T3 Code's server, and the sessions it runs, keep running.
+  async function reloadWindows(sessionIds) {
+    let reloaded = 0;
+    for (const sessionId of sessionIds) {
+      try {
+        await send("Page.reload", { ignoreCache: true }, sessionId);
+        reloaded += 1;
+      } catch (error) {
+        logOnce(`a window could not be reloaded: ${error.message}`);
+      }
+    }
+    return reloaded;
+  }
+
+  return { enable, handlePaused, reloadWindows };
 }
 
 module.exports = { URL_PATTERN, patchSidebarChunk, createWorkingShelfService };

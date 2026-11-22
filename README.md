@@ -287,6 +287,8 @@ there too:
   and returns to its folder when it is done or needs you.
 - The Working section sits at the top of the sidebar, above Pinned. New thread
   drafts stay above it. Snoozed and Settled stay at the bottom.
+- Threads in the Working section are plain rows, like the rows in the project
+  folders, not the cards of T3 Code's own Working section.
 - A project folder whose only active thread is working hides until the thread
   returns, as T3 Code already does when a thread is snoozed or settled. A
   pinned project, or the project you filtered the sidebar to, stays.
@@ -294,8 +296,10 @@ there too:
   or off. It is on by default.
 - The sidebar without the boring mode does not change.
 
-The option is off by default. A change is sure to apply the next time T3 Code
-opens. Until then, a window can keep the sidebar code it already loaded.
+The option is off by default. When you turn it on or off, the launcher reloads
+T3 Code's windows, so the change applies without a restart. Only the windows
+reload. Running sessions keep running, and the text you typed in the composer
+stays.
 
 To do this, the launcher changes T3 Code's sidebar code as the app loads it.
 When a T3 Code update changes that code, the launcher leaves it as it is, and
@@ -324,8 +328,8 @@ the fix:
   at the top of the boring sidebar. It is off by default. See
   [Working section in the boring sidebar](#working-section-in-the-boring-sidebar).
 
-Changes apply at once, without a restart, except the Working section in the
-boring sidebar, which is sure to apply the next time T3 Code opens. They are saved in `settings.json`
+Changes apply at once, without a restart. A change of the Working section in
+the boring sidebar reloads T3 Code's windows. They are saved in `settings.json`
 beside `rtl.css` in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
@@ -485,8 +489,10 @@ Chromium to pause the response for T3 Code's main script,
 sidebar code in that response only when every place it changes is found
 exactly once, and otherwise passes the script on unchanged. Every other
 request is not touched. A reload or a new window in the same session usually
-gets the script from Chromium's cache without a new pause, which is why a
-change is sure to apply only the next time T3 Code opens.
+gets the script from Chromium's cache without a new pause. So when the switch
+changes, the launcher reloads each T3 Code window without the cache, which
+loads the script again through the pause. A reload restarts only the window.
+T3 Code's server, which runs the sessions, keeps running.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.
