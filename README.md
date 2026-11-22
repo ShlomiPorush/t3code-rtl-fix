@@ -331,11 +331,31 @@ the fix:
 
 Changes apply at once, without a restart. A change of the Working section in
 the boring sidebar reloads T3 Code's windows. They are saved in `settings.json`
-beside `rtl.css` in the installed folder. The installer never writes this file,
+in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
 An existing `{ "repoStatus": false }` keeps working. Problems are written once
 each to `launcher.log` in the same folder.
+
+## Updates without a restart
+
+Once this version is installed, running the install command again updates
+the fix in a T3 Code that is already open. Within a few seconds the launcher
+loads the new version and reloads T3 Code's windows. Running sessions keep
+running, and text you are typing in the composer stays. A browser preview
+that is open in a window loads its page again, so text typed into the
+previewed page is lost.
+
+The installer says whether the open T3 Code takes the update:
+
+- When the update also changes the launcher itself, the installer asks you to
+  quit T3 Code fully once and open it again. This is rare.
+- When an update fails to start, the launcher goes back to the version that
+  ran before, reloads the windows, and writes the reason to `launcher.log`.
+  Quit T3 Code fully and open it again to finish the update.
+- When T3 Code opens and the newest version cannot start, the launcher uses
+  the last version that started. If none starts, T3 Code opens without the
+  fix.
 
 ## Requirements
 
@@ -365,9 +385,11 @@ and open it again from its shortcut. If the update renamed the app, the message
 asks you to run the install command again. Opening T3 Code from a shortcut
 also repairs any shortcut that an update changed.
 
-Fully quit T3 Code after installation. Open it again from the Desktop shortcut
-or the Start menu shortcut updated by the installer. The installer backs up the
-original shortcuts first.
+The first time, fully quit T3 Code after installation. Open it again from the
+Desktop shortcut or the Start menu shortcut updated by the installer. The
+installer backs up the original shortcuts first. Later updates apply to an
+open T3 Code, as described in
+[Updates without a restart](#updates-without-a-restart).
 
 If T3 Code is installed in a non-default location, pass the executable path:
 
@@ -384,11 +406,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\install.ps1
 
 ### Customize the CSS
 
-Edit the installed `rtl.css` file, then fully quit and reopen T3 Code:
+Add your own rules to `custom.css` in the installed folder. Create the file if
+it does not exist. The fix adds it after its own stylesheet, and no update
+changes it. It takes effect the next time the fix loads: after an update, or
+when you fully quit and reopen T3 Code.
 
 ```text
-%LOCALAPPDATA%\T3RTLFix\rtl.css
+%LOCALAPPDATA%\T3RTLFix\custom.css
 ```
+
+Earlier versions asked you to edit `rtl.css` in the same folder. That file
+stays where it is, but the fix no longer reads it, so copy your own rules
+from it into `custom.css`.
 
 ### Uninstall
 
@@ -418,8 +447,9 @@ fix to `~/Library/Application Support/T3RTLFix`, and creates a separate
 **T3 Code RTL** app in `~/Applications` with the T3 Code icon. T3 Code itself
 is not modified.
 
-Fully quit T3 Code with Cmd+Q, then open **T3 Code RTL** from
-`~/Applications` or Spotlight. Always open T3 Code through this app so the fix
+The first time, fully quit T3 Code with Cmd+Q, then open **T3 Code RTL** from
+`~/Applications` or Spotlight. Later updates apply to an open T3 Code, as
+described in [Updates without a restart](#updates-without-a-restart). Always open T3 Code through this app so the fix
 loads. You can drag it to the Dock in place of the original. When T3 Code
 reopens itself after an update, it opens without the fix. Quit it with Cmd+Q
 and open **T3 Code RTL** again.
@@ -443,11 +473,10 @@ through `ELECTRON_RUN_AS_NODE`, as on Windows.
 
 ### Customize the CSS
 
-Edit the installed `rtl.css` file, then quit T3 Code with Cmd+Q and open
-**T3 Code RTL** again:
+Add your own rules to `custom.css` in the installed folder, as on Windows:
 
 ```text
-~/Library/Application Support/T3RTLFix/rtl.css
+~/Library/Application Support/T3RTLFix/custom.css
 ```
 
 The launcher log is written to `launcher.log` in the same folder.
@@ -459,8 +488,7 @@ bash ~/Library/Application\ Support/T3RTLFix/uninstall.sh
 ```
 
 The uninstaller removes the **T3 Code RTL** app and the whole
-`~/Library/Application Support/T3RTLFix` folder, including any changes made to
-`rtl.css`. Open T3 Code normally afterwards.
+`~/Library/Application Support/T3RTLFix` folder, including `custom.css`. Open T3 Code normally afterwards.
 
 ## How it works
 
@@ -494,6 +522,18 @@ gets the script from Chromium's cache without a new pause. So when the switch
 changes, the launcher reloads each T3 Code window without the cache, which
 loads the script again through the pause. A reload restarts only the window.
 T3 Code's server, which runs the sessions, keeps running.
+
+The launcher has two parts. The small launcher host opens T3 Code and keeps
+the debugging pipe for as long as T3 Code runs. The fix itself, in
+`launcher-core.js` and the files beside it, is installed in a new folder under
+`versions` on each install. The installer copies that folder first, then names
+it in `current.txt`, and replaces the launcher host last. The host checks
+`current.txt` every two seconds. When it names a new version, the host stops
+the running version, starts the new one, and reloads each T3 Code window
+without the cache. It records the last version that started in
+`last-good.txt`. While it runs, the host writes `running-host.json`, which tells
+the installer whether the open T3 Code takes the update. Version folders that
+are neither current nor the last that started are removed after a week.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.
@@ -539,8 +579,9 @@ tests/     Unit, browser smoke, and Windows installer tests
   code is written. A T3 Code update can turn it off until the fix is updated.
 - In the right-to-left layout, a new window can show T3 Code's own layout for
   a moment when T3 Code first opens, before the fix reaches it.
-- The first installation cannot inject into an instance that is already open.
-  Fully quit and reopen the app once.
+- The first installation, and an update that changes the launcher host,
+  cannot reach an instance that is already open. Fully quit and reopen the app
+  once.
 
 ## Test
 

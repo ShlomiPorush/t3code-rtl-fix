@@ -496,37 +496,39 @@ test("windows reload without the cache, and one that cannot reload is only logge
 });
 
 test("a change of the switch reloads only after the browser watches the script", () => {
-  const launcher = fs.readFileSync(path.join(__dirname, "..", "src", "t3-rtl-launcher.js"), "utf8");
-  const start = launcher.indexOf("async function switchWorkingShelf(");
+  const core = fs.readFileSync(path.join(__dirname, "..", "src", "launcher-core.js"), "utf8");
+  const start = core.indexOf("async function switchWorkingShelf(");
   assert.ok(start > 0);
-  const body = launcher.slice(start, launcher.indexOf("\n}\n", start));
+  const body = core.slice(start, core.indexOf("\n  }\n", start));
   assert.match(body, /if \(next === boringWorkingShelf\) return;/);
   const watched = body.indexOf("await watchWorkingShelf()");
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
   assert.match(body, /if \(!watching \|\| change !== workingShelfChanges\) return;/);
-  assert.match(launcher, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
+  assert.match(core, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
   assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
   // A window counts from its attach, before anything else is sent to it, and
   // until it closes, even when a fix fails to inject.
-  const attached = launcher.indexOf("sessionsByTarget.set(targetId, sessionId);");
-  const added = launcher.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);");
-  assert.ok(attached > 0 && added > attached && added < launcher.indexOf('send("Page.enable"', attached));
-  assert.match(launcher, /appPages\.delete\(message\.params\?\.targetId\)/);
-  assert.equal((launcher.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
+  const attached = core.indexOf("sessionsByTarget.set(targetId, sessionId);");
+  const added = core.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);");
+  assert.ok(attached > 0 && added > attached && added < core.indexOf('send("Page.enable"', attached));
+  assert.match(core, /appPages\.delete\(targetId\)/);
+  assert.equal((core.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
   // A window that attached during a change reloads after the attempt to add
   // its fixes, even a failed one.
-  const inject = launcher.slice(launcher.indexOf("async function attachAndInject("), launcher.indexOf("function handleMessage("));
-  assert.ok(inject.indexOf("changedWhileAttaching &&") > inject.indexOf("} finally {"));
+  const inject = core.slice(core.indexOf("async function attachTarget("), core.indexOf("function forgetSession("));
+  const caught = inject.indexOf("log(`Injection failed for target");
+  assert.ok(caught > 0 && inject.indexOf("changedWhileAttaching &&") > caught);
 });
 
-test("the launcher watches before the first window and keeps the RTL fix when watching fails", () => {
+test("the fix watches before the first window and keeps the RTL fix when watching fails", () => {
+  const core = fs.readFileSync(path.join(__dirname, "..", "src", "launcher-core.js"), "utf8");
   const launcher = fs.readFileSync(path.join(__dirname, "..", "src", "t3-rtl-launcher.js"), "utf8");
-  const start = launcher.indexOf("async function initialize()");
+  const start = core.indexOf("async function start()");
   assert.ok(start > 0);
-  const body = launcher.slice(start, launcher.indexOf("void initialize();", start));
+  const body = core.slice(start, core.indexOf("\n  }\n", start));
   assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("Target.setDiscoverTargets"), "watching starts before targets are found");
-  assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("try {"), "a failure there cannot skip injection");
+  assert.match(core, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.match(launcher, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
-  assert.doesNotMatch(launcher, /Fetch\.disable/);
+  assert.doesNotMatch(core + launcher, /Fetch\.disable/);
   assert.match(launcher, /if \(cdpClosed\) return Promise\.reject/);
 });

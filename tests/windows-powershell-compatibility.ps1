@@ -47,7 +47,73 @@ try {
     $savedAppPath = [System.IO.File]::ReadAllText($appPathFile, [System.Text.Encoding]::Unicode)
     Assert-Equal $savedAppPath $fakeAppPath "The UTF-16 app path was not written correctly"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "node-path.txt")) $false "The installer still created a Node.js path file"
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "injection.js")) $true "The browser injection helper was not installed"
+    $versionId = ([System.IO.File]::ReadAllText((Join-Path $installDirectory "current.txt"))).Trim()
+    Assert-Equal ($versionId -match '^\d{8}-\d{6}-[0-9a-f]{6}$') $true "current.txt does not name an installed version"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "versions\$versionId\injection.js")) $true "The browser injection helper was not installed"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "versions\$versionId\launcher-core.js")) $true "The fix was not installed in its version folder"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "t3-rtl-launcher.js")) $true "The launcher host was not installed"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "custom.css")) $false "The installer wrote custom.css"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "install.lock")) $false "The installer left its lock behind"
+
+    # Each install gets a new version folder and names it last. Folders that
+    # are neither current nor the last that started go after a week.
+    $installAgain = { (& (Join-Path $repositoryRoot "windows\install.ps1") -T3CodePath $fakeAppPath -InstallDirectory $installDirectory -ShortcutSearchRoots @($desktopRoot, $startMenuRoot)) -join " " }
+    $staleVersion = Join-Path $installDirectory "versions\20200101-000000-aaaaaa"
+    $lastGoodVersion = Join-Path $installDirectory "versions\20200101-000000-bbbbbb"
+    New-Item -ItemType Directory -Path $staleVersion, $lastGoodVersion -Force | Out-Null
+    foreach ($old in @($staleVersion, $lastGoodVersion)) {
+        (Get-Item -LiteralPath $old).CreationTime = (Get-Date).AddDays(-8)
+    }
+    [System.IO.File]::WriteAllText((Join-Path $installDirectory "last-good.txt"), "20200101-000000-bbbbbb")
+
+    # The open T3 Code runs this launcher host: it takes the update itself.
+    $self = Get-Process -Id $PID
+    $record = [ordered]@{
+        hostApi = 1
+        hash = (Get-FileHash -LiteralPath (Join-Path $repositoryRoot "src\t3-rtl-launcher.js") -Algorithm SHA256).Hash.ToLowerInvariant()
+        pid = $PID
+        startedAt = ([DateTimeOffset]$self.StartTime).ToUnixTimeMilliseconds()
+        token = "test"
+    }
+    $recordPath = Join-Path $installDirectory "running-host.json"
+    [System.IO.File]::WriteAllText($recordPath, ($record | ConvertTo-Json))
+    $liveOutput = & $installAgain
+    $secondVersionId = ([System.IO.File]::ReadAllText((Join-Path $installDirectory "current.txt"))).Trim()
+    Assert-Equal ($secondVersionId -ne $versionId) $true "A second install did not get a new version folder"
+    Assert-Equal (Test-Path -LiteralPath $staleVersion) $false "An old version folder was not removed"
+    Assert-Equal (Test-Path -LiteralPath $lastGoodVersion) $true "The last version that started was removed"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "versions\$versionId")) $true "A recent version folder was removed"
+    Assert-Equal ($liveOutput -like "*picks the update up in a few seconds*") $true "The installer did not say that the open T3 Code takes the update"
+
+    # The open T3 Code runs another launcher host: it has to restart once.
+    $record.hash = "0" * 64
+    [System.IO.File]::WriteAllText($recordPath, ($record | ConvertTo-Json))
+    Assert-Equal ((& $installAgain) -like "*changes the launcher itself*") $true "The installer did not ask to restart for a changed launcher"
+
+    # A record whose process started at another time belongs to an ended
+    # process whose id was reused.
+    $record.startedAt = $record.startedAt - 60000
+    [System.IO.File]::WriteAllText($recordPath, ($record | ConvertTo-Json))
+    Assert-Equal ((& $installAgain) -like "*Fully quit T3 Code, then open it*") $true "The installer trusted the record of another process"
+    Remove-Item -LiteralPath $recordPath -Force
+
+    # One install at a time.
+    $heldLock = [System.IO.File]::Open((Join-Path $installDirectory "install.lock"), [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    try {
+        $lockedCurrent = [System.IO.File]::ReadAllText((Join-Path $installDirectory "current.txt"))
+        $refused = $false
+        try {
+            & $installAgain | Out-Null
+        }
+        catch {
+            $refused = $_.Exception.Message -like "*Another install*"
+        }
+        Assert-Equal $refused $true "A second install ran while another held the lock"
+        Assert-Equal ([System.IO.File]::ReadAllText((Join-Path $installDirectory "current.txt"))) $lockedCurrent "A refused install changed current.txt"
+    }
+    finally {
+        $heldLock.Dispose()
+    }
 
     & cscript.exe //nologo (Join-Path $installDirectory "launch-t3-rtl.vbs") /check
     if ($LASTEXITCODE -ne 0) {
@@ -182,8 +248,12 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("t3-rtl-launcher.js", "current.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
+    }
+    $bootstrapVersion = Join-Path $bootstrapInstallDirectory ("versions\" + ([System.IO.File]::ReadAllText((Join-Path $bootstrapInstallDirectory "current.txt"))).Trim())
+    foreach ($fileName in @("rtl.css", "injection.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js")) {
+        Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapVersion $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {
         $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -219,7 +289,7 @@ try {
         throw "The one-line install failed under the Restricted execution policy: $($restrictedOutput -join ' ')"
     }
     Assert-Equal ([string]$restrictedOutput[-1]) "Restricted" "The one-line install did not restore the process execution policy"
-    Assert-Equal (Test-Path -LiteralPath (Join-Path $restrictedInstallDirectory "rtl.css")) $true "The one-line install did not install under the Restricted execution policy"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $restrictedInstallDirectory "current.txt")) $true "The one-line install did not install under the Restricted execution policy"
 
     & (Join-Path $restrictedInstallDirectory "uninstall.ps1") -InstallDirectory $restrictedInstallDirectory
     foreach ($shortcutPath in $shortcutPaths) {
