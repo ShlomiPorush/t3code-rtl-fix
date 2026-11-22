@@ -83,18 +83,15 @@ run_node() {
 mkdir -p "$INSTALL_DIR"
 
 # One install at a time, so the fix that current.txt names, the launcher
-# host, and the launcher app always come from the same install. The lock
-# goes when this script ends. A lock left by a stopped install
-# is ignored after ten minutes.
-LOCK_DIR="$INSTALL_DIR/install.lock"
-if [ -d "$LOCK_DIR" ] && [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
-  rmdir "$LOCK_DIR" 2>/dev/null || true
-fi
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+# host, and the launcher app always come from the same install. macOS's
+# shlock holds the lock for this script's process and takes over, in one
+# step, a lock whose process has ended. The lock goes when this script ends.
+LOCK_FILE="$INSTALL_DIR/install.lock"
+if ! /usr/bin/shlock -f "$LOCK_FILE" -p $$; then
   echo "Another install of T3 Code RTL Fix is running. Run this one again when it ends."
   exit 1
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+trap 'rm -f "$LOCK_FILE"' EXIT
 
 # Whether the T3 Code that is open now runs this launcher host, which then
 # takes the update on its own: the host's record names a live process that

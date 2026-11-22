@@ -59,7 +59,11 @@ function setup({ versions = {}, current = "b", lastGood = "a", cdp = {} } = {}) 
       return { targetInfos: TARGETS };
     }
     if (method === "Page.reload" && cdp.reloadFails?.(sessionId)) throw new Error("Page.reload: failed");
-    if (method === "Target.attachToTarget") return { sessionId: `tmp-${params.targetId}` };
+    if (method === "Target.attachToTarget") {
+      if (cdp.attachHangs?.(params.targetId)) return new Promise(() => {});
+      if (cdp.attachGone?.(params.targetId)) throw new Error("Target.attachToTarget: No target with given id found");
+      return { sessionId: `tmp-${params.targetId}` };
+    }
     return {};
   };
   const loadCore = (id) => {
@@ -193,6 +197,8 @@ test("a new version whose windows do not reload gives way to the running one and
     { listFails: () => state.failing },
     // A window that stays open does not reload.
     { reloadFails: (sessionId) => state.failing && sessionId === "tmp-w2" },
+    // A window that stays open does not answer.
+    { attachHangs: (targetId) => state.failing && targetId === "w2" },
   ];
   for (const cdp of failures) {
     state.failing = false;
@@ -207,6 +213,16 @@ test("a new version whose windows do not reload gives way to the running one and
     assert.match(logs.join("\n"), /The update to version c failed/);
     assert.match(logs.join("\n"), /The previous version is back/);
   }
+});
+
+test("a window that closed during the update does not fail it", async () => {
+  const { host, pointer, logs } = setup({ cdp: { attachGone: (targetId) => targetId === "w2" } });
+  await host.launch();
+  pointer.current = "c";
+  await host.checkForUpdate();
+  assert.equal(host.runningId, "c");
+  assert.equal(pointer["last-good"], "c");
+  assert.match(logs.at(-1), /Fix updated to version c without a restart, 1 windows reloaded/);
 });
 
 test("the versions are prepared before T3 Code starts, and only once", async () => {
@@ -297,18 +313,25 @@ test("the running record names this host and is removed only by it", () => {
     assert.equal(fs.existsSync(filePath), true);
     assert.deepEqual(logs, []);
 
-    // The record of another launcher that still runs stays; one whose process
-    // has ended is replaced.
-    const other = { ...written, pid: process.ppid, token: "first host" };
-    fs.writeFileSync(filePath, JSON.stringify(other));
+    // A second launcher from the same folder, opened while T3 Code was open,
+    // replaces the record and removes it when it ends. The first puts its own
+    // back at its next check; a host that took its record down does not.
+    const first = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
     const second = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
+    first.write();
+    const firstToken = JSON.parse(fs.readFileSync(filePath, "utf8")).token;
     second.write();
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, "first host");
     second.remove();
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, "first host");
-    fs.writeFileSync(filePath, JSON.stringify({ ...other, pid: 2 ** 22 + 12345 }));
-    second.write();
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).pid, process.pid);
+    assert.equal(fs.existsSync(filePath), false);
+    first.ensure();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, firstToken);
+    first.ensure();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, firstToken);
+    first.remove();
+    first.ensure();
+    assert.equal(fs.existsSync(filePath), false);
+    second.ensure();
+    assert.equal(fs.existsSync(filePath), false, "a host that never wrote, or took its record down, does not write");
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

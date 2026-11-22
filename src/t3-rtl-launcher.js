@@ -130,7 +130,9 @@ function createHost({ send, log, loadCore, readVersion, writeLastGood, stepTimeo
         ({ sessionId } = await timed(attach, "opening a window"));
       } catch (error) {
         late = true;
-        log(`A window was not reloaded, it may have closed: ${error.message}`);
+        // Only the browser saying the window is gone means it closed.
+        if (!/no target/i.test(error.message)) failed += 1;
+        log(`A window was not reloaded: ${error.message}`);
         continue;
       }
       try {
@@ -293,54 +295,48 @@ function createHost({ send, log, loadCore, readVersion, writeLastGood, stepTimeo
 // The record of the running host, which the installers read to tell whether
 // a running T3 Code will take an update on its own: this host, identified by
 // its code as loaded and its process, with a token so that only it removes
-// the record.
+// the record. While the host can take updates it puts its record back when
+// another launcher from this folder replaced or removed it, such as one
+// opened while T3 Code was open, which ends with its own short-lived T3 Code.
 function createRunningRecord({ filePath, source, log }) {
   const token = crypto.randomBytes(16).toString("hex");
-  let written = false;
+  let active = false;
+
+  function write() {
+    const record = {
+      hostApi: HOST_API,
+      hash: crypto.createHash("sha256").update(source).digest("hex"),
+      pid: process.pid,
+      startedAt: Math.round(Date.now() - process.uptime() * 1000),
+      token,
+    };
+    active = true;
+    try {
+      writeAtomic(filePath, JSON.stringify(record));
+    } catch (error) {
+      log(`Could not write ${filePath}: ${error.message}`);
+    }
+  }
+
+  function ownsFile() {
+    try {
+      return JSON.parse(fs.readFileSync(filePath, "utf8")).token === token;
+    } catch {
+      return false;
+    }
+  }
+
   return {
-    write() {
-      // Another launcher from this folder that still runs keeps its record:
-      // a second one, opened while T3 Code was open, ends with its own T3
-      // Code and would take the record with it.
-      try {
-        const existing = JSON.parse(fs.readFileSync(filePath, "utf8"));
-        if (existing.pid !== process.pid && processRuns(existing.pid)) return;
-      } catch {
-        // No record, or one that cannot be read, is replaced.
-      }
-      const record = {
-        hostApi: HOST_API,
-        hash: crypto.createHash("sha256").update(source).digest("hex"),
-        pid: process.pid,
-        startedAt: Math.round(Date.now() - process.uptime() * 1000),
-        token,
-      };
-      try {
-        writeAtomic(filePath, JSON.stringify(record));
-        written = true;
-      } catch (error) {
-        log(`Could not write ${filePath}: ${error.message}`);
-      }
+    write,
+    ensure() {
+      if (active && !ownsFile()) write();
     },
     remove() {
-      if (!written) return;
-      written = false;
-      try {
-        if (JSON.parse(fs.readFileSync(filePath, "utf8")).token === token) fs.rmSync(filePath, { force: true });
-      } catch {
-        // A record that is gone or unreadable is not this host's to remove.
-      }
+      if (!active) return;
+      active = false;
+      if (ownsFile()) fs.rmSync(filePath, { force: true });
     },
   };
-}
-
-function processRuns(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === "EPERM";
-  }
 }
 
 function writeAtomic(filePath, text) {
@@ -557,7 +553,10 @@ function main() {
   void (async () => {
     await host.launch();
     if (cdpClosed) return;
-    poller = setInterval(() => void host.checkForUpdate(), POLL_MS);
+    poller = setInterval(() => {
+      record.ensure();
+      void host.checkForUpdate();
+    }, POLL_MS);
     record.write();
   })();
 }
