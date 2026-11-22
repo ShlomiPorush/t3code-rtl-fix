@@ -203,8 +203,8 @@ function Get-RunningHostState {
 
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 
-# One install at a time, so the fix that current.txt names and the launcher
-# host always come from the same install.
+# One install at a time, so the fix that current.txt names, the launcher
+# host, and the shortcuts always come from the same install.
 $lockPath = Join-Path $InstallDirectory "install.lock"
 try {
     $installLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -237,129 +237,130 @@ try {
     Move-IntoPlace -Source $hostTemporary -Destination $hostTarget
 
     # Earlier versions that neither run nor are the fallback, after a week.
+    # Only folders an installer made, by the shape of their name.
     $keep = @($versionId, (Read-VersionId -Name "current"), (Read-VersionId -Name "last-good"))
     Get-ChildItem -LiteralPath $versionsDirectory -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $keep -notcontains $_.Name -and $_.CreationTime -lt (Get-Date).AddDays(-7) } |
+        Where-Object { $_.Name -match '^\d{8}-\d{6}-[0-9a-f]{6}$' -and $keep -notcontains $_.Name -and $_.CreationTime -lt (Get-Date).AddDays(-7) } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+
+    [System.IO.File]::WriteAllText(
+        (Join-Path $InstallDirectory "app-path.txt"),
+        $appPath,
+        [System.Text.Encoding]::Unicode
+    )
+
+    $legacyNodePathFile = Join-Path $InstallDirectory "node-path.txt"
+    if (Test-Path -LiteralPath $legacyNodePathFile) {
+        Remove-Item -LiteralPath $legacyNodePathFile -Force
+    }
+
+    $manifestPath = Join-Path $InstallDirectory "shortcuts.json"
+    $manifest = [System.Collections.Generic.List[object]]::new()
+    foreach ($saved in (Read-ShortcutManifest -Path $manifestPath)) {
+        # A T3 Code update that renames the app deletes its old shortcuts. Forget
+        # them, so uninstalling does not bring back shortcuts to a missing app.
+        if (-not (Test-Path -LiteralPath ([string]$saved.Path))) {
+            continue
+        }
+        $manifest.Add($saved)
+    }
+
+    if (-not $ShortcutSearchRoots -or $ShortcutSearchRoots.Count -eq 0) {
+        $desktop = [Environment]::GetFolderPath("Desktop")
+        $programs = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
+        $ShortcutSearchRoots = @($desktop, $programs)
+    }
+
+    $shortcutPaths = @(
+        Get-ChildItem -LiteralPath $ShortcutSearchRoots -Filter "T3 Code*.lnk" -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName -Unique
+    )
+
+    $shell = New-Object -ComObject WScript.Shell
+    $wscriptPath = Join-Path $env:SystemRoot "System32\wscript.exe"
+    $launcherPath = Join-Path $InstallDirectory "launch-t3-rtl.vbs"
+    $updated = 0
+
+    foreach ($shortcutPath in $shortcutPaths) {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $alreadyUsesLauncher =
+            $shortcut.TargetPath -eq $wscriptPath -and
+            $shortcut.Arguments -like "*$launcherPath*"
+
+        if ($alreadyUsesLauncher) {
+            continue
+        }
+        if ($shortcut.TargetPath -ne $appPath) {
+            continue
+        }
+
+        # The shortcut opens T3 Code directly again, so any saved original for it
+        # is out of date. Save what it points to now.
+        foreach ($outdated in @($manifest | Where-Object { $_.Path -eq $shortcutPath })) {
+            [void]$manifest.Remove($outdated)
+        }
+        $manifest.Add([pscustomobject]@{
+            Path = $shortcutPath
+            Created = $false
+            TargetPath = $shortcut.TargetPath
+            Arguments = $shortcut.Arguments
+            WorkingDirectory = $shortcut.WorkingDirectory
+            IconLocation = $shortcut.IconLocation
+            WindowStyle = $shortcut.WindowStyle
+        })
+
+        $shortcut.TargetPath = $wscriptPath
+        $shortcut.Arguments = '"' + $launcherPath + '"'
+        $shortcut.WorkingDirectory = $InstallDirectory
+        $shortcut.IconLocation = "$appPath,0"
+        $shortcut.WindowStyle = 1
+        $shortcut.Save()
+        $updated++
+    }
+
+    if ($shortcutPaths.Count -eq 0) {
+        $desktop = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktop "T3 Code RTL.lnk"
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $wscriptPath
+        $shortcut.Arguments = '"' + $launcherPath + '"'
+        $shortcut.WorkingDirectory = $InstallDirectory
+        $shortcut.IconLocation = "$appPath,0"
+        $shortcut.WindowStyle = 1
+        $shortcut.Save()
+        $manifest.Add([pscustomobject]@{
+            Path = $shortcutPath
+            Created = $true
+            TargetPath = ""
+            Arguments = ""
+            WorkingDirectory = ""
+            IconLocation = ""
+            WindowStyle = 1
+        })
+        $updated++
+    }
+
+    $manifestJson = $manifest | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText(
+        $manifestPath,
+        $manifestJson,
+        [System.Text.Encoding]::Unicode
+    )
+
+    # A T3 Code update points these shortcuts at the app again, and the launcher
+    # repairs them from this list. It holds only the shortcuts the uninstaller
+    # restores, so a repair never leaves a shortcut the uninstaller misses.
+    $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object { [string]$_.Path })
+    [System.IO.File]::WriteAllText(
+        (Join-Path $InstallDirectory "repair-shortcuts.txt"),
+        ($repairPaths -join "`r`n"),
+        [System.Text.Encoding]::Unicode
+    )
 }
 finally {
     $installLock.Dispose()
     Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
 }
-
-[System.IO.File]::WriteAllText(
-    (Join-Path $InstallDirectory "app-path.txt"),
-    $appPath,
-    [System.Text.Encoding]::Unicode
-)
-
-$legacyNodePathFile = Join-Path $InstallDirectory "node-path.txt"
-if (Test-Path -LiteralPath $legacyNodePathFile) {
-    Remove-Item -LiteralPath $legacyNodePathFile -Force
-}
-
-$manifestPath = Join-Path $InstallDirectory "shortcuts.json"
-$manifest = [System.Collections.Generic.List[object]]::new()
-foreach ($saved in (Read-ShortcutManifest -Path $manifestPath)) {
-    # A T3 Code update that renames the app deletes its old shortcuts. Forget
-    # them, so uninstalling does not bring back shortcuts to a missing app.
-    if (-not (Test-Path -LiteralPath ([string]$saved.Path))) {
-        continue
-    }
-    $manifest.Add($saved)
-}
-
-if (-not $ShortcutSearchRoots -or $ShortcutSearchRoots.Count -eq 0) {
-    $desktop = [Environment]::GetFolderPath("Desktop")
-    $programs = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
-    $ShortcutSearchRoots = @($desktop, $programs)
-}
-
-$shortcutPaths = @(
-    Get-ChildItem -LiteralPath $ShortcutSearchRoots -Filter "T3 Code*.lnk" -File -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty FullName -Unique
-)
-
-$shell = New-Object -ComObject WScript.Shell
-$wscriptPath = Join-Path $env:SystemRoot "System32\wscript.exe"
-$launcherPath = Join-Path $InstallDirectory "launch-t3-rtl.vbs"
-$updated = 0
-
-foreach ($shortcutPath in $shortcutPaths) {
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $alreadyUsesLauncher =
-        $shortcut.TargetPath -eq $wscriptPath -and
-        $shortcut.Arguments -like "*$launcherPath*"
-
-    if ($alreadyUsesLauncher) {
-        continue
-    }
-    if ($shortcut.TargetPath -ne $appPath) {
-        continue
-    }
-
-    # The shortcut opens T3 Code directly again, so any saved original for it
-    # is out of date. Save what it points to now.
-    foreach ($outdated in @($manifest | Where-Object { $_.Path -eq $shortcutPath })) {
-        [void]$manifest.Remove($outdated)
-    }
-    $manifest.Add([pscustomobject]@{
-        Path = $shortcutPath
-        Created = $false
-        TargetPath = $shortcut.TargetPath
-        Arguments = $shortcut.Arguments
-        WorkingDirectory = $shortcut.WorkingDirectory
-        IconLocation = $shortcut.IconLocation
-        WindowStyle = $shortcut.WindowStyle
-    })
-
-    $shortcut.TargetPath = $wscriptPath
-    $shortcut.Arguments = '"' + $launcherPath + '"'
-    $shortcut.WorkingDirectory = $InstallDirectory
-    $shortcut.IconLocation = "$appPath,0"
-    $shortcut.WindowStyle = 1
-    $shortcut.Save()
-    $updated++
-}
-
-if ($shortcutPaths.Count -eq 0) {
-    $desktop = [Environment]::GetFolderPath("Desktop")
-    $shortcutPath = Join-Path $desktop "T3 Code RTL.lnk"
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $wscriptPath
-    $shortcut.Arguments = '"' + $launcherPath + '"'
-    $shortcut.WorkingDirectory = $InstallDirectory
-    $shortcut.IconLocation = "$appPath,0"
-    $shortcut.WindowStyle = 1
-    $shortcut.Save()
-    $manifest.Add([pscustomobject]@{
-        Path = $shortcutPath
-        Created = $true
-        TargetPath = ""
-        Arguments = ""
-        WorkingDirectory = ""
-        IconLocation = ""
-        WindowStyle = 1
-    })
-    $updated++
-}
-
-$manifestJson = $manifest | ConvertTo-Json -Depth 4
-[System.IO.File]::WriteAllText(
-    $manifestPath,
-    $manifestJson,
-    [System.Text.Encoding]::Unicode
-)
-
-# A T3 Code update points these shortcuts at the app again, and the launcher
-# repairs them from this list. It holds only the shortcuts the uninstaller
-# restores, so a repair never leaves a shortcut the uninstaller misses.
-$repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object { [string]$_.Path })
-[System.IO.File]::WriteAllText(
-    (Join-Path $InstallDirectory "repair-shortcuts.txt"),
-    ($repairPaths -join "`r`n"),
-    [System.Text.Encoding]::Unicode
-)
 
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"

@@ -60,8 +60,9 @@ try {
     $installAgain = { (& (Join-Path $repositoryRoot "windows\install.ps1") -T3CodePath $fakeAppPath -InstallDirectory $installDirectory -ShortcutSearchRoots @($desktopRoot, $startMenuRoot)) -join " " }
     $staleVersion = Join-Path $installDirectory "versions\20200101-000000-aaaaaa"
     $lastGoodVersion = Join-Path $installDirectory "versions\20200101-000000-bbbbbb"
-    New-Item -ItemType Directory -Path $staleVersion, $lastGoodVersion -Force | Out-Null
-    foreach ($old in @($staleVersion, $lastGoodVersion)) {
+    $notAVersion = Join-Path $installDirectory "versions\backup"
+    New-Item -ItemType Directory -Path $staleVersion, $lastGoodVersion, $notAVersion -Force | Out-Null
+    foreach ($old in @($staleVersion, $lastGoodVersion, $notAVersion)) {
         (Get-Item -LiteralPath $old).CreationTime = (Get-Date).AddDays(-8)
     }
     [System.IO.File]::WriteAllText((Join-Path $installDirectory "last-good.txt"), "20200101-000000-bbbbbb")
@@ -82,6 +83,7 @@ try {
     Assert-Equal ($secondVersionId -ne $versionId) $true "A second install did not get a new version folder"
     Assert-Equal (Test-Path -LiteralPath $staleVersion) $false "An old version folder was not removed"
     Assert-Equal (Test-Path -LiteralPath $lastGoodVersion) $true "The last version that started was removed"
+    Assert-Equal (Test-Path -LiteralPath $notAVersion) $true "A folder that no install made was removed"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "versions\$versionId")) $true "A recent version folder was removed"
     Assert-Equal ($liveOutput -like "*picks the update up in a few seconds*") $true "The installer did not say that the open T3 Code takes the update"
 

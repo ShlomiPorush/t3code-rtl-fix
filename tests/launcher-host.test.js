@@ -37,23 +37,28 @@ function fakeCore(id, events, spec) {
       sessions.clear();
     },
     async settled() {},
+    // Like the real core: only its own sessions' events.
     handle(message) {
+      if (message.sessionId && !sessions.has(message.sessionId)) return false;
       events.push(`${id} got ${message.method}${message.sessionId ? ` ${message.sessionId}` : ""}`);
       return spec.handles ? spec.handles(message) : true;
     },
     ownsSession: (sessionId) => sessions.has(sessionId),
-    sessionIds: () => [...sessions],
   };
 }
 
-function setup({ versions = {}, current = "b", lastGood = "a" } = {}) {
+function setup({ versions = {}, current = "b", lastGood = "a", cdp = {} } = {}) {
   const calls = [];
   const logs = [];
   const events = [];
   const pointer = { current, "last-good": lastGood };
   const send = async (method, params, sessionId) => {
     calls.push({ method, params, sessionId });
-    if (method === "Target.getTargets") return { targetInfos: TARGETS };
+    if (method === "Target.getTargets") {
+      if (cdp.listFails?.()) throw new Error("Target.getTargets: failed");
+      return { targetInfos: TARGETS };
+    }
+    if (method === "Page.reload" && cdp.reloadFails?.(sessionId)) throw new Error("Page.reload: failed");
     if (method === "Target.attachToTarget") return { sessionId: `tmp-${params.targetId}` };
     return {};
   };
@@ -77,7 +82,7 @@ function setup({ versions = {}, current = "b", lastGood = "a" } = {}) {
     writeLastGood: (id) => (pointer["last-good"] = id),
     stepTimeout: 100,
   });
-  const reloads = () => calls.filter((call) => call.method === "Page.reload");
+  const reloads = () => calls.filter((call) => call.method === "Page.reload" && !cdp.reloadFails?.(call.sessionId));
   return { host, calls, logs, events, pointer, reloads };
 }
 
@@ -88,7 +93,7 @@ test("the host offers the API the core needs", () => {
 test("at launch the installed version starts, is recorded, and nothing reloads", async () => {
   const { host, events, pointer, reloads } = setup();
   assert.equal(await host.launch(), true);
-  assert.deepEqual(events, ["b.prepare", "b.start"]);
+  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start"]);
   assert.equal(host.runningId, "b");
   assert.equal(pointer["last-good"], "b");
   assert.equal(reloads().length, 0);
@@ -108,7 +113,7 @@ test("at launch a version that cannot load or needs another host gives way to th
 test("at launch a version that fails to start is stopped, and the windows reload under the one that starts", async () => {
   const { host, events, reloads, calls } = setup({ versions: { b: { startFails: true } } });
   assert.equal(await host.launch(), true);
-  assert.deepEqual(events, ["b.prepare", "b.start", "b.stop", "a.prepare", "a.start"]);
+  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start", "b.stop", "a.start"]);
   assert.equal(host.runningId, "a");
   // Every T3 Code window, regular and development, and nothing else.
   assert.deepEqual(reloads().map((call) => call.sessionId), ["tmp-w1", "tmp-w2"]);
@@ -140,7 +145,7 @@ test("a new version replaces the running one, the windows reload, and it is reco
   await host.launch();
   pointer.current = "c";
   await host.checkForUpdate();
-  assert.deepEqual(events.slice(2), ["c.prepare", "b.stop", "c.start"]);
+  assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start"]);
   assert.equal(host.runningId, "c");
   assert.equal(pointer["last-good"], "c");
   assert.equal(reloads().length, 2);
@@ -171,7 +176,7 @@ test("a new version that fails to start gives way to the running one, and the wi
     await host.launch();
     pointer.current = "c";
     await host.checkForUpdate();
-    assert.deepEqual(events.slice(2), ["c.prepare", "b.stop", "c.start", "c.stop", "b.start"]);
+    assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start", "c.stop", "b.start"]);
     assert.equal(host.runningId, "b");
     assert.equal(pointer["last-good"], "b");
     assert.equal(reloads().length, 2);
@@ -181,6 +186,37 @@ test("a new version that fails to start gives way to the running one, and the wi
   }
 });
 
+test("a new version whose windows do not reload gives way to the running one and is not recorded", async () => {
+  const state = { failing: false };
+  const failures = [
+    // T3 Code's windows cannot be listed.
+    { listFails: () => state.failing },
+    // A window that stays open does not reload.
+    { reloadFails: (sessionId) => state.failing && sessionId === "tmp-w2" },
+  ];
+  for (const cdp of failures) {
+    state.failing = false;
+    const { host, events, pointer, logs } = setup({ cdp });
+    await host.launch();
+    pointer.current = "c";
+    state.failing = true;
+    await host.checkForUpdate();
+    assert.deepEqual(events.slice(3, 8), ["c.prepare", "b.stop", "c.start", "c.stop", "b.start"]);
+    assert.equal(host.runningId, "b");
+    assert.equal(pointer["last-good"], "b");
+    assert.match(logs.join("\n"), /The update to version c failed/);
+    assert.match(logs.join("\n"), /The previous version is back/);
+  }
+});
+
+test("the versions are prepared before T3 Code starts, and only once", async () => {
+  const { host, events } = setup();
+  host.prepareLaunch();
+  assert.deepEqual(events, ["b.prepare", "a.prepare"]);
+  await host.launch();
+  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start"]);
+});
+
 test("during a switch, messages reach exactly one owner", async () => {
   const startGate = gate();
   const { host, events, pointer, calls } = setup({ versions: { b: { sessions: ["s-old"] }, c: { startGate, sessions: ["s-new"] } } });
@@ -188,7 +224,7 @@ test("during a switch, messages reach exactly one owner", async () => {
   pointer.current = "c";
   const switching = host.checkForUpdate();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(events.slice(2), ["c.prepare", "b.stop", "c.start"]);
+  assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start"]);
 
   // While the new core starts: a paused script goes to it, its own session's
   // events go to it, a window event waits for it, and the old core's events
@@ -197,11 +233,11 @@ test("during a switch, messages reach exactly one owner", async () => {
   host.route({ method: "Page.frameNavigated", sessionId: "s-new" });
   host.route({ method: "Target.targetCreated", params: { targetInfo: TARGETS[0] } });
   host.route({ method: "Page.frameNavigated", sessionId: "s-old" });
-  assert.deepEqual(events.slice(5), ["c got Fetch.requestPaused", "c got Page.frameNavigated s-new"]);
+  assert.deepEqual(events.slice(6), ["c got Fetch.requestPaused", "c got Page.frameNavigated s-new"]);
 
   startGate.open();
   await switching;
-  assert.deepEqual(events.slice(7), ["c got Target.targetCreated"]);
+  assert.deepEqual(events.slice(8), ["c got Target.targetCreated"]);
   assert.ok(!events.some((event) => event.startsWith("b got")));
   assert.ok(!calls.some((call) => call.method === "Fetch.continueRequest"));
 });
@@ -236,7 +272,7 @@ test("a version installed during a switch is applied after it", async () => {
   startGate.open();
   await switching;
   assert.equal(host.runningId, "d");
-  assert.deepEqual(events.filter((event) => event.endsWith(".prepare")), ["b.prepare", "c.prepare", "d.prepare"]);
+  assert.deepEqual(events.filter((event) => event.endsWith(".prepare")), ["b.prepare", "a.prepare", "c.prepare", "d.prepare"]);
 });
 
 test("the running record names this host and is removed only by it", () => {
@@ -260,6 +296,19 @@ test("the running record names this host and is removed only by it", () => {
     record.remove();
     assert.equal(fs.existsSync(filePath), true);
     assert.deepEqual(logs, []);
+
+    // The record of another launcher that still runs stays; one whose process
+    // has ended is replaced.
+    const other = { ...written, pid: process.ppid, token: "first host" };
+    fs.writeFileSync(filePath, JSON.stringify(other));
+    const second = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
+    second.write();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, "first host");
+    second.remove();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, "first host");
+    fs.writeFileSync(filePath, JSON.stringify({ ...other, pid: 2 ** 22 + 12345 }));
+    second.write();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).pid, process.pid);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -295,7 +344,7 @@ test("the core adds the fix to every window, takes only its own sessions, and de
     assert.equal(core.handle({ method: "Target.targetCreated", params: { targetInfo: TARGETS[0] } }), false, "nothing before start");
     await core.start();
     await core.settled();
-    assert.deepEqual(core.sessionIds(), ["s1"]);
+    assert.equal(core.ownsSession("s1"), true);
     assert.ok(calls.some((call) => call.method === "Page.addScriptToEvaluateOnNewDocument" && call.sessionId === "s1"));
     assert.ok(calls.some((call) => call.method === "Target.setDiscoverTargets"));
     assert.equal(core.handle({ method: "Page.frameNavigated", sessionId: "someone-else", params: {} }), false);
@@ -303,7 +352,7 @@ test("the core adds the fix to every window, takes only its own sessions, and de
 
     await core.stop();
     assert.deepEqual(calls.at(-1), { method: "Target.detachFromTarget", params: { sessionId: "s1" }, sessionId: undefined });
-    assert.deepEqual(core.sessionIds(), []);
+    assert.equal(core.ownsSession("s1"), false);
     assert.equal(core.handle({ method: "Target.targetCreated", params: { targetInfo: TARGETS[0] } }), false);
   } finally {
     cleanup();
@@ -321,7 +370,7 @@ test("a stopped core gives up an attach that answers late and starts no reload",
     attachGate.open();
     await starting;
     assert.deepEqual(calls.at(-1), { method: "Target.detachFromTarget", params: { sessionId: "s1" }, sessionId: undefined });
-    assert.deepEqual(core.sessionIds(), []);
+    assert.equal(core.ownsSession("s1"), false);
     assert.ok(!calls.some((call) => call.method === "Page.enable"));
   } finally {
     cleanup();
@@ -343,5 +392,27 @@ test("the core reads the shipped stylesheet of its version and the user's custom
     assert.throws(() => prepareCore({ send, log: () => {}, rootDirectory: root, versionDirectory: root }), /rtl\.css/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a window whose injection fails is detached, so nothing of this version stays in it", async () => {
+  const calls = [];
+  const send = async (method, params, sessionId) => {
+    calls.push({ method, params, sessionId });
+    if (method === "Target.getTargets") return { targetInfos: [TARGETS[0]] };
+    if (method === "Target.attachToTarget") return { sessionId: "s1" };
+    if (method === "Runtime.evaluate" && /t3RtlFix|__t3Rtl|composer/.test(params.expression || "") && params.expression.length > 2000) {
+      throw new Error("Runtime.evaluate: failed");
+    }
+    return {};
+  };
+  const { core, cleanup } = realCore(send);
+  try {
+    await core.start();
+    await core.settled();
+    assert.equal(core.ownsSession("s1"), false);
+    assert.ok(calls.some((call) => call.method === "Target.detachFromTarget" && call.params.sessionId === "s1"));
+  } finally {
+    cleanup();
   }
 });

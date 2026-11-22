@@ -412,7 +412,14 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
         }
       }
     } catch (error) {
+      // Detached, so that what was registered in it goes too, and a later
+      // event for the window can attach again.
+      const sessionId = sessionsByTarget.get(targetId);
       sessionsByTarget.delete(targetId);
+      if (sessionId) {
+        forgetSession(sessionId);
+        await hostSend("Target.detachFromTarget", { sessionId }).catch(() => {});
+      }
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
     // A change of the switch while this window was attaching may have been sent
@@ -520,7 +527,7 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
     return false;
   }
 
-  return { start, stop, settled, handle, ownsSession, sessionIds: () => [...sessionsByTarget.values()] };
+  return { start, stop, settled, handle, ownsSession };
 }
 
 // node:sqlite exists without a flag only in newer Node.js releases. Nothing

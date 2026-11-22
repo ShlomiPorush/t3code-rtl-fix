@@ -82,8 +82,9 @@ run_node() {
 # --- Copy files ---------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
 
-# One install at a time, so the fix that current.txt names and the launcher
-# host always come from the same install. A lock left by a stopped install
+# One install at a time, so the fix that current.txt names, the launcher
+# host, and the launcher app always come from the same install. The lock
+# goes when this script ends. A lock left by a stopped install
 # is ignored after ten minutes.
 LOCK_DIR="$INSTALL_DIR/install.lock"
 if [ -d "$LOCK_DIR" ] && [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
@@ -157,9 +158,10 @@ KEEP_CURRENT="$(cat "$INSTALL_DIR/current.txt" 2>/dev/null || true)"
 KEEP_LAST_GOOD="$(cat "$INSTALL_DIR/last-good.txt" 2>/dev/null || true)"
 find "$INSTALL_DIR/versions" -mindepth 1 -maxdepth 1 -type d -mtime +7 2>/dev/null | while IFS= read -r old; do
   name="$(basename "$old")"
+  # Only folders an installer made, by the shape of their name.
+  printf '%s' "$name" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$' || continue
   [ "$name" = "$VERSION_ID" ] || [ "$name" = "$KEEP_CURRENT" ] || [ "$name" = "$KEEP_LAST_GOOD" ] || rm -rf "$old"
 done
-rmdir "$LOCK_DIR" 2>/dev/null || true
 
 # --- Build the "T3 Code RTL" app ---------------------------------------------
 mkdir -p "$HOME/Applications"
