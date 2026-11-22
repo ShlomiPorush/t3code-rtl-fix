@@ -20,8 +20,9 @@ const FIXTURE = [
   "function hK(e,t){return t===null?[]:e.filter(n=>n===t)}",
   "function gK(e){let t=0,{threads:s,routeRowThreadKey:l,folderGroups:u,keepEmptyFolders:d}=e,f=dp(DK)&&u===null,p=1;",
   "let{pinnedThreads:k,activeThreads:A,workingThreads:j,snoozedThreads:M,settledThreads:N}=e.lists,b=e.expanded,",
-  "ee=M,V=N,H=b?j:hK(j,l),U=u===null?null:u.map(g=>({group:g,threads:g.threads}))," +
-    "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;return{workingShelfEnabled:f,orderedThreadKeys:W.map(x=>x)}}",
+  "ee=M,V=N,H=b?j:hK(j,l),U=u===null?null:u.map(g=>({group:g,collapsed:!1,threads:g.threads,hiddenThreads:[]}))," +
+    "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;" +
+    "return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:W.map(x=>x)}}",
   "function GK(Un,r,Dn,On,Y){let t=[],Gi=Un!==null&&Un.length>0,Ki;{let p={kind:`marker`,marker:`settled-placeholder`},z=[...r,p];Ki=z}let qi=Ki,Ji;" +
     "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
   "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
@@ -156,6 +157,10 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     FIXTURE.replace("W=[...k,", "W=function(){},X=[...k,"),
     // The keyboard order is built elsewhere, so the moved list is not it.
     FIXTURE.replace("orderedThreadKeys:W.map(x=>x)", "orderedThreadKeys:k.concat(A,H)"),
+    FIXTURE.replace(
+      "return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:W.map(x=>x)}",
+      "let helper={orderedThreadKeys:W.map(x=>x)};return{...e,threads:s,workingShelfEnabled:f,projectFolders:U,orderedThreadKeys:k.concat(A,H)}",
+    ),
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
@@ -167,17 +172,40 @@ test("the patch changes nothing unless every site matches exactly once", () => {
 
 test("a site that cannot see the project folders gets T3 Code's layout, not an error", () => {
   // The headers are built by an arrow function outside the sidebar component,
-  // where its project folders are not in scope.
+  // where the folders' name is missing, not yet set, or another value.
   const headers = "[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}]";
-  const variant = FIXTURE.replace(`const headers=${headers};`, "const headers=mk(Dn,On,Y);") + `\nconst mk=(Dn,On,Y)=>${headers};`;
-  assert.notEqual(variant, FIXTURE);
-  const result = patchSidebarChunk(variant);
-  const original = load(variant);
-  const patched = load(result.source);
-  for (const [working, snoozed] of [[[1], [1]], [[], [1]], [[], []], [[1], []]]) {
-    assert.deepEqual(patched.headers([], working, snoozed), original.headers([], working, snoozed));
+  const bodies = {
+    missing: `(Dn,On,Y)=>${headers}`,
+    "not yet set": `(Dn,On,Y)=>{const h=${headers};let Un=[];return h}`,
+    "another value": `(Dn,On,Y)=>{let Un=[1,{a:1}];return ${headers}}`,
+    "another null": `(Dn,On,Y)=>{let Un=[];Un=null;return ${headers}}`,
+  };
+  for (const [name, body] of Object.entries(bodies)) {
+    const variant = FIXTURE.replace(`const headers=${headers};`, "const headers=mk(Dn,On,Y);") + `\nconst mk=${body};`;
+    assert.notEqual(variant, FIXTURE);
+    const result = patchSidebarChunk(variant);
+    assert.equal(result.applied, true, `${name}: ${result.problem}`);
+    const original = load(variant);
+    const patched = load(result.source);
+    for (const folders of [[], null]) {
+      for (const [working, snoozed] of [[[1], [1]], [[], [1]], [[], []], [[1], []]]) {
+        let expected;
+        try {
+          expected = original.headers(folders, working, snoozed);
+        } catch (error) {
+          expected = error.constructor.name;
+        }
+        let actual;
+        try {
+          actual = patched.headers(folders, working, snoozed);
+        } catch (error) {
+          actual = error.constructor.name;
+        }
+        assert.deepEqual(actual, expected, `${name}: the headers are T3 Code's own`);
+      }
+    }
+    assert.deepEqual(patched.render([], rows), ["w1", "w2", "p1"], name);
   }
-  assert.deepEqual(patched.render([], rows), result.applied ? ["w1", "w2", "p1"] : ["p1"]);
 });
 
 test("patched code is not patched again, and other scripts are left alone", () => {
@@ -239,6 +267,10 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   assert.ok(chunk, "the installed T3 Code has a main script with the sidebar");
   const result = patchSidebarChunk(chunk.source);
   assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
+  // The gate is the setting alone now, and nothing else of it is left.
+  const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
+  assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
+  assert.equal((result.source.match(/"hiddenThreads"in x/g) || []).length, 4, "the folders are checked at the four added places");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
     const file = path.join(directory, "main.mjs");

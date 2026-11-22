@@ -69,13 +69,14 @@ function patchSidebarChunk(source) {
   // folder groups are the boring sidebar's project folders.
   const gate = single(
     source,
-    new RegExp(`folderGroups:(${ID})(?:,${ID}:${ID})*\\}=e,${ID}=${ID}\\(${setting}\\)(&&(${ID})===null),`),
+    new RegExp(`folderGroups:(${ID})(?:,${ID}:${ID})*\\}=e,(${ID})=${ID}\\(${setting}\\)(&&(${ID})===null),`),
     "gate",
   );
   if (gate.problem) return unchanged(gate.problem);
-  if (gate.match[1] !== gate.match[3]) return unchanged("gate: not the folder groups");
+  if (gate.match[1] !== gate.match[4]) return unchanged("gate: not the folder groups");
   const groups = escapeId(gate.match[1]);
-  const gateStart = gate.match.index + gate.match[0].lastIndexOf(gate.match[2]);
+  const shelfEnabled = escapeId(gate.match[2]);
+  const gateStart = gate.match.index + gate.match[0].lastIndexOf(gate.match[3]);
   const hookEnd = Math.min(source.length, gate.match.index + HOOK_WINDOW);
   const inHook = (label, regex) => single(source, regex, label, gate.match.index, hookEnd);
 
@@ -103,8 +104,15 @@ function patchSidebarChunk(source) {
   );
   if (keys.problem) return unchanged(keys.problem);
   if (hasFunction(source, gate.match.index, keys.match.index)) return unchanged("keys: not in the sidebar hook");
-  // The list must be the one the hook returns as the keyboard order.
-  const returned = inHook("keyboard order", new RegExp(`orderedThreadKeys:${escapeId(keys.match[1])}\\.map\\(`));
+  // The list must be the keyboard order in the object the hook returns, the
+  // one that also carries the gate's result and the project folders.
+  const returned = inHook(
+    "keyboard order",
+    new RegExp(
+      `\\{\\.\\.\\.${ID},threads:${ID},workingShelfEnabled:${shelfEnabled},[^{}]*?projectFolders:${folderList},` +
+        `[^{}]*?orderedThreadKeys:${escapeId(keys.match[1])}\\.map\\(`,
+    ),
+  );
   if (returned.problem) return unchanged(returned.problem);
   const keysStart = keys.match.index + 1 + keys.match[1].length;
 
@@ -145,18 +153,20 @@ function patchSidebarChunk(source) {
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
   if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
 
-  // F is read where the rows are declared. Where it is added, it is read
-  // through typeof, so a build in which F is out of scope there gets T3 Code's
-  // own layout instead of a ReferenceError. Every other added name is already
-  // used at the place it is added to.
-  const hasFolders = `(typeof ${F}<"u"&&${F}!==null)`;
+  // F is read where the rows are declared. Where the patch adds it, it is
+  // read inside try, and only a list of project folders as the sidebar builds
+  // them counts. A build in which another value, or none, has that name there
+  // gets T3 Code's own layout at that place instead of an error. Every other
+  // added name is already used at the place it is added to.
+  const hasFolders =
+    `(()=>{try{return Array.isArray(${F})&&${F}.every(x=>x!==null&&typeof x=="object"&&"group"in x&&"hiddenThreads"in x)}catch{return!1}})()`;
 
   // The rows hand-off: "}let Q=K,J;" becomes "}let Q=hasFolders?reorder(K):K,J;".
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
   const edits = [
     // Show the Working section with the boring sidebar too.
-    { start: gateStart, end: gateStart + gate.match[2].length, text: "" },
+    { start: gateStart, end: gateStart + gate.match[3].length, text: "" },
     // Working threads first in the keyboard order when there are folders.
     {
       start: keysStart,
