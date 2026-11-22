@@ -17,19 +17,30 @@ const FIXTURE = [
   "function DK(e){return e.sidebarWorkingShelfEnabled}",
   "function dp(e){return e(SETTINGS)}",
   "function wK(e){return e.threads}",
+  "function hK(e,t){return t===null?[]:e.filter(n=>n===t)}",
   "function gK(e){let t=0,{threads:s,routeRowThreadKey:l,folderGroups:u,keepEmptyFolders:d}=e,f=dp(DK)&&u===null,p=1;",
-  "let k=e.pinned,A=e.active,H=e.working,ee=e.snoozed,V=e.settled,U=u===null?null:u.map(g=>({group:g,threads:g.threads})),",
+  "let{pinnedThreads:k,activeThreads:A,workingThreads:j,snoozedThreads:M,settledThreads:N}=e.lists,b=e.expanded,",
+  "ee=M,V=N,H=b?j:hK(j,l),U=u===null?null:u.map(g=>({group:g,threads:g.threads})),",
   "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;return{workingShelfEnabled:f,orderedThreadKeys:W}}",
-  "function rowsOf(Un,r){let Ki;{let p={kind:`marker`,marker:`settled-placeholder`};Ki=[...r,p]}let qi=Ki,Ji;Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker);return{qi,Ji}}",
-  "function render(Un,ea){const n=[];for(let i of ea)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;n.push(i.key)}return n}",
-  "function headers(Un,Dn,On,Y){return[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}]}",
+  "function GK(Un,r,Dn,On,Y){let t=[],Gi=Un!==null&&Un.length>0,Ki;{let p={kind:`marker`,marker:`settled-placeholder`},z=[...r,p];Ki=z}let qi=Ki,Ji;" +
+    "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
+  "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
+  "const headers=[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];",
+  "return{Ji,rendered,headers,Gi}}",
 ].join("\n");
 
 function load(source) {
-  return new Function(`${source}\nreturn { setWorking, gK, rowsOf, render, headers };`)();
+  const loaded = new Function(`${source}\nreturn { setWorking, gK, GK };`)();
+  const Y = (value) => value || undefined;
+  return {
+    setWorking: loaded.setWorking,
+    gK: loaded.gK,
+    rowsOf: (folders, list) => loaded.GK(folders, list, [], [], Y),
+    render: (folders, list) => loaded.GK(folders, list, [], [], Y).rendered,
+    headers: (folders, working, snoozed) => loaded.GK(folders, [], working, snoozed, Y).headers,
+  };
 }
 
-const Y = (value) => value || undefined;
 const rows = [
   { kind: "marker", marker: "pinned-header" },
   { kind: "thread", key: "p1", section: "pinned" },
@@ -43,12 +54,10 @@ const rows = [
 ];
 const hookInput = (folderGroups) => ({
   threads: [],
+  routeRowThreadKey: null,
   folderGroups,
-  pinned: ["p1"],
-  active: ["a1"],
-  working: ["w1", "w2"],
-  snoozed: ["s1"],
-  settled: ["d1"],
+  expanded: true,
+  lists: { pinnedThreads: ["p1"], activeThreads: ["a1"], workingThreads: ["w1", "w2"], snoozedThreads: ["s1"], settledThreads: ["d1"] },
 });
 
 test("the patch shows the Working section with project folders and keeps T3 Code's own setting", () => {
@@ -87,14 +96,15 @@ test("with project folders, the Working header and rows move above Pinned; witho
   const noWorking = rows.filter((row) => row.section !== "working" && row.marker !== "working-header");
   assert.deepEqual(patched.rowsOf([], noWorking).Ji, original.rowsOf([], noWorking).Ji);
   // The rows rendered in folders skip active threads as before.
-  assert.deepEqual(patched.render([], patched.rowsOf([], rows).qi), ["w1", "w2", "p1"]);
+  assert.deepEqual(patched.render([], rows), ["w1", "w2", "p1"]);
+  assert.deepEqual(patched.render(null, rows), original.render(null, rows));
 });
 
 test("with project folders, the first shelf at the bottom is Snoozed or Settled", () => {
   const { source } = patchSidebarChunk(FIXTURE);
   const original = load(FIXTURE);
   const patched = load(source);
-  const classes = (fn, folders, working, snoozed) => fn(folders, working, snoozed, Y).map((header) => header.className);
+  const classes = (fn, folders, working, snoozed) => fn(folders, working, snoozed).map((header) => header.className);
   // Folders: Working sits at the top, so it no longer pushes the shelves down.
   assert.deepEqual(classes(patched.headers, [], [1], [1]), [undefined, "mt-auto", undefined]);
   assert.deepEqual(classes(patched.headers, [], [1], []), [undefined, "mt-auto", "mt-auto"]);
@@ -110,10 +120,15 @@ test("the patch changes nothing unless every site matches exactly once", () => {
   const sites = [
     ["return e.sidebarWorkingShelfEnabled}", "return e.sidebarWorkingShelfOn}", "function DK2(e){return e.sidebarWorkingShelfEnabled}"],
     ["f=dp(DK)&&u===null,", "f=dp(DK)&&u==null,", "function g2(e){let{folderGroups:u}=e,f=dp(DK)&&u===null,p=1}"],
-    ["U=u===null?null:", "U=u==null?null:", "U=u===null?null:0;"],
+    ["pinnedThreads:k,", "pinnedThreadz:k,", ";let{pinnedThreads:z}=0;"],
+    ["activeThreads:A,", "activeThreadz:A,", ";let{activeThreads:z}=0;"],
+    ["workingThreads:j,", "workingThreadz:j,", ";let{workingThreads:z}=0;"],
+    ["H=b?j:hK(j,l)", "H=b?j:hK(M,l)", ";H2=b?j:hK(j,l);"],
+    ["U=u===null?null:", "U=u==null?null:", ";U=u===null?null:0;"],
     ["W=[...k,...U===null?A:U.flatMap(wK),...H,", "W=[...k,...U==null?A:U.flatMap(wK),...H,", "W=[...k,...U===null?A:U.flatMap(wK),...H,0];"],
+    ["Gi=Un!==null&&Un.length>0,Ki;", "Gi=Un!=null&&Un.length>0,Ki;", ";Gx=Un!==null&&Un.length>0,Kx;"],
+    ["}let qi=Ki,Ji;", "}var qi=Ki,Ji;", "Ki=z}let qi=Ki,Ji;t[0]===qi?Ji=t[1]:(Ji=qi.map(0));"],
     ["if(Un!==null&&i.section===`active`)continue", "if(Un!=null&&i.section===`active`)continue", "if(Un!==null&&i.section===`active`)continue;"],
-    ["}let qi=Ki,Ji;", "}var qi=Ki,Ji;", "{let x={kind:`marker`,marker:`settled-placeholder`}}let a=b,c;"],
     ["marker:`working-header`,className:`mt-auto`", "marker:`working-header`,className:`mt-4`", "[{marker:`working-header`,className:`mt-auto`}];"],
     ["Y(Dn.length===0&&`mt-auto`)", "Y(Dn.length<1&&`mt-auto`)", "[{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)}];"],
     ["Y(Dn.length+On.length===0&&`mt-auto`)", "Y(Dn.length+On.length<1&&`mt-auto`)", "[{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];"],
@@ -129,10 +144,23 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     assert.equal(twice.applied, false, `doubled ${site}`);
     assert.equal(twice.source, doubled, `doubled ${site} leaves the code byte for byte`);
   }
-  // The gate must test the folder groups, not another value.
-  const otherGate = FIXTURE.replace("f=dp(DK)&&u===null,", "f=dp(DK)&&d===null,");
-  assert.equal(patchSidebarChunk(otherGate).applied, false);
-  assert.equal(patchSidebarChunk(otherGate).source, otherGate);
+  // Names read at one place must be the ones used at the other: the gate
+  // tests the folder groups, the keyboard order moves the Working rows, and
+  // the sidebar's sites share one function.
+  const variants = [
+    FIXTURE.replace("f=dp(DK)&&u===null,", "f=dp(DK)&&d===null,"),
+    FIXTURE.replace("W=[...k,...U===null?A:U.flatMap(wK),...H,", "W=[...k,...U===null?A:U.flatMap(wK),...ee,"),
+    FIXTURE.replace("ee=M,V=N,H=b?j:hK(j,l),", "ee=M,V=N,H=b?j:hK(j,l),Z=[],").replace("U.flatMap(wK),...H,", "U.flatMap(wK),...Z,...H,"),
+    FIXTURE.replace("const rendered=[];", "function inner(Un){}const rendered=[];"),
+    FIXTURE.replace("let qi=Ki,Ji;", "let x=0,y;let qi=Ki,Ji;"),
+    FIXTURE.replace("W=[...k,", "W=function(){},X=[...k,"),
+  ];
+  for (const variant of variants) {
+    assert.notEqual(variant, FIXTURE);
+    const result = patchSidebarChunk(variant);
+    assert.equal(result.applied, false, result.problem);
+    assert.equal(result.source, variant);
+  }
 });
 
 test("patched code is not patched again, and other scripts are left alone", () => {
@@ -184,7 +212,10 @@ function readInstalledMainChunks(asarPath) {
   }
 }
 
+// Run on request only, with T3_CHECK_INSTALLED=1, because the result depends
+// on the T3 Code version installed here, not on this repository.
 test("the installed T3 Code's sidebar code is recognized and stays valid", (t) => {
+  if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
   const asarPath = installedServerAsar();
   if (!asarPath) return t.skip("T3 Code is not installed here");
   const chunk = readInstalledMainChunks(asarPath).find((item) => item.source.includes("sidebarWorkingShelfEnabled}"));

@@ -288,17 +288,20 @@ there too:
 - The Working section sits at the top of the sidebar, above Pinned. New thread
   drafts stay above it. Snoozed and Settled stay at the bottom.
 - A project folder whose only active thread is working hides until the thread
-  returns, as T3 Code already does when a thread is snoozed or settled.
+  returns, as T3 Code already does when a thread is snoozed or settled. A
+  pinned project, or the project you filtered the sidebar to, stays.
 - T3 Code's own Sidebar > Working section setting still turns the section on
   or off. It is on by default.
 - The sidebar without the boring mode does not change.
 
-The option is off by default. It applies the next time T3 Code opens.
+The option is off by default. A change is sure to apply the next time T3 Code
+opens. Until then, a window can keep the sidebar code it already loaded.
 
 To do this, the launcher changes T3 Code's sidebar code as the app loads it.
-When a T3 Code update changes that code, the launcher leaves it as it is and
-writes one line to `launcher.log`, and the boring sidebar has no Working
-section again until the fix is updated.
+When a T3 Code update changes that code, the launcher leaves it as it is, and
+the boring sidebar has no Working section again until the fix is updated. The
+launcher writes one line to `launcher.log` when it does not recognize the
+script. If T3 Code renames the script, nothing is written.
 
 ## Extras settings
 
@@ -321,7 +324,7 @@ the fix:
   [Working section in the boring sidebar](#working-section-in-the-boring-sidebar).
 
 Changes apply at once, without a restart, except the Working section in the
-boring sidebar, which applies the next time T3 Code opens. They are saved in `settings.json`
+boring sidebar, which is sure to apply the next time T3 Code opens. They are saved in `settings.json`
 beside `rtl.css` in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
@@ -480,9 +483,9 @@ Chromium to pause the response for T3 Code's main script,
 `t3code://app/assets/main-*.js`, before the first window loads. It changes the
 sidebar code in that response only when every place it changes is found
 exactly once, and otherwise passes the script on unchanged. Every other
-request is not touched. A window that opens later in the same session gets
-the same script from Chromium's cache, which is why the option applies the
-next time T3 Code opens.
+request is not touched. A reload or a new window in the same session usually
+gets the script from Chromium's cache without a new pause, which is why a
+change is sure to apply only the next time T3 Code opens.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.
@@ -547,6 +550,13 @@ it should. A
 separate regression test performs a complete installation and removal under
 Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
 enabled and that shipped user-facing text contains no Hebrew.
+
+To check that the Working section in the boring sidebar still recognizes the
+T3 Code installed on this machine, run:
+
+```powershell
+$env:T3_CHECK_INSTALLED = "1"; node --test tests/working-shelf.test.js
+```
 
 ## Credits
 

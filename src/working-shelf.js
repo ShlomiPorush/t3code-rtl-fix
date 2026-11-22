@@ -49,8 +49,12 @@ const REORDER =
 
 // How far after the start of the sidebar hook its row lists are built.
 const HOOK_WINDOW = 8000;
-// How far after the last fixed row of the sidebar the rows are handed on.
-const ROWS_WINDOW = 600;
+
+// Whether another function starts between two places, so that names read at
+// one place may not be in scope at the other.
+function hasFunction(source, from, to) {
+  return /\bfunction\b/.test(source.slice(from, to));
+}
 
 function patchSidebarChunk(source) {
   const unchanged = (problem) => ({ source, applied: false, problem });
@@ -73,38 +77,49 @@ function patchSidebarChunk(source) {
   const groups = escapeId(gate.match[1]);
   const gateStart = gate.match.index + gate.match[0].lastIndexOf(gate.match[2]);
   const hookEnd = Math.min(source.length, gate.match.index + HOOK_WINDOW);
+  const inHook = (label, regex) => single(source, regex, label, gate.match.index, hookEnd);
 
-  // The rendered project folders, built from the folder groups in the hook,
-  // and the order of the sidebar's threads for keyboard selection.
-  const folders = single(source, new RegExp(`(${ID})=${groups}===null\\?null:`), "folders", gate.match.index, hookEnd);
+  // The order of the sidebar's threads for keyboard selection, in the same
+  // hook: the pinned and active threads, the rendered project folders built
+  // from the folder groups, and the visible rows of the Working section.
+  const lists = {};
+  for (const name of ["pinnedThreads", "activeThreads", "workingThreads"]) {
+    const found = inHook(name, new RegExp(`[{,]${name}:(${ID})[,}]`));
+    if (found.problem) return unchanged(found.problem);
+    lists[name] = escapeId(found.match[1]);
+  }
+  const folders = inHook("folders", new RegExp(`[,;](${ID})=${groups}===null\\?null:`));
   if (folders.problem) return unchanged(folders.problem);
   const folderList = escapeId(folders.match[1]);
-  const keys = single(
-    source,
-    new RegExp(`=\\[(\\.\\.\\.${ID},\\.\\.\\.${folderList}===null\\?${ID}:${folderList}\\.flatMap\\(${ID}\\),)\\.\\.\\.(${ID}),`),
+  const shown = inHook("working rows", new RegExp(`[,;](${ID})=${ID}\\?${lists.workingThreads}:${ID}\\(${lists.workingThreads},${ID}\\)[,;]`));
+  if (shown.problem) return unchanged(shown.problem);
+  const workingRows = shown.match[1];
+  const keys = inHook(
     "keys",
-    gate.match.index,
-    hookEnd,
+    new RegExp(
+      `=\\[(\\.\\.\\.${lists.pinnedThreads},\\.\\.\\.${folderList}===null\\?${lists.activeThreads}:${folderList}\\.flatMap\\(${ID}\\),)` +
+        `\\.\\.\\.${escapeId(workingRows)},`,
+    ),
   );
   if (keys.problem) return unchanged(keys.problem);
+  if (hasFunction(source, gate.match.index, keys.match.index)) return unchanged("keys: not in the sidebar hook");
 
-  // The folders as the sidebar renders them: active threads are drawn in
-  // their folders when there are folders.
-  const render = single(source, new RegExp(`if\\((${ID})!==null&&${ID}\\.section===\`active\`\\)continue`), "render");
+  // The sidebar component: its project folders F and its rows K are declared
+  // together, the rows are handed on to the list that keys React's state, and
+  // the folders are rendered without their active threads. All of it in one
+  // function, so F is in scope everywhere it is used below.
+  const declared = single(source, new RegExp(`[,;]${ID}=(${ID})!==null&&\\1\\.length>0,(${ID});`), "rows");
+  if (declared.problem) return unchanged(declared.problem);
+  const F = declared.match[1];
+  const K = escapeId(declared.match[2]);
+  const rows = single(
+    source,
+    new RegExp(`${K}=${ID}\\}let (${ID})=${K},(${ID});${ID}\\[\\d+\\]===\\1\\?\\2=${ID}\\[\\d+\\]:\\(\\2=\\1\\.map\\(`),
+    "rows hand-off",
+  );
+  if (rows.problem) return unchanged(rows.problem);
+  const render = single(source, new RegExp(`if\\(${escapeId(F)}!==null&&${ID}\\.section===\`active\`\\)continue`), "render");
   if (render.problem) return unchanged(render.problem);
-  const renderFolders = render.match[1];
-
-  // The sidebar's rows, handed on right after the last fixed row: the first
-  // hand-off after each such row, which must be one place in all.
-  const handOffs = new Map();
-  for (const row of allMatches(source, /\{kind:`marker`,marker:`settled-placeholder`\}/)) {
-    const after = new RegExp(`\\}let (${ID})=(${ID}),(${ID});`, "g");
-    after.lastIndex = row.index;
-    const found = after.exec(source);
-    if (found && found.index < row.index + ROWS_WINDOW) handOffs.set(found.index, found);
-  }
-  if (handOffs.size !== 1) return unchanged(`rows: ${handOffs.size} matches`);
-  const [rows] = handOffs.values();
 
   // The spacing that keeps the shelves at the bottom of the sidebar.
   const working = single(source, /marker:`working-header`,className:`mt-auto`/, "working header");
@@ -122,7 +137,13 @@ function patchSidebarChunk(source) {
   );
   if (settled.problem) return unchanged(settled.problem);
 
-  const F = renderFolders;
+  const componentSites = [rows, render, working, snoozed, settled].map((site) => site.match.index);
+  if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
+  if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
+
+  // The rows hand-off: "}let Q=K,J;" becomes "}let Q=F!==null?reorder(K):K,J;".
+  const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
+  const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
   const edits = [
     // Show the Working section with the boring sidebar too.
     { start: gateStart, end: gateStart + gate.match[2].length, text: "" },
@@ -130,13 +151,13 @@ function patchSidebarChunk(source) {
     {
       start: keys.match.index,
       end: keys.match.index + keys.match[0].length,
-      text: `=[...${folders.match[1]}!==null?${keys.match[2]}:[],${keys.match[1]}...${folders.match[1]}!==null?[]:${keys.match[2]},`,
+      text: `=[...${folders.match[1]}!==null?${workingRows}:[],${keys.match[1]}...${folders.match[1]}!==null?[]:${workingRows},`,
     },
     // Working rows first when there are folders.
     {
-      start: rows.index,
-      end: rows.index + rows[0].length,
-      text: `}let ${rows[1]}=${F}!==null?${REORDER}(${rows[2]}):${rows[2]},${rows[3]};`,
+      start: handOff.index,
+      end: handOff.index + `}let ${handOff.Q}=${declared.match[2]},${handOff.J};`.length,
+      text: `}let ${handOff.Q}=${F}!==null?${REORDER}(${declared.match[2]}):${declared.match[2]},${handOff.J};`,
     },
     // The first shelf at the bottom is Snoozed or Settled when there are folders.
     {
@@ -208,7 +229,7 @@ function createWorkingShelfService({ send, isEnabled, log = () => {} } = {}) {
       const text = body.base64Encoded ? Buffer.from(body.body || "", "base64").toString("utf8") : body.body || "";
       const result = patchSidebarChunk(text);
       if (!result.applied) {
-        if (text.includes("sidebarWorkingShelfEnabled")) logOnce(`T3 Code's sidebar code was not recognized (${result.problem})`);
+        logOnce(`T3 Code's sidebar code was not recognized (${result.problem})`);
         return await pass();
       }
       // The option may have been turned off while the body was read.
