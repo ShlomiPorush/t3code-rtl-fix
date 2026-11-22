@@ -252,6 +252,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     // The Working parent is not the rendered row's.
     FIXTURE.replace("navigationParent:n??(t===`working`", "navigationParent:r??(t===`working`"),
     FIXTURE.replace("variant:a,navigationParent:", "variant:a},{navigationParent:"),
+    FIXTURE.replace("variant:a,navigationParent:", "variant:a,savednavigationParent:"),
     // The Working parent belongs to another condition.
     FIXTURE.replace("t===`working`||t===`snoozed`||t===`settled`?`shelf:${t}`", "t===`working`||t===`snoozed`?void 0:t===`settled`?`shelf:${t}`"),
     FIXTURE.replace("`shelf:${t}`:void 0)})", "`shelf:${t}`:void 0)?.replace(`shelf`,`section`)})"),

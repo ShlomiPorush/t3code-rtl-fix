@@ -184,12 +184,12 @@ function patchSidebarChunk(source) {
   );
   if (parent.problem) return unchanged(parent.problem);
   const lookEnd = look.match.index + look.match[0].length;
+  // It is the prop right after the variant, as in T3 Code's code.
   if (
     parent.match[1] !== look.match[2] ||
     parent.match[2] !== look.match[3] ||
     !look.match[0].endsWith(",") ||
-    parent.match.index < lookEnd ||
-    /[{}]/.test(source.slice(lookEnd, parent.match.index))
+    parent.match.index !== lookEnd
   ) {
     return unchanged("working parent: not the rendered row's");
   }
