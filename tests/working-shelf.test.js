@@ -20,8 +20,8 @@ const FIXTURE = [
   "function hK(e,t){return t===null?[]:e.filter(n=>n===t)}",
   "function gK(e){let t=0,{threads:s,routeRowThreadKey:l,folderGroups:u,keepEmptyFolders:d}=e,f=dp(DK)&&u===null,p=1;",
   "let{pinnedThreads:k,activeThreads:A,workingThreads:j,snoozedThreads:M,settledThreads:N}=e.lists,b=e.expanded,",
-  "ee=M,V=N,H=b?j:hK(j,l),U=u===null?null:u.map(g=>({group:g,threads:g.threads})),",
-  "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;return{workingShelfEnabled:f,orderedThreadKeys:W}}",
+  "ee=M,V=N,H=b?j:hK(j,l),U=u===null?null:u.map(g=>({group:g,threads:g.threads}))," +
+    "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;return{workingShelfEnabled:f,orderedThreadKeys:W.map(x=>x)}}",
   "function GK(Un,r,Dn,On,Y){let t=[],Gi=Un!==null&&Un.length>0,Ki;{let p={kind:`marker`,marker:`settled-placeholder`},z=[...r,p];Ki=z}let qi=Ki,Ji;" +
     "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
   "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
@@ -125,7 +125,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     ["workingThreads:j,", "workingThreadz:j,", ";let{workingThreads:z}=0;"],
     ["H=b?j:hK(j,l)", "H=b?j:hK(M,l)", ";H2=b?j:hK(j,l);"],
     ["U=u===null?null:", "U=u==null?null:", ";U=u===null?null:0;"],
-    ["W=[...k,...U===null?A:U.flatMap(wK),...H,", "W=[...k,...U==null?A:U.flatMap(wK),...H,", "W=[...k,...U===null?A:U.flatMap(wK),...H,0];"],
+    ["W=[...k,...U===null?A:U.flatMap(wK),...H,", "W=[...k,...U==null?A:U.flatMap(wK),...H,", ";W=[...k,...U===null?A:U.flatMap(wK),...H,0];"],
     ["Gi=Un!==null&&Un.length>0,Ki;", "Gi=Un!=null&&Un.length>0,Ki;", ";Gx=Un!==null&&Un.length>0,Kx;"],
     ["}let qi=Ki,Ji;", "}var qi=Ki,Ji;", "Ki=z}let qi=Ki,Ji;t[0]===qi?Ji=t[1]:(Ji=qi.map(0));"],
     ["if(Un!==null&&i.section===`active`)continue", "if(Un!=null&&i.section===`active`)continue", "if(Un!==null&&i.section===`active`)continue;"],
@@ -154,6 +154,8 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     FIXTURE.replace("const rendered=[];", "function inner(Un){}const rendered=[];"),
     FIXTURE.replace("let qi=Ki,Ji;", "let x=0,y;let qi=Ki,Ji;"),
     FIXTURE.replace("W=[...k,", "W=function(){},X=[...k,"),
+    // The keyboard order is built elsewhere, so the moved list is not it.
+    FIXTURE.replace("orderedThreadKeys:W.map(x=>x)", "orderedThreadKeys:k.concat(A,H)"),
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
@@ -161,6 +163,21 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     assert.equal(result.applied, false, result.problem);
     assert.equal(result.source, variant);
   }
+});
+
+test("a site that cannot see the project folders gets T3 Code's layout, not an error", () => {
+  // The headers are built by an arrow function outside the sidebar component,
+  // where its project folders are not in scope.
+  const headers = "[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}]";
+  const variant = FIXTURE.replace(`const headers=${headers};`, "const headers=mk(Dn,On,Y);") + `\nconst mk=(Dn,On,Y)=>${headers};`;
+  assert.notEqual(variant, FIXTURE);
+  const result = patchSidebarChunk(variant);
+  const original = load(variant);
+  const patched = load(result.source);
+  for (const [working, snoozed] of [[[1], [1]], [[], [1]], [[], []], [[1], []]]) {
+    assert.deepEqual(patched.headers([], working, snoozed), original.headers([], working, snoozed));
+  }
+  assert.deepEqual(patched.render([], rows), result.applied ? ["w1", "w2", "p1"] : ["p1"]);
 });
 
 test("patched code is not patched again, and other scripts are left alone", () => {

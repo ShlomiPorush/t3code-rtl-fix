@@ -301,7 +301,8 @@ To do this, the launcher changes T3 Code's sidebar code as the app loads it.
 When a T3 Code update changes that code, the launcher leaves it as it is, and
 the boring sidebar has no Working section again until the fix is updated. The
 launcher writes one line to `launcher.log` when it does not recognize the
-script. If T3 Code renames the script, nothing is written.
+script. If T3 Code renames the script to a name that does not match
+`main-*.js`, nothing is written.
 
 ## Extras settings
 

@@ -97,12 +97,16 @@ function patchSidebarChunk(source) {
   const keys = inHook(
     "keys",
     new RegExp(
-      `=\\[(\\.\\.\\.${lists.pinnedThreads},\\.\\.\\.${folderList}===null\\?${lists.activeThreads}:${folderList}\\.flatMap\\(${ID}\\),)` +
+      `[,;](${ID})=\\[(\\.\\.\\.${lists.pinnedThreads},\\.\\.\\.${folderList}===null\\?${lists.activeThreads}:${folderList}\\.flatMap\\(${ID}\\),)` +
         `\\.\\.\\.${escapeId(workingRows)},`,
     ),
   );
   if (keys.problem) return unchanged(keys.problem);
   if (hasFunction(source, gate.match.index, keys.match.index)) return unchanged("keys: not in the sidebar hook");
+  // The list must be the one the hook returns as the keyboard order.
+  const returned = inHook("keyboard order", new RegExp(`orderedThreadKeys:${escapeId(keys.match[1])}\\.map\\(`));
+  if (returned.problem) return unchanged(returned.problem);
+  const keysStart = keys.match.index + 1 + keys.match[1].length;
 
   // The sidebar component: its project folders F and its rows K are declared
   // together, the rows are handed on to the list that keys React's state, and
@@ -141,7 +145,13 @@ function patchSidebarChunk(source) {
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
   if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
 
-  // The rows hand-off: "}let Q=K,J;" becomes "}let Q=F!==null?reorder(K):K,J;".
+  // F is read where the rows are declared. Where it is added, it is read
+  // through typeof, so a build in which F is out of scope there gets T3 Code's
+  // own layout instead of a ReferenceError. Every other added name is already
+  // used at the place it is added to.
+  const hasFolders = `(typeof ${F}<"u"&&${F}!==null)`;
+
+  // The rows hand-off: "}let Q=K,J;" becomes "}let Q=hasFolders?reorder(K):K,J;".
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
   const edits = [
@@ -149,31 +159,31 @@ function patchSidebarChunk(source) {
     { start: gateStart, end: gateStart + gate.match[2].length, text: "" },
     // Working threads first in the keyboard order when there are folders.
     {
-      start: keys.match.index,
+      start: keysStart,
       end: keys.match.index + keys.match[0].length,
-      text: `=[...${folders.match[1]}!==null?${workingRows}:[],${keys.match[1]}...${folders.match[1]}!==null?[]:${workingRows},`,
+      text: `=[...${folders.match[1]}!==null?${workingRows}:[],${keys.match[2]}...${folders.match[1]}!==null?[]:${workingRows},`,
     },
     // Working rows first when there are folders.
     {
       start: handOff.index,
       end: handOff.index + `}let ${handOff.Q}=${declared.match[2]},${handOff.J};`.length,
-      text: `}let ${handOff.Q}=${F}!==null?${REORDER}(${declared.match[2]}):${declared.match[2]},${handOff.J};`,
+      text: `}let ${handOff.Q}=${hasFolders}?${REORDER}(${declared.match[2]}):${declared.match[2]},${handOff.J};`,
     },
     // The first shelf at the bottom is Snoozed or Settled when there are folders.
     {
       start: working.match.index,
       end: working.match.index + working.match[0].length,
-      text: `marker:\`working-header\`,className:${F}===null?\`mt-auto\`:void 0`,
+      text: `marker:\`working-header\`,className:${hasFolders}?void 0:\`mt-auto\``,
     },
     {
       start: snoozed.match.index,
       end: snoozed.match.index + snoozed.match[0].length,
-      text: `marker:\`snoozed-header\`,className:${snoozed.match[1]}((${F}!==null||${snoozed.match[2]}.length===0)&&\`mt-auto\`)`,
+      text: `marker:\`snoozed-header\`,className:${snoozed.match[1]}((${hasFolders}||${snoozed.match[2]}.length===0)&&\`mt-auto\`)`,
     },
     {
       start: settled.match.index,
       end: settled.match.index + settled.match[0].length,
-      text: `marker:\`settled-header\`,className:${settled.match[1]}(((${F}!==null?0:${settled.match[2]}.length)+${settled.match[3]}.length===0)&&\`mt-auto\`)`,
+      text: `marker:\`settled-header\`,className:${settled.match[1]}(((${hasFolders}?0:${settled.match[2]}.length)+${settled.match[3]}.length===0)&&\`mt-auto\`)`,
     },
   ].sort((a, b) => a.start - b.start);
 
