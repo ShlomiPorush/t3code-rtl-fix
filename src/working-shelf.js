@@ -179,7 +179,7 @@ function patchSidebarChunk(source) {
   // the Working list, which is how the row component tells a Working row.
   const parent = single(
     source,
-    new RegExp(`navigationParent:(${ID})\\?\\?\\((${ID})===\`working\`(?:\\|\\|\\2===\`\\w+\`)*\\?\`shelf:\\$\\{\\2\\}\`:void 0\\)`),
+    new RegExp(`navigationParent:(${ID})\\?\\?\\((${ID})===\`working\`(?:\\|\\|\\2===\`\\w+\`)*\\?\`shelf:\\$\\{\\2\\}\`:void 0\\)[,}]`),
     "working parent",
   );
   if (parent.problem) return unchanged(parent.problem);

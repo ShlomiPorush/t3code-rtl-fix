@@ -253,7 +253,8 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     FIXTURE.replace("navigationParent:n??(t===`working`", "navigationParent:r??(t===`working`"),
     FIXTURE.replace("variant:a,navigationParent:", "variant:a},{navigationParent:"),
     // The Working parent belongs to another condition.
-    FIXTURE.replace("t===`working`||t===`snoozed`||t===`settled`?`shelf:${t}`", "t===`working`?void 0:t===`settled`?`shelf:${t}`"),
+    FIXTURE.replace("t===`working`||t===`snoozed`||t===`settled`?`shelf:${t}`", "t===`working`||t===`snoozed`?void 0:t===`settled`?`shelf:${t}`"),
+    FIXTURE.replace("`shelf:${t}`:void 0)})", "`shelf:${t}`:void 0)?.replace(`shelf`,`section`)})"),
     // The row's icon, flag, and indent are not one component's.
     FIXTURE.replace("(d=a?null:", "(d=r?null:"),
     FIXTURE.replace('"data-sidebar-parent":e.navigationParent', '"data-sidebar-parent":q.navigationParent'),
