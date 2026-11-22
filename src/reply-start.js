@@ -8,7 +8,8 @@
 // When a thread opens and T3 Code has placed it at its end, the page checks
 // the last row of the conversation. When that row is a reply from the agent,
 // or a proposed plan, whose start is above the visible area, it scrolls the
-// start to the top. It leaves the thread as T3 Code placed it when the agent
+// start to the top, with the folded work of the turn right above it, such as
+// "Worked for 1m 40s", still in view. It leaves the thread as T3 Code placed it when the agent
 // is still working, the reply fits, T3 Code returned to a remembered place,
 // the person scrolls, clicks, or types first, or the page is not as expected.
 //
@@ -26,6 +27,9 @@ const CONFIG = Object.freeze({
   // shows while it works even when those rows are not rendered.
   busyKinds: ["working", "work-live"],
   busySelector: 'button[class~="bg-destructive/90"][class~="rounded-full"]:has(> svg > rect)',
+  // The folded work of a turn, such as "Worked for 1m 40s", shown right above
+  // the reply. The thread opens with it above the reply.
+  foldKind: "turn-fold",
   // First route segments that name no thread.
   otherRoutes: ["draft", "settings"],
   // T3 Code opens a citation's source with this in the address, and scrolls
@@ -129,8 +133,19 @@ function replyStart(config) {
     const kind = last.dataset.timelineRowKind;
     const reply = (kind === "message" && last.dataset.messageRole === "assistant") || kind === "proposed-plan";
     if (!reply) return null;
-    const hidden = scroller.getBoundingClientRect().top - last.getBoundingClientRect().top;
-    return hidden > 1 ? last : null;
+    const top = last.getBoundingClientRect().top;
+    if (scroller.getBoundingClientRect().top - top <= 1) return null;
+    // The row right above the reply, when it is the folded work of its turn.
+    let above = null;
+    let aboveBottom = -Infinity;
+    for (const row of rows) {
+      const bottom = row.getBoundingClientRect().bottom;
+      if (row !== last && bottom <= top + 1 && bottom > aboveBottom) {
+        above = row;
+        aboveBottom = bottom;
+      }
+    }
+    return above && above.dataset.timelineRowKind === config.foldKind ? above : last;
   };
 
   // Releases T3 Code's follow of the end, then keeps the start of the reply

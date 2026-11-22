@@ -256,7 +256,8 @@ it. Escape closes the list.
 
 T3 Code opens a thread at its end, so a long reply shows its last lines
 first. The fix opens the thread with the start of the agent's last reply at
-the top instead. A proposed plan at the end of a thread opens the same way.
+the top instead, with the **Worked for** line of its turn right above it. A
+proposed plan at the end of a thread opens the same way.
 The **Scroll to end** button then shows, as after scrolling up.
 
 T3 Code's own behavior stays in these cases:

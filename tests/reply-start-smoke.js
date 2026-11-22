@@ -112,8 +112,11 @@ body { margin: 0; }
     state() {
       const rows = [...root.children];
       const last = rows[rows.length - 1];
+      const fold = rows.find((row) => row.dataset.timelineRowKind === "turn-fold");
+      const topOf = (row) => (row ? Math.round(row.getBoundingClientRect().top - scroller.getBoundingClientRect().top) : null);
       return {
-        lastTop: last ? Math.round(last.getBoundingClientRect().top - scroller.getBoundingClientRect().top) : null,
+        lastTop: topOf(last),
+        foldTop: topOf(fold),
         fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
         scrollTop: Math.round(scroller.scrollTop),
         released,
@@ -218,6 +221,15 @@ async function run(port) {
 
   const short = await open([["message", "user", 60], ["message", "assistant", 120]]);
   check(short.fromEnd === 0 && !short.released && short.wheels === long.wheels + 2, `A short reply moved: ${JSON.stringify(short)}`);
+
+  // The folded work of the turn, such as "Worked for 1m 40s", shows above
+  // the reply.
+  const folded = await open([["message", "user", 60], ["turn-fold", null, 30], ["message", "assistant", 1500]]);
+  check(folded.foldTop === CONFIG.offset && folded.lastTop === CONFIG.offset + 30 && folded.released, `A long reply did not open with its folded work above it: ${JSON.stringify(folded)}`);
+
+  // Opened work between the fold and the reply keeps the reply at the top.
+  const unfolded = await open([["message", "user", 60], ["turn-fold", null, 30], ["work", null, 400], ["message", "assistant", 1500]]);
+  check(unfolded.lastTop === CONFIG.offset && unfolded.released, `A long reply after opened work did not open at its start: ${JSON.stringify(unfolded)}`);
 
   const working = await open([["message", "user", 60], ["message", "assistant", 1500], ["working", null, 40]]);
   check(working.fromEnd === 0 && !working.released, `A thread whose agent works did not stay at its end: ${JSON.stringify(working)}`);
