@@ -49,6 +49,19 @@ body { margin: 0; }
     if (!away && scrollToEnd.isConnected) scrollToEnd.remove();
   }, 20);
   let rowNumber = 0;
+  // Renders lazy rows within this distance of the screen, a frame after a
+  // scroll, as T3 Code's list does.
+  const renderNear = () => {
+    const view = scroller.getBoundingClientRect();
+    for (const row of root.children) {
+      if (!row.renderNear) continue;
+      const box = row.getBoundingClientRect();
+      if (box.bottom < view.top - 240 || box.top > view.bottom + 240) continue;
+      row.renderNear();
+      row.renderNear = null;
+    }
+  };
+  scroller.addEventListener("scroll", () => requestAnimationFrame(renderNear), { passive: true });
   window.fake = {
     // Shows the rows of a newly opened thread after a delay, at the end, or
     // at a remembered offset. settleAbove moves the view up a little after
@@ -59,14 +72,23 @@ body { margin: 0; }
       released = at !== "end";
       resting = !!endAfter;
       // A row may have a fixed id, as T3 Code gives some rows in every thread.
-      const build = (list) => root.replaceChildren(...list.map(([kind, role, height, id]) => {
-        const row = document.createElement("div");
-        row.dataset.timelineRowId = id || "row-" + (rowNumber += 1);
-        row.dataset.timelineRowKind = kind;
-        if (role) row.dataset.messageRole = role;
-        row.style.height = height + "px";
-        return row;
-      }));
+      // A lazy row is rendered only near the screen, as T3 Code's list does:
+      // until then it only holds its space.
+      const build = (list) => {
+        root.replaceChildren(...list.map(([kind, role, height, id, lazy]) => {
+          const row = document.createElement("div");
+          const render = () => {
+            row.dataset.timelineRowId = id || "row-" + (rowNumber += 1);
+            row.dataset.timelineRowKind = kind;
+            if (role) row.dataset.messageRole = role;
+          };
+          if (lazy) row.renderNear = render;
+          else render();
+          row.style.height = height + "px";
+          return row;
+        }));
+        renderNear();
+      };
       const place = () => {
         if (at === "end") {
           resting = false;
@@ -112,8 +134,11 @@ body { margin: 0; }
     state() {
       const rows = [...root.children];
       const last = rows[rows.length - 1];
+      const fold = rows.find((row) => row.dataset.timelineRowKind === "turn-fold");
+      const topOf = (row) => (row ? Math.round(row.getBoundingClientRect().top - scroller.getBoundingClientRect().top) : null);
       return {
-        lastTop: last ? Math.round(last.getBoundingClientRect().top - scroller.getBoundingClientRect().top) : null,
+        lastTop: topOf(last),
+        foldTop: topOf(fold),
         fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
         scrollTop: Math.round(scroller.scrollTop),
         released,
@@ -218,6 +243,20 @@ async function run(port) {
 
   const short = await open([["message", "user", 60], ["message", "assistant", 120]]);
   check(short.fromEnd === 0 && !short.released && short.wheels === long.wheels + 2, `A short reply moved: ${JSON.stringify(short)}`);
+
+  // The folded work of the turn, such as "Worked for 1m 40s", shows above
+  // the reply.
+  const folded = await open([["message", "user", 60], ["turn-fold", null, 30], ["message", "assistant", 1500]]);
+  check(folded.foldTop === CONFIG.offset && folded.lastTop === CONFIG.offset + 30 && folded.released, `A long reply did not open with its folded work above it: ${JSON.stringify(folded)}`);
+
+  // The fold of a reply much taller than the screen is rendered only once
+  // the start of the reply is near.
+  const lazyFold = await open([["message", "user", 60, null, true], ["turn-fold", null, 30, null, true], ["message", "assistant", 1500]]);
+  check(lazyFold.foldTop === CONFIG.offset && lazyFold.lastTop === CONFIG.offset + 30 && lazyFold.released, `A long reply did not open with its folded work above it once the fold was rendered: ${JSON.stringify(lazyFold)}`);
+
+  // Opened work between the fold and the reply keeps the reply at the top.
+  const unfolded = await open([["message", "user", 60], ["turn-fold", null, 30], ["work", null, 400], ["message", "assistant", 1500]]);
+  check(unfolded.lastTop === CONFIG.offset && unfolded.released, `A long reply after opened work did not open at its start: ${JSON.stringify(unfolded)}`);
 
   const working = await open([["message", "user", 60], ["message", "assistant", 1500], ["working", null, 40]]);
   check(working.fromEnd === 0 && !working.released, `A thread whose agent works did not stay at its end: ${JSON.stringify(working)}`);
