@@ -149,11 +149,14 @@ function watchWorkingShelf() {
 // A change of the switch reloads T3 Code's windows, so it applies without a
 // restart. Without interception no window has a changed script, so there is
 // nothing to reload.
+// Quick changes reload once, for the last one.
+let workingShelfChanges = 0;
 async function switchWorkingShelf(next) {
   if (next === boringWorkingShelf) return;
   boringWorkingShelf = next;
+  const change = ++workingShelfChanges;
   const watching = next ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
-  if (!watching) return;
+  if (!watching || change !== workingShelfChanges) return;
   const reloaded = await workingShelf.reloadWindows([...appPageSessions]);
   log(`Working section in the boring sidebar turned ${next ? "on" : "off"}, ${reloaded} windows reloaded`);
 }
@@ -402,6 +405,8 @@ async function attachAndInject(targetInfo) {
     });
     const sessionId = attached.sessionId;
     sessionsByTarget.set(targetId, sessionId);
+    // At once, so a change of the switch from now on reloads this window too.
+    if (isPage && isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);
 
     if (!isPage) {
       await watchAnnotations(send, sessionId);
@@ -411,7 +416,6 @@ async function attachAndInject(targetInfo) {
 
     // Page events, such as a reload, reach every service.
     await send("Page.enable", {}, sessionId);
-    if (isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);
     if (buildLayoutSource) {
       layoutSessions.add(sessionId);
       await queueLayout(sessionId, async () => {
@@ -472,6 +476,7 @@ async function attachAndInject(targetInfo) {
       }
     }
   } catch (error) {
+    appPageSessions.delete(sessionsByTarget.get(targetId));
     sessionsByTarget.delete(targetId);
     log(`Injection failed for target ${targetId}: ${error.message}`);
   } finally {

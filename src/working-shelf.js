@@ -162,16 +162,19 @@ function patchSidebarChunk(source) {
   );
   if (settled.problem) return unchanged(settled.problem);
 
-  // The look of each row: a row in a project folder is a plain folder row,
-  // and a row in the Working, Pinned, or Active list is a card.
+  // The look of each row, which the row is rendered with: a row in a project
+  // folder is a folder row, and a row in the Working, Pinned, or Active list
+  // is a card.
   const look = single(
     source,
     new RegExp(
-      `=(${ID})\\?(${ID})\\?\`folder-multiline\`:\`folder\`:(${ID})===\`active\`\\|\\|\\3===\`pinned\`\\|\\|\\3===\`working\`\\?\`card\`:\`slim\``,
+      `[,;](${ID})=(${ID})\\?${ID}\\?\`folder-multiline\`:\`folder\`:(${ID})===\`active\`\\|\\|\\3===\`pinned\`\\|\\|\\3===\`working\`\\?\`card\`:\`slim\`` +
+        `;return\\(0,${ID}\\.jsx\\)\\(${ID},\\{[^{}]*?variant:\\1[,}]`,
     ),
     "row look",
   );
   if (look.problem) return unchanged(look.problem);
+  const lookStart = look.match.index + 1 + look.match[1].length;
 
   const componentSites = [rows, render, working, snoozed, settled, look].map((site) => site.match.index);
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
@@ -221,11 +224,11 @@ function patchSidebarChunk(source) {
       text: `marker:\`settled-header\`,className:${settled.match[1]}(((${hasFolders}?0:${settled.match[2]}.length)+${settled.match[3]}.length===0)&&\`mt-auto\`)`,
     },
     // Working rows look like the rows in the project folders when there are
-    // folders: "=n?" becomes "=n||hasFolders&&t===`working`?".
+    // folders: "a=n?" becomes "a=n||hasFolders&&t===`working`?".
     {
-      start: look.match.index,
-      end: look.match.index + 1 + look.match[1].length + 1,
-      text: `=${look.match[1]}||${hasFolders}&&${look.match[3]}===\`working\`?`,
+      start: lookStart,
+      end: lookStart + `=${look.match[2]}?`.length,
+      text: `=${look.match[2]}||${hasFolders}&&${look.match[3]}===\`working\`?`,
     },
   ].sort((a, b) => a.start - b.start);
 

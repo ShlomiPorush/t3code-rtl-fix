@@ -27,7 +27,7 @@ const FIXTURE = [
     "t[0]===qi?Ji=t[1]:(Ji=qi.map(e=>e.kind===`thread`?e.key:e.marker),t[0]=qi,t[1]=Ji);",
   "const rendered=[];for(let i of qi)if(i.kind===`thread`){if(Un!==null&&i.section===`active`)continue;rendered.push(i.key)}",
   "const headers=[{marker:`working-header`,className:`mt-auto`},{marker:`snoozed-header`,className:Y(Dn.length===0&&`mt-auto`)},{marker:`settled-header`,className:Y(Dn.length+On.length===0&&`mt-auto`)}];",
-  "const ce=!1,look=(e,t,n)=>{let a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return a};",
+  "const ce=!1,Z={jsx:(c,p)=>p.variant},xG=0,look=(e,t,n)=>{let r=1,a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return(0,Z.jsx)(xG,{thread:e,variant:a,navigationParent:n})};",
   "return{Ji,rendered,headers,Gi,look}}",
 ].join("\n");
 
@@ -154,7 +154,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     [
       "t===`active`||t===`pinned`||t===`working`?`card`:`slim`",
       "t===`active`||t===`pinned`?`card`:`slim`",
-      ";const l2=(e,t,n)=>{let a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`};",
+      ";const l2=(e,t,n)=>{let r=0,a=n?ce?`folder-multiline`:`folder`:t===`active`||t===`pinned`||t===`working`?`card`:`slim`;return(0,Z.jsx)(xG,{variant:a})};",
     ],
   ];
   for (const [site, broken, copy] of sites) {
@@ -190,6 +190,9 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     ),
     // The rows and folders are not declared together by let.
     FIXTURE.replace("let t=[],Gi=Un!==null&&Un.length>0,Ki;", "let t=[],Ki;t=0,Gi=Un!==null&&Un.length>0,Ki;"),
+    // The look is not the one the row is rendered with.
+    FIXTURE.replace("{thread:e,variant:a,", "{thread:e,variant:r,"),
+    FIXTURE.replace("`slim`;return(0,Z.jsx)", "`slim`;a=`card`;return(0,Z.jsx)"),
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
@@ -426,10 +429,14 @@ test("a change of the switch reloads only after the browser watches the script",
   assert.ok(start > 0);
   const body = launcher.slice(start, launcher.indexOf("\n}\n", start));
   assert.match(body, /if \(next === boringWorkingShelf\) return;/);
-  assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("reloadWindows"), "watching starts before the reload");
-  assert.match(body, /if \(!watching\) return;/);
+  const watched = body.indexOf("await watchWorkingShelf()");
+  assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
+  assert.match(body, /if \(!watching \|\| change !== workingShelfChanges\) return;/);
   assert.match(launcher, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
-  assert.match(launcher, /if \(isRegularT3Page\(targetInfo\)\) appPageSessions\.add\(sessionId\)/);
+  // A window counts from its attach, before anything else is sent to it.
+  const attached = launcher.indexOf("sessionsByTarget.set(targetId, sessionId);");
+  const added = launcher.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPageSessions.add(sessionId);");
+  assert.ok(attached > 0 && added > attached && added < launcher.indexOf('send("Page.enable"', attached));
   assert.match(launcher, /appPageSessions\.delete\(destroyedSession\)/);
 });
 
