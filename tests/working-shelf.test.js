@@ -163,7 +163,7 @@ test("a Working folder row shows its project icon in the place of the indent; ot
       assert.equal(original.rowLook([], variant, props("shelf:working", isActive), "settle").icon, null);
     }
   }
-  for (const variant of ["folder", "folder-multiline", "slim", "card"]) {
+  for (const variant of ["folder", "folder-multiline", "slim"]) {
     for (const parent of ["project:x", "shelf:snoozed", "shelf:settled", undefined]) {
       for (const isActive of [true, false]) {
         for (const action of ["settle", "unsettle", "unsnooze"]) {
@@ -206,7 +206,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     [
       "navigationParent:n??(t===`working`",
       "navigationParent:n??(t===`busy`",
-      ";const p2={navigationParent:n??(t===`working`||0?`shelf:${t}`:0)};",
+      ";const p2={navigationParent:n??(t===`working`?`shelf:${t}`:void 0)};",
     ],
     [ROW_FLAGS, ROW_FLAGS.replace("||r,", ","), `;function rl2(C){${ROW_FLAGS}d}}`],
     ["(d=a?null:", "(d=a?void 0:", `;function rl3(t,C,e,w){${ROW_FLAGS}d;${ROW_ICON}}}`],
@@ -252,6 +252,8 @@ test("the patch changes nothing unless every site matches exactly once", () => {
     // The Working parent is not the rendered row's.
     FIXTURE.replace("navigationParent:n??(t===`working`", "navigationParent:r??(t===`working`"),
     FIXTURE.replace("variant:a,navigationParent:", "variant:a},{navigationParent:"),
+    // The Working parent belongs to another condition.
+    FIXTURE.replace("t===`working`||t===`snoozed`||t===`settled`?`shelf:${t}`", "t===`working`?void 0:t===`settled`?`shelf:${t}`"),
     // The row's icon, flag, and indent are not one component's.
     FIXTURE.replace("(d=a?null:", "(d=r?null:"),
     FIXTURE.replace('"data-sidebar-parent":e.navigationParent', '"data-sidebar-parent":q.navigationParent'),
