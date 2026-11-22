@@ -59,6 +59,11 @@ const SCRIPT_PLACED_SELECTOR = [
 // hover card, not a line of text.
 const LAYOUT_AUTO_SELECTOR = '[dir="auto"]:has(svg)';
 
+// The floating browser or device preview over the conversation, and the grip
+// that holds its buttons and moves it.
+const MINI_PLAYER_SELECTOR = "[data-preview-mini-player]";
+const MINI_PLAYER_GRIP_SELECTOR = `${MINI_PLAYER_SELECTOR} > .group`;
+
 // Rules that must win over T3 Code's own.
 const HIGH_CSS = `
 :root[data-t3-rtl-app="on"][data-t3-rtl-loading] body {
@@ -76,6 +81,29 @@ const HIGH_CSS = `
 :root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :dir(ltr) { --t3-rtl-x: 1; }
 :root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :is(${SCRIPT_PLACED_SELECTOR}) { --t3-rtl-x: 1; }
 :root[data-t3-rtl-app="on"] { --t3-rtl-x: -1; }
+
+/* T3 Code places the floating preview from the left of the conversation, on
+   the side where it keeps the conversation clear of it, which is the end of
+   the conversation. The layout moves that end to the left, so the layer that
+   holds the preview is mirrored, and the preview is turned back inside it.
+   The page in the preview follows the preview's place on the screen. The
+   layer keeps the preview in front of the conversation, as its own parts
+   were. */
+:root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) {
+  scale: -1 1;
+  z-index: 49;
+}
+:root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) > ${MINI_PLAYER_SELECTOR} {
+  scale: -1 1;
+}
+/* Its corner handles move to the other corners, so their cursors slant the
+   other way. */
+:root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) :is([data-preview-mini-player-resize="northeast"], [data-preview-mini-player-resize="southwest"]) {
+  cursor: nwse-resize;
+}
+:root[data-t3-rtl-app="on"] :has(> ${MINI_PLAYER_SELECTOR}):dir(rtl) :is([data-preview-mini-player-resize="northwest"], [data-preview-mini-player-resize="southeast"]) {
+  cursor: nesw-resize;
+}
 
 /* Every icon turns the other way, so a down chevron that T3 Code rotates to
    point right, as on a closed project, points left (see css-mirror.js). An
@@ -164,13 +192,9 @@ const LTR_ISLAND_SELECTOR = [
   // The terminal's buttons float over its top right corner, away from where
   // each line starts.
   ':has(> * > button[aria-label^="New Terminal"])',
-  // The floating preview is placed and resized by T3 Code from its physical
-  // sides, and each edge handle names its compass side, so the handles stay
-  // on those sides and move with the pointer.
-  "[data-preview-mini-player-resize]",
   // The floating preview's buttons sit in its top right corner, held by a
   // grip that T3 Code places from that corner.
-  "[data-preview-mini-player] > .group",
+  MINI_PLAYER_GRIP_SELECTOR,
   // A previewed page is placed and scaled from its top left corner inside
   // its viewport, which T3 Code also scrolls from the left, so in the
   // mirrored layout the page would leave the viewport.
@@ -221,6 +245,8 @@ function buildLayoutSource({ enabled }) {
   const returnSelector = ${JSON.stringify(RTL_RETURN_SELECTOR)};
   const textExcludeSelector = ${JSON.stringify(TEXT_EXCLUDE_SELECTOR)};
   const scriptPlacedSelector = ${JSON.stringify(SCRIPT_PLACED_SELECTOR)};
+  const miniPlayerSelector = ${JSON.stringify(MINI_PLAYER_SELECTOR)};
+  const miniPlayerGripSelector = ${JSON.stringify(MINI_PLAYER_GRIP_SELECTOR)};
   const layoutAutoSelector = ${JSON.stringify(LAYOUT_AUTO_SELECTOR)};
   const mirrorCss = ${mirrorCss.toString()};
 
@@ -272,6 +298,7 @@ function buildLayoutSource({ enabled }) {
       loadingTimer: 0,
       reported: new Set(),
       islands: [],
+      findBars: new WeakSet(),
       listeners: [],
     };
 
@@ -513,6 +540,33 @@ function buildLayoutSource({ enabled }) {
       }
     };
 
+    // T3 Code keeps the floating preview clear of the find bar in a thread by
+    // the bar's place in the conversation, as in a left-to-right layout. The
+    // preview is shown mirrored (see HIGH_CSS), so the fix presents the bar's
+    // place mirrored too, and both sit on the left.
+    const findBarSelector = "[data-thread-find-bar]";
+    const nativeRect = Element.prototype.getBoundingClientRect;
+    const fixFindBar = (scope) => {
+      const found = scope.matches(findBarSelector) ? [scope] : [];
+      found.push(...scope.querySelectorAll(findBarSelector));
+      for (const bar of found) {
+        // A later injection replaces what an earlier one defined.
+        if (state.findBars.has(bar)) continue;
+        state.findBars.add(bar);
+        Object.defineProperty(bar, "getBoundingClientRect", {
+          configurable: true,
+          value() {
+            const rect = nativeRect.call(this);
+            if (state.applied !== true) return rect;
+            const canvas = this.closest("[data-chat-canvas]");
+            if (!canvas || getComputedStyle(this).direction !== "rtl") return rect;
+            const outer = nativeRect.call(canvas);
+            return new DOMRect(outer.left + outer.right - rect.right, rect.top, rect.width, rect.height);
+          },
+        });
+      }
+    };
+
     const clearIslands = () => {
       const marks = [["data-t3-rtl-island", "ltr"], ["data-t3-rtl-return", "rtl"]];
       const marked = new Set(document.querySelectorAll("[data-t3-rtl-island], [data-t3-rtl-return]"));
@@ -681,6 +735,7 @@ function buildLayoutSource({ enabled }) {
         if (!scope.isConnected || scope.nodeType !== Node.ELEMENT_NODE) continue;
         markIslands(scope);
         fixTabScroll(scope);
+        fixFindBar(scope);
         markPlaceholders(scope);
         mirrorCards(scope);
       }
@@ -799,9 +854,19 @@ function buildLayoutSource({ enabled }) {
       }, 0);
     };
 
+    // T3 Code moves the floating preview by its grip, where its buttons do
+    // not start a drag. It moves the preview by the pointer's movement from
+    // where the preview would be, so while the preview is shown mirrored (see
+    // HIGH_CSS), the drag is mirrored too.
+    const previewGrip = (target) => {
+      if (!(target instanceof Element) || target.closest("button")) return null;
+      return target.closest(miniPlayerGripSelector);
+    };
+
     const onPointerDown = (event) => {
       if (event.button !== 0 || state.drag) return;
-      const handle = resizeHandle(event.target);
+      const grip = previewGrip(event.target);
+      const handle = grip || resizeHandle(event.target);
       if (!handle) return;
       state.drag = {
         pointerId: event.pointerId,
@@ -810,7 +875,9 @@ function buildLayoutSource({ enabled }) {
         // of the device preview, already moves the way the pointer does. One
         // placed by the mirrored stylesheets inside such an element, such as
         // those of the floating preview, moved to the other side.
-        mirror: state.applied === true && handle.matches(":dir(rtl)") && !handle.matches(scriptPlacedSelector),
+        mirror: grip
+          ? state.applied === true && getComputedStyle(grip.parentElement.parentElement).scale === "-1 1"
+          : state.applied === true && handle.matches(":dir(rtl)") && !handle.matches(scriptPlacedSelector),
       };
     };
 
@@ -848,6 +915,15 @@ function buildLayoutSource({ enabled }) {
       else root.setAttribute("dir", state.originalDir);
     };
 
+    // T3 Code places the page of a floating preview over the preview from
+    // where the preview was when T3 Code last measured it, and measures it
+    // again on a scroll. Turning the layout on or off moves the preview to
+    // the other side without changing its size.
+    const remeasurePreviews = () => {
+      if (state.disposed) return;
+      for (const preview of document.querySelectorAll(miniPlayerSelector)) preview.dispatchEvent(new Event("scroll"));
+    };
+
     const apply = () => {
       if (state.drag || state.disposed) return;
       const on = state.wanted;
@@ -860,11 +936,15 @@ function buildLayoutSource({ enabled }) {
         ensureStyles();
         void mirrorAll().finally(() => {
           if (document.readyState !== "loading") release();
+          if (state.applied) remeasurePreviews();
         });
         if (document.body) schedule(document.body);
+        // The preview moves at once, and again once every copy is in place.
+        remeasurePreviews();
       } else {
         undo();
         root.setAttribute("data-t3-rtl-app", "off");
+        remeasurePreviews();
       }
       window.dispatchEvent(new CustomEvent(eventName, { detail: { on } }));
       for (const viewport of document.querySelectorAll(tabListSelector)) viewport.dispatchEvent(new Event("scroll"));

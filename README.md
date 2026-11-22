@@ -112,9 +112,10 @@ The whole app is mirrored, as in a right-to-left language:
   moves.
 - The thread details card is on the left, under its button, whether it is
   docked beside the conversation or opens as a floating card, and the
-  conversation keeps room for it there. T3 Code still keeps the floating
-  browser preview clear of the card as if the card were on the right, so the
-  preview can cover a docked card.
+  conversation keeps room for it there.
+- The floating preview opens in the bottom left corner, and the conversation
+  keeps room for it there. Dragging the preview or one of its edges moves it
+  the way the pointer moves.
 - Right-click menus are drawn by Windows, not by the page, so they stay left
   to right. T3 Code ships only the English language pack of its browser
   engine, so a right-to-left language cannot be set for them.
