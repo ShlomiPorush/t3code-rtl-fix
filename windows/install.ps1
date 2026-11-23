@@ -10,8 +10,9 @@ param(
 # repository around it. Download the repository and run the installer it
 # contains, keeping the error and progress preferences inside a child scope so
 # they do not change the caller's session.
+# An update from Extras runs the installed copy of this script with -Source.
 $bundledSource = if ($PSScriptRoot) { Join-Path (Split-Path -Parent $PSScriptRoot) "src" } else { $null }
-if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathType Container)) {
+if ($Source -or -not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathType Container)) {
     $forwarded = @{ InstallDirectory = $InstallDirectory }
     if ($T3CodePath) { $forwarded.T3CodePath = $T3CodePath }
     if ($ShortcutSearchRoots) { $forwarded.ShortcutSearchRoots = $ShortcutSearchRoots }
@@ -22,7 +23,7 @@ if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathTyp
         $ErrorActionPreference = "Stop"
         $ProgressPreference = "SilentlyContinue"
         if (-not $Package) {
-            $Package = "https://github.com/ShlomiPorush/t3code-rtl-fix/archive/refs/heads/main.zip"
+            $Package = "https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/t3code-rtl-fix.zip"
         }
 
         $workDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("t3-rtl-install-" + [guid]::NewGuid().ToString("N"))
@@ -33,7 +34,7 @@ if (-not $bundledSource -or -not (Test-Path -LiteralPath $bundledSource -PathTyp
                 [Net.ServicePointManager]::SecurityProtocol =
                     [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
                 Write-Output "Downloading T3 Code RTL Fix..."
-                Invoke-WebRequest -Uri $Package -OutFile $archive -UseBasicParsing
+                Invoke-WebRequest -Uri $Package -OutFile $archive -UseBasicParsing -TimeoutSec 120
             } elseif (Test-Path -LiteralPath $Package -PathType Leaf) {
                 Copy-Item -LiteralPath $Package -Destination $archive
             } else {
@@ -128,14 +129,19 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "chat-width.js"),
     (Join-Path $sourceDirectory "reply-start.js"),
     (Join-Path $sourceDirectory "working-shelf.js"),
+    (Join-Path $sourceDirectory "updates.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
-    (Join-Path $PSScriptRoot "uninstall.ps1")
+    (Join-Path $PSScriptRoot "uninstall.ps1"),
+    (Join-Path $PSScriptRoot "install.ps1")
 )
 foreach ($requiredFile in $requiredFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile)) {
         throw "Required file is missing: $requiredFile"
     }
 }
+
+$packagePath = Join-Path (Split-Path -Parent $PSScriptRoot) "package.json"
+$version = (Get-Content -Raw -LiteralPath $packagePath | ConvertFrom-Json).version
 
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 foreach ($requiredFile in $requiredFiles) {
@@ -256,8 +262,9 @@ $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object {
     [System.Text.Encoding]::Unicode
 )
 
-# Last, so a running launcher never loads a half-finished install.
-[System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), [guid]::NewGuid().ToString("N"))
+# Last, so a running launcher never loads a half-finished install, and Extras
+# never takes one for the new version.
+[System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), "$version $([guid]::NewGuid().ToString("N"))")
 
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"

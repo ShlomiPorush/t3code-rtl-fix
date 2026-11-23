@@ -164,19 +164,20 @@ try {
     Write-Output "Windows PowerShell 5.1 installation, shortcut repair after an update, and removal passed."
 
     # The one-line install runs the script text with no directory of its own,
-    # so it has to fetch the package. Use a local ZIP laid out like GitHub's
-    # branch archive instead of the network.
+    # so it has to fetch the package. Use a local ZIP laid out like a release
+    # package instead of the network.
     foreach ($shortcutPath in $shortcutPaths) {
         $shortcut = $shell.CreateShortcut($shortcutPath)
         Assert-Equal $shortcut.TargetPath $fakeAppPath "The shortcut was not restored before the bootstrap test"
     }
-    $packageRoot = Join-Path $testRoot "package\t3code-rtl-fix-main"
+    $packageRoot = Join-Path $testRoot "package\t3code-rtl-fix"
     foreach ($folder in @("src", "windows", "macos")) {
         New-Item -ItemType Directory -Path (Join-Path $packageRoot $folder) -Force | Out-Null
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot $folder) -File |
             Copy-Item -Destination (Join-Path $packageRoot $folder)
     }
-    $packagePath = Join-Path $testRoot "t3code-rtl-fix-main.zip"
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "package.json") -Destination $packageRoot
+    $packagePath = Join-Path $testRoot "t3code-rtl-fix.zip"
     Compress-Archive -LiteralPath $packageRoot -DestinationPath $packagePath
 
     $bootstrapInstallDirectory = Join-Path $testRoot "bootstrap-install"
@@ -193,7 +194,7 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "version.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "updates.js", "version.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "install.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {
@@ -203,6 +204,40 @@ try {
     $leftovers = @(Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Filter "t3-rtl-install-*" -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) })
     Assert-Equal $leftovers.Count 0 "The one-line install left its download directory behind"
+
+    # An update from Extras runs the installed copy of the installer on a
+    # package, even when the folder above it looks like a repository.
+    $bootstrapVersionPath = Join-Path $bootstrapInstallDirectory "version.txt"
+    $installedVersion = ([System.IO.File]::ReadAllText($bootstrapVersionPath) -split " ")[0]
+    $packageVersion = (Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "package.json") | ConvertFrom-Json).version
+    Assert-Equal $installedVersion $packageVersion "The installer did not record its version"
+
+    $packageJsonPath = Join-Path $packageRoot "package.json"
+    [System.IO.File]::WriteAllText($packageJsonPath, (Get-Content -Raw -LiteralPath $packageJsonPath).Replace($packageVersion, "99.0.0"))
+    $updatePath = Join-Path $testRoot "update.zip"
+    Compress-Archive -LiteralPath $packageRoot -DestinationPath $updatePath
+    $decoySource = Join-Path $testRoot "src"
+    New-Item -ItemType Directory -Path $decoySource | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $decoySource "injection.js"), "")
+    $runUpdate = {
+        $ErrorActionPreference = "Continue"
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $bootstrapInstallDirectory "install.ps1") `
+            -Source $updatePath -InstallDirectory $bootstrapInstallDirectory -T3CodePath $fakeAppPath -ShortcutSearchRoots $desktopRoot 2>&1 | Out-Null
+        $LASTEXITCODE
+    }
+
+    # An install that fails after copying the files keeps the earlier version,
+    # so the update is still offered, and a retry works.
+    $bootstrapManifestPath = Join-Path $bootstrapInstallDirectory "shortcuts.json"
+    $manifestBytes = [System.IO.File]::ReadAllBytes($bootstrapManifestPath)
+    [System.IO.File]::WriteAllText($bootstrapManifestPath, "{ broken")
+    $versionBefore = [System.IO.File]::ReadAllText($bootstrapVersionPath)
+    Assert-Equal ((& $runUpdate) -ne 0) $true "An update with a broken shortcut list reported success"
+    Assert-Equal ([System.IO.File]::ReadAllText($bootstrapVersionPath)) $versionBefore "A failed update changed version.txt"
+    [System.IO.File]::WriteAllBytes($bootstrapManifestPath, $manifestBytes)
+    Assert-Equal (& $runUpdate) 0 "The update failed"
+    Assert-Equal ([System.IO.File]::ReadAllText($bootstrapVersionPath) -like "99.0.0 *") $true "The update did not record its version"
+    Remove-Item -LiteralPath $decoySource -Recurse -Force
 
     & (Join-Path $bootstrapInstallDirectory "uninstall.ps1") -InstallDirectory $bootstrapInstallDirectory
     foreach ($shortcutPath in $shortcutPaths) {

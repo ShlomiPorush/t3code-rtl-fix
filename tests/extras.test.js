@@ -652,6 +652,32 @@ test("a settings change answers without waiting for other windows", async () => 
   assert.ok(pushes.some((entry) => entry.sessionId === "b" && entry.params.expression.includes("\"kind\":\"settings\"")));
 });
 
+test("the page can only ask to show, check, or install the update, and every window gets its state", async () => {
+  const cdp = fakeCdp();
+  const calls = [];
+  let changed;
+  const updates = {
+    get: () => ({ status: "idle" }),
+    shown: async (...args) => calls.push(["shown", ...args]),
+    check: async (...args) => calls.push(["check", ...args]),
+    install: async (...args) => calls.push(["install", ...args]),
+    onChange: (listener) => {
+      changed = listener;
+    },
+  };
+  const service = createExtrasService({ send: cdp.send, store: fakeStore(), reader, updates });
+  await service.attach("a");
+  await service.attach("b");
+  await service.handle("a", 10, JSON.stringify({ type: "updateShown" }));
+  await service.handle("a", 10, JSON.stringify({ type: "checkUpdate", url: "https://example.com" }));
+  await service.handle("a", 10, JSON.stringify({ type: "installUpdate", version: "9.9.9" }));
+  await service.handle("a", 999, JSON.stringify({ type: "installUpdate" }));
+  assert.deepEqual(calls, [["shown"], ["check"], ["install"]]);
+  changed({ status: "available", latest: "1.9.0" });
+  const pushes = cdp.sent.filter((entry) => entry.params?.expression?.includes('"kind":"update"'));
+  assert.deepEqual(pushes.map((entry) => entry.sessionId), ["a", "b"]);
+});
+
 test("each start gets its own receiver name", async () => {
   const cdp = fakeCdp();
   const service = createExtrasService({ send: cdp.send, store: fakeStore(), reader });

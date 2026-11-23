@@ -1,7 +1,8 @@
 "use strict";
 
-// Extras in T3 Code's page: the usage chips in the sidebar footer and the
-// Extras section on the Labs settings page.
+// Extras in T3 Code's page: the usage chips in the sidebar footer, with the
+// version of the fix in their list, and the Extras section on the Labs
+// settings page.
 //
 // The page script runs in an isolated world that the launcher creates in the
 // main frame. The binding is exposed by that world's name, so T3 Code's main
@@ -22,6 +23,7 @@ function createExtrasService({
   store,
   reader,
   repoStatusAvailable = () => false,
+  updates = null,
   protocol = "t3code:",
 } = {}) {
   const sessions = new Map();
@@ -120,6 +122,7 @@ function createExtrasService({
         accounts: accountsFor(usage.accounts, settings),
         problem: usage.problem,
         repoStatusAvailable: repoStatusAvailable(),
+        update: updates?.get() ?? null,
       };
     });
   }
@@ -164,6 +167,12 @@ function createExtrasService({
     }
   }
 
+  updates?.onChange((update) => {
+    for (const [sessionId, session] of sessions) {
+      void push(sessionId, session.start, () => ({ kind: "update", update }));
+    }
+  });
+
   async function handle(sessionId, executionContextId, payload) {
     const session = sessions.get(sessionId);
     if (!session || session.contextId === null || executionContextId !== session.contextId) return;
@@ -180,7 +189,10 @@ function createExtrasService({
       await sendState(sessionId, current);
       return;
     }
-    if (message.type === "set" || message.type === "hideAccount") {
+    if (message.type === "updateShown") await updates?.shown();
+    else if (message.type === "checkUpdate") await updates?.check();
+    else if (message.type === "installUpdate") await updates?.install();
+    else if (message.type === "set" || message.type === "hideAccount") {
       const result = await store.change(message);
       // The answer depends only on the disk. Other windows get the new
       // settings without this one waiting on them.
