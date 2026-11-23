@@ -346,10 +346,10 @@ running, and text you are typing in the composer stays. A browser preview
 that is open in a window loads its page again, so text typed into the
 previewed page is lost.
 
-An open T3 Code keeps the launcher it was opened with. When an update also
-changes the launcher itself, which is rare, or when T3 Code was opened before
-this version was installed, the windows do not reload. Quit T3 Code fully once
-and open it again.
+An open T3 Code keeps the launcher it was opened with. When it was opened
+before this version was installed, the windows do not reload. Quit T3 Code
+fully once and open it again. A change to the launcher itself, which is rare,
+takes effect the next time T3 Code opens.
 
 When the new version cannot load, the open T3 Code keeps the version it runs.
 When it loads but cannot start, T3 Code's windows reload without the fix.
@@ -577,9 +577,10 @@ tests/     Unit, browser smoke, and Windows installer tests
   code is written. A T3 Code update can turn it off until the fix is updated.
 - In the right-to-left layout, a new window can show T3 Code's own layout for
   a moment when T3 Code first opens, before the fix reaches it.
-- The first installation, and an update that changes the launcher itself,
-  cannot reach an instance that is already open. Fully quit and reopen the app
-  once.
+- The first installation, and the first update to a version with updates
+  without a restart, cannot reach an instance that is already open. Fully
+  quit and reopen the app once. A change to the launcher itself takes effect
+  the next time T3 Code opens.
 
 ## Test
 

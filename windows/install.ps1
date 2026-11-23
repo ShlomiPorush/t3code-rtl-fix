@@ -262,6 +262,6 @@ $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object {
 
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"
-Write-Output "If T3 Code is open, its windows reload with the update within a few seconds, and running sessions keep running."
-Write-Output "If they do not reload, fully quit T3 Code, then open it from an updated shortcut."
+Write-Output "A T3 Code opened through this version of the fix or a later one reloads its windows with the update within a few seconds, and running sessions keep running."
+Write-Output "If the windows do not reload, fully quit T3 Code, then open it from an updated shortcut."
 Write-Output "Your own CSS goes in $(Join-Path $InstallDirectory 'custom.css'). Updates replace rtl.css but never change custom.css."

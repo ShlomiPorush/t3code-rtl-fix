@@ -53,7 +53,7 @@ try {
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "injection.js")) $true "The browser injection helper was not installed"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "launcher-core.js")) $true "The fix core was not installed"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "custom.css")) $false "The installer wrote custom.css"
-    Assert-Equal ($firstOutput -like "*reload with the update*") $true "The installer did not say how an open T3 Code takes the update"
+    Assert-Equal ($firstOutput -like "*reloads its windows with the update*") $true "The installer did not say how an open T3 Code takes the update"
 
     # A running launcher loads the new fix when version.txt changes.
     $versionPath = Join-Path $installDirectory "version.txt"
