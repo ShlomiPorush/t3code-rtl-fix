@@ -5,7 +5,8 @@
 set -eu
 
 REPOSITORY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT="$(mktemp -d "${TMPDIR:-/tmp}/t3-rtl-macos-test.XXXXXX")"
+# TMPDIR ends with a slash on macOS, and cd drops the double one.
+ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/t3-rtl-macos-test.XXXXXX")" && pwd)"
 trap 'rm -rf "$ROOT"' EXIT
 fail() { echo "FAILED: $1"; exit 1; }
 
