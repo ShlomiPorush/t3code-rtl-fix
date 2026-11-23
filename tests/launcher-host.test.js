@@ -5,8 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { HOST_API, createHost, createRunningRecord } = require("../src/t3-rtl-launcher");
-const { REQUIRES_HOST_API, prepareCore } = require("../src/launcher-core");
+const { createHost, loadCore } = require("../src/t3-rtl-launcher");
+const { prepareCore } = require("../src/launcher-core");
 
 const TARGETS = [
   { targetId: "w1", type: "page", url: "t3code://app/" },
@@ -21,317 +21,122 @@ function gate() {
   return { opened, open };
 }
 
-// A core that records what the host asks of it.
-function fakeCore(id, events, spec) {
-  const sessions = new Set(spec.sessions || []);
-  return {
-    async start() {
-      events.push(`${id}.start`);
-      if (spec.startGate) await spec.startGate.opened;
-      if (spec.startFails) throw new Error("start failed");
-      if (spec.startHangs) await new Promise(() => {});
-    },
-    async stop() {
-      events.push(`${id}.stop`);
-      if (spec.stopGate) await spec.stopGate.opened;
-      sessions.clear();
-    },
-    async settled() {},
-    // Like the real core: only its own sessions' events.
-    handle(message) {
-      if (message.sessionId && !sessions.has(message.sessionId)) return false;
-      events.push(`${id} got ${message.method}${message.sessionId ? ` ${message.sessionId}` : ""}`);
-      return spec.handles ? spec.handles(message) : true;
-    },
-    ownsSession: (sessionId) => sessions.has(sessionId),
-  };
-}
-
-function setup({ versions = {}, current = "b", lastGood = "a", cdp = {} } = {}) {
+// A launcher with a fake core for each version.txt value, and a fake
+// connection.
+function setup(versions = {}) {
   const calls = [];
   const logs = [];
   const events = [];
-  const pointer = { current, "last-good": lastGood };
+  const installed = { version: "a" };
   const send = async (method, params, sessionId) => {
     calls.push({ method, params, sessionId });
-    if (method === "Target.getTargets") {
-      if (cdp.listFails?.()) throw new Error("Target.getTargets: failed");
-      return { targetInfos: TARGETS };
-    }
-    if (method === "Page.reload" && cdp.reloadFails?.(sessionId)) throw new Error("Page.reload: failed");
-    if (method === "Target.attachToTarget") {
-      if (cdp.attachHangs?.(params.targetId)) return new Promise(() => {});
-      if (cdp.attachGone?.(params.targetId)) throw new Error("Target.attachToTarget: No target with given id found");
-      return { sessionId: `tmp-${params.targetId}` };
-    }
+    if (method === "Target.getTargets") return { targetInfos: TARGETS };
+    if (method === "Target.attachToTarget") return { sessionId: `tmp-${params.targetId}` };
     return {};
   };
-  const loadCore = (id) => {
+  const loadCore = () => {
+    const id = installed.version;
     const spec = versions[id] || {};
+    events.push(`${id}.load`);
     if (spec.loadFails) throw new Error("cannot find module");
     return {
-      requiresHostApi: spec.api ?? HOST_API,
-      prepare: () => {
-        if (spec.prepareFails) throw new Error("prepare failed");
-        events.push(`${id}.prepare`);
-        return fakeCore(id, events, spec);
+      async start() {
+        events.push(`${id}.start`);
+        if (spec.startFails) throw new Error("start failed");
+      },
+      async stop() {
+        events.push(`${id}.stop`);
+      },
+      handle(message) {
+        events.push(`${id} got ${message.method}`);
+        return !spec.declines;
       },
     };
   };
-  const host = createHost({
-    send,
-    log: (message) => logs.push(message),
-    loadCore,
-    readVersion: (name) => pointer[name] ?? null,
-    writeLastGood: (id) => (pointer["last-good"] = id),
-    stepTimeout: 100,
-  });
-  const reloads = () => calls.filter((call) => call.method === "Page.reload" && !cdp.reloadFails?.(call.sessionId));
-  return { host, calls, logs, events, pointer, reloads };
+  const host = createHost({ send, log: (message) => logs.push(message), loadCore, readVersion: () => installed.version });
+  const reloads = () => calls.filter((call) => call.method === "Page.reload").map((call) => call.sessionId);
+  return { host, calls, logs, events, installed, reloads };
 }
 
-test("the host offers the API the core needs", () => {
-  assert.equal(REQUIRES_HOST_API, HOST_API);
+test("at launch the installed core starts and no window reloads", async () => {
+  const { host, events, reloads } = setup();
+  await host.launch(host.load());
+  assert.deepEqual(events, ["a.load", "a.start"]);
+  assert.deepEqual(reloads(), []);
+  await host.checkForUpdate();
+  assert.deepEqual(events, ["a.load", "a.start"], "nothing to do while version.txt stays");
 });
 
-test("at launch the installed version starts, is recorded, and nothing reloads", async () => {
-  const { host, events, pointer, reloads } = setup();
-  assert.equal(await host.launch(), true);
-  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start"]);
-  assert.equal(host.runningId, "b");
-  assert.equal(pointer["last-good"], "b");
-  assert.equal(reloads().length, 0);
-});
-
-test("at launch a version that cannot load or needs another host gives way to the last one that started", async () => {
-  for (const spec of [{ loadFails: true }, { prepareFails: true }, { api: HOST_API + 1 }]) {
-    const { host, events, logs, reloads } = setup({ versions: { b: spec } });
-    assert.equal(await host.launch(), true);
-    assert.equal(host.runningId, "a");
-    assert.ok(!events.includes("b.start"));
-    assert.equal(reloads().length, 0, "a version that never started touched no window");
-    assert.match(logs.join("\n"), /Version b of the fix could not be loaded/);
+test("a paused script that no core takes passes unchanged", async () => {
+  for (const versions of [{ a: { loadFails: true } }, { a: { declines: true } }]) {
+    const { host, calls } = setup(versions);
+    await host.launch(host.load());
+    host.route({ method: "Fetch.requestPaused", params: { requestId: "r1" } });
+    assert.deepEqual(calls.at(-1), { method: "Fetch.continueRequest", params: { requestId: "r1" }, sessionId: undefined });
   }
 });
 
-test("at launch a version that fails to start is stopped, and the windows reload under the one that starts", async () => {
-  const { host, events, reloads, calls } = setup({ versions: { b: { startFails: true } } });
-  assert.equal(await host.launch(), true);
-  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start", "b.stop", "a.start"]);
-  assert.equal(host.runningId, "a");
-  // Every T3 Code window, regular and development, and nothing else.
-  assert.deepEqual(reloads().map((call) => call.sessionId), ["tmp-w1", "tmp-w2"]);
-  assert.deepEqual(reloads()[0].params, { ignoreCache: true });
-  const detached = calls.filter((call) => call.method === "Target.detachFromTarget").map((call) => call.params.sessionId);
-  assert.deepEqual(detached, ["tmp-w1", "tmp-w2"]);
+test("a new install replaces the running core and reloads only T3 Code's windows", async () => {
+  const { host, events, installed, reloads, logs } = setup();
+  await host.launch(host.load());
+  installed.version = "b";
+  await host.checkForUpdate();
+  assert.deepEqual(events, ["a.load", "a.start", "b.load", "a.stop", "b.start"]);
+  assert.deepEqual(reloads(), ["tmp-w1", "tmp-w2"]);
+  assert.match(logs.at(-1), /updated without a restart, 2 windows reloaded/);
+  host.route({ method: "Page.frameNavigated", sessionId: "s1" });
+  assert.equal(events.at(-1), "b got Page.frameNavigated");
 });
 
-test("with no version that starts, T3 Code runs without the fix and its script passes unchanged", async () => {
-  const { host, logs, calls } = setup({ versions: { a: { startFails: true }, b: { startFails: true } } });
-  assert.equal(await host.launch(), false);
-  assert.equal(host.runningId, null);
-  assert.match(logs.join("\n"), /The RTL fix is off/);
-  host.route({ method: "Fetch.requestPaused", params: { requestId: "r1" } });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls.at(-1), { method: "Fetch.continueRequest", params: { requestId: "r1" }, sessionId: undefined });
+test("a new install that cannot load leaves the running core alone and is not tried again", async () => {
+  const { host, events, installed, reloads } = setup({ b: { loadFails: true } });
+  await host.launch(host.load());
+  installed.version = "b";
+  await host.checkForUpdate();
+  await host.checkForUpdate();
+  assert.deepEqual(events, ["a.load", "a.start", "b.load"]);
+  assert.deepEqual(reloads(), []);
+  host.route({ method: "Page.frameNavigated", sessionId: "s1" });
+  assert.equal(events.at(-1), "a got Page.frameNavigated");
+  installed.version = "c";
+  await host.checkForUpdate();
+  assert.deepEqual(events.slice(-3), ["c.load", "a.stop", "c.start"], "the next install is tried");
 });
 
-test("a paused script that the running core does not take passes unchanged", async () => {
-  const { host, calls } = setup({ versions: { b: { handles: () => false } } });
-  await host.launch();
+test("a new install that cannot start leaves T3 Code without the fix, and the windows reload", async () => {
+  const { host, events, installed, reloads, logs, calls } = setup({ b: { startFails: true } });
+  await host.launch(host.load());
+  installed.version = "b";
+  await host.checkForUpdate();
+  assert.deepEqual(events, ["a.load", "a.start", "b.load", "a.stop", "b.start", "b.stop"]);
+  assert.deepEqual(reloads(), ["tmp-w1", "tmp-w2"]);
+  assert.match(logs.at(-1), /The RTL fix is off/);
   host.route({ method: "Fetch.requestPaused", params: { requestId: "r2" } });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls.at(-1).method, "Fetch.continueRequest");
+  assert.equal(calls.at(-1).method, "Fetch.continueRequest");
 });
 
-test("a new version replaces the running one, the windows reload, and it is recorded", async () => {
-  const { host, events, pointer, reloads, logs } = setup({ versions: { b: { sessions: ["s-old"] } } });
-  await host.launch();
-  pointer.current = "c";
+test("an install during an update is applied after it", async () => {
+  const { host, events, installed } = setup();
+  await host.launch(host.load());
+  installed.version = "b";
+  const first = host.checkForUpdate();
+  installed.version = "c";
   await host.checkForUpdate();
-  assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start"]);
-  assert.equal(host.runningId, "c");
-  assert.equal(pointer["last-good"], "c");
-  assert.equal(reloads().length, 2);
-  assert.match(logs.at(-1), /Fix updated to version c without a restart, 2 windows reloaded/);
-  // Nothing more to do while current.txt stays.
+  await first;
   await host.checkForUpdate();
-  assert.equal(events.filter((event) => event === "c.prepare").length, 1);
+  assert.deepEqual(events.slice(2), ["b.load", "a.stop", "b.start", "c.load", "b.stop", "c.start"]);
 });
 
-test("a new version that cannot load leaves the running one alone and is not tried again", async () => {
-  for (const spec of [{ loadFails: true }, { prepareFails: true }, { api: HOST_API + 1 }]) {
-    const { host, events, pointer, reloads, logs } = setup({ versions: { c: spec } });
-    await host.launch();
-    pointer.current = "c";
-    await host.checkForUpdate();
-    await host.checkForUpdate();
-    assert.equal(host.runningId, "b");
-    assert.ok(!events.includes("b.stop"));
-    assert.equal(reloads().length, 0);
-    assert.equal(logs.filter((line) => /was not applied/.test(line)).length, 1);
-    if (spec.api) assert.match(logs.join("\n"), /Quit T3 Code fully and open it again/);
-  }
-});
-
-test("a new version that fails to start gives way to the running one, and the windows reload", async () => {
-  for (const spec of [{ startFails: true }, { startHangs: true }]) {
-    const { host, events, pointer, reloads, logs } = setup({ versions: { c: spec } });
-    await host.launch();
-    pointer.current = "c";
-    await host.checkForUpdate();
-    assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start", "c.stop", "b.start"]);
-    assert.equal(host.runningId, "b");
-    assert.equal(pointer["last-good"], "b");
-    assert.equal(reloads().length, 2);
-    assert.match(logs.join("\n"), /The previous version is back/);
-    await host.checkForUpdate();
-    assert.equal(events.filter((event) => event === "c.prepare").length, 1, "a failed version is not tried again");
-  }
-});
-
-test("a new version whose windows do not reload gives way to the running one and is not recorded", async () => {
-  const state = { failing: false };
-  const failures = [
-    // T3 Code's windows cannot be listed.
-    { listFails: () => state.failing },
-    // A window that stays open does not reload.
-    { reloadFails: (sessionId) => state.failing && sessionId === "tmp-w2" },
-    // A window that stays open does not answer.
-    { attachHangs: (targetId) => state.failing && targetId === "w2" },
-  ];
-  for (const cdp of failures) {
-    state.failing = false;
-    const { host, events, pointer, logs } = setup({ cdp });
-    await host.launch();
-    pointer.current = "c";
-    state.failing = true;
-    await host.checkForUpdate();
-    assert.deepEqual(events.slice(3, 8), ["c.prepare", "b.stop", "c.start", "c.stop", "b.start"]);
-    assert.equal(host.runningId, "b");
-    assert.equal(pointer["last-good"], "b");
-    assert.match(logs.join("\n"), /The update to version c failed/);
-    assert.match(logs.join("\n"), /The previous version is back/);
-  }
-});
-
-test("a window that closed during the update does not fail it", async () => {
-  const { host, pointer, logs } = setup({ cdp: { attachGone: (targetId) => targetId === "w2" } });
-  await host.launch();
-  pointer.current = "c";
-  await host.checkForUpdate();
-  assert.equal(host.runningId, "c");
-  assert.equal(pointer["last-good"], "c");
-  assert.match(logs.at(-1), /Fix updated to version c without a restart, 1 windows reloaded/);
-});
-
-test("the versions are prepared before T3 Code starts, and only once", async () => {
-  const { host, events } = setup();
-  host.prepareLaunch();
-  assert.deepEqual(events, ["b.prepare", "a.prepare"]);
-  await host.launch();
-  assert.deepEqual(events, ["b.prepare", "a.prepare", "b.start"]);
-});
-
-test("during a switch, messages reach exactly one owner", async () => {
-  const startGate = gate();
-  const { host, events, pointer, calls } = setup({ versions: { b: { sessions: ["s-old"] }, c: { startGate, sessions: ["s-new"] } } });
-  await host.launch();
-  pointer.current = "c";
-  const switching = host.checkForUpdate();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(events.slice(3), ["c.prepare", "b.stop", "c.start"]);
-
-  // While the new core starts: a paused script goes to it, its own session's
-  // events go to it, a window event waits for it, and the old core's events
-  // are dropped.
-  host.route({ method: "Fetch.requestPaused", params: { requestId: "r3" } });
-  host.route({ method: "Page.frameNavigated", sessionId: "s-new" });
-  host.route({ method: "Target.targetCreated", params: { targetInfo: TARGETS[0] } });
-  host.route({ method: "Page.frameNavigated", sessionId: "s-old" });
-  assert.deepEqual(events.slice(6), ["c got Fetch.requestPaused", "c got Page.frameNavigated s-new"]);
-
-  startGate.open();
-  await switching;
-  assert.deepEqual(events.slice(8), ["c got Target.targetCreated"]);
-  assert.ok(!events.some((event) => event.startsWith("b got")));
-  assert.ok(!calls.some((call) => call.method === "Fetch.continueRequest"));
-});
-
-test("a paused script that arrives before the new core starts passes unchanged", async () => {
-  const stopGate = gate();
-  const { host, pointer, calls, events } = setup({ versions: { b: { stopGate } } });
-  await host.launch();
-  pointer.current = "c";
-  const switching = host.checkForUpdate();
-  await new Promise((resolve) => setImmediate(resolve));
-  // The old core is still stopping, so no core takes the request.
-  host.route({ method: "Fetch.requestPaused", params: { requestId: "early" } });
-  await new Promise((resolve) => setImmediate(resolve));
-  const continued = calls.filter((call) => call.method === "Fetch.continueRequest").map((call) => call.params.requestId);
-  assert.deepEqual(continued, ["early"]);
-  stopGate.open();
-  await switching;
-  assert.ok(!events.some((event) => event.includes("got Fetch.requestPaused")));
-});
-
-test("a version installed during a switch is applied after it", async () => {
-  const startGate = gate();
-  const { host, events, pointer } = setup({ versions: { c: { startGate } } });
-  await host.launch();
-  pointer.current = "c";
-  const switching = host.checkForUpdate();
-  await new Promise((resolve) => setImmediate(resolve));
-  pointer.current = "d";
-  // A check while a switch runs does nothing.
-  await host.checkForUpdate();
-  startGate.open();
-  await switching;
-  assert.equal(host.runningId, "d");
-  assert.deepEqual(events.filter((event) => event.endsWith(".prepare")), ["b.prepare", "a.prepare", "c.prepare", "d.prepare"]);
-});
-
-test("the running record names this host and is removed only by it", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-host-"));
+test("loading the core again reads the files an install replaced", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-load-"));
   try {
-    const filePath = path.join(directory, "running-host.json");
-    const logs = [];
-    const record = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
-    record.write();
-    const written = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    assert.equal(written.hostApi, HOST_API);
-    assert.equal(written.pid, process.pid);
-    assert.equal(written.hash, require("node:crypto").createHash("sha256").update("host source").digest("hex"));
-    assert.ok(Math.abs(written.startedAt - (Date.now() - process.uptime() * 1000)) < 2000);
-    record.remove();
-    assert.equal(fs.existsSync(filePath), false);
-
-    // A record another host wrote since stays.
-    record.write();
-    fs.writeFileSync(filePath, JSON.stringify({ ...written, token: "another host" }));
-    record.remove();
-    assert.equal(fs.existsSync(filePath), true);
-    assert.deepEqual(logs, []);
-
-    // A second launcher from the same folder, opened while T3 Code was open,
-    // replaces the record and removes it when it ends. The first puts its own
-    // back at its next check; a host that took its record down does not.
-    const first = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
-    const second = createRunningRecord({ filePath, source: Buffer.from("host source"), log: (m) => logs.push(m) });
-    first.write();
-    const firstToken = JSON.parse(fs.readFileSync(filePath, "utf8")).token;
-    second.write();
-    second.remove();
-    assert.equal(fs.existsSync(filePath), false);
-    first.ensure();
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, firstToken);
-    first.ensure();
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).token, firstToken);
-    first.remove();
-    first.ensure();
-    assert.equal(fs.existsSync(filePath), false);
-    second.ensure();
-    assert.equal(fs.existsSync(filePath), false, "a host that never wrote, or took its record down, does not write");
+    fs.writeFileSync(path.join(directory, "launcher-core.js"), 'exports.prepareCore = (options) => ({ value: require("./part").value, options });');
+    fs.writeFileSync(path.join(directory, "part.js"), "exports.value = 1;");
+    const first = loadCore(directory, { rootDirectory: directory });
+    assert.equal(first.value, 1);
+    assert.equal(first.options.rootDirectory, directory);
+    fs.writeFileSync(path.join(directory, "part.js"), "exports.value = 2;");
+    assert.equal(loadCore(directory, {}).value, 2);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -356,7 +161,7 @@ function coreConnection({ attachGate } = {}) {
 
 function realCore(send) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-core-"));
-  const core = prepareCore({ send, log: () => {}, rootDirectory: root, versionDirectory: path.join(__dirname, "..", "src") });
+  const core = prepareCore({ send, log: () => {}, rootDirectory: root });
   return { core, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -366,7 +171,6 @@ test("the core adds the fix to every window, takes only its own sessions, and de
   try {
     assert.equal(core.handle({ method: "Target.targetCreated", params: { targetInfo: TARGETS[0] } }), false, "nothing before start");
     await core.start();
-    await core.settled();
     assert.equal(core.ownsSession("s1"), true);
     assert.ok(calls.some((call) => call.method === "Page.addScriptToEvaluateOnNewDocument" && call.sessionId === "s1"));
     assert.ok(calls.some((call) => call.method === "Target.setDiscoverTargets"));
@@ -400,25 +204,23 @@ test("a stopped core gives up an attach that answers late and starts no reload",
   }
 });
 
-test("the core reads the shipped stylesheet of its version and the user's custom.css", async () => {
+test("the core reads the shipped stylesheet and the user's custom.css", async () => {
   const { send, calls } = coreConnection();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-core-"));
   try {
     fs.writeFileSync(path.join(root, "custom.css"), ".my-own-rule { color: teal; }");
-    const core = prepareCore({ send, log: () => {}, rootDirectory: root, versionDirectory: path.join(__dirname, "..", "src") });
+    const core = prepareCore({ send, log: () => {}, rootDirectory: root });
     await core.start();
-    await core.settled();
     const injected = calls.filter((call) => call.method === "Page.addScriptToEvaluateOnNewDocument").map((call) => call.params.source).join("\n");
     assert.match(injected, /my-own-rule/);
     assert.match(injected, /data-t3-rtl-plan-card/);
     await core.stop();
-    assert.throws(() => prepareCore({ send, log: () => {}, rootDirectory: root, versionDirectory: root }), /rtl\.css/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("a window whose injection fails is detached, so nothing of this version stays in it", async () => {
+test("a window whose injection fails is detached, so nothing of the fix stays registered in it", async () => {
   const calls = [];
   const send = async (method, params, sessionId) => {
     calls.push({ method, params, sessionId });
@@ -432,7 +234,6 @@ test("a window whose injection fails is detached, so nothing of this version sta
   const { core, cleanup } = realCore(send);
   try {
     await core.start();
-    await core.settled();
     assert.equal(core.ownsSession("s1"), false);
     assert.ok(calls.some((call) => call.method === "Target.detachFromTarget" && call.params.sessionId === "s1"));
   } finally {

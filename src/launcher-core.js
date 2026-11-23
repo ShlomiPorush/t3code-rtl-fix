@@ -1,9 +1,9 @@
 "use strict";
 
 // Everything the fix does in T3 Code's windows, as one unit that the launcher
-// host (t3-rtl-launcher.js) prepares, starts, and stops. The installers put
-// each version of it in its own folder, so the host can replace a running
-// version with a new one without quitting T3 Code.
+// (t3-rtl-launcher.js) prepares, starts, and stops. When an install replaces
+// these files, the launcher stops this core and starts the new one without
+// quitting T3 Code.
 //
 // prepareCore sends nothing over the debugging pipe. It throws when the fix
 // itself cannot be built; an extra that fails to load is only logged and left
@@ -18,10 +18,6 @@ const {
   applyAnnotationDirection,
   watchAnnotations,
 } = require("./annotation-direction");
-
-// The launcher host this core works with. The host refuses a core that needs
-// another one.
-const REQUIRES_HOST_API = 1;
 
 // Extras read the regular build's data folder, so the development build's
 // page, whose provider list lives elsewhere, does not get them.
@@ -39,10 +35,10 @@ function isT3Preview(targetInfo) {
   return targetInfo?.type === "webview";
 }
 
-// The shipped stylesheet of this version, then the user's own custom.css
-// from the install folder, which no installer writes.
-function readStylesheet(versionDirectory, rootDirectory, log) {
-  const css = fs.readFileSync(path.join(versionDirectory, "rtl.css"), "utf8");
+// The shipped stylesheet, then the user's own custom.css from the install
+// folder, which no installer writes.
+function readStylesheet(rootDirectory, log) {
+  const css = fs.readFileSync(path.join(__dirname, "rtl.css"), "utf8");
   const customPath = path.join(rootDirectory, "custom.css");
   try {
     return `${css}\n${fs.readFileSync(customPath, "utf8")}`;
@@ -52,16 +48,11 @@ function readStylesheet(versionDirectory, rootDirectory, log) {
   }
 }
 
-function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
-  const injectionSource = buildInjectionSource(readStylesheet(versionDirectory, rootDirectory, log));
+function prepareCore({ send, log, rootDirectory }) {
+  const injectionSource = buildInjectionSource(readStylesheet(rootDirectory, log));
 
-  // A core that is being replaced starts no reload and no interception of
-  // T3 Code's script, even from work that began before it stopped.
+  // Until start, and from stop on, the core takes no message.
   let stopped = true;
-  const send = (method, params, sessionId) =>
-    stopped && (method === "Page.reload" || method === "Fetch.enable")
-      ? Promise.reject(new Error("this version of the fix is stopped"))
-      : hostSend(method, params, sessionId);
 
   // Optional settings.json in the install folder, such as { "repoStatus": false },
   // which the Extras section on T3 Code's Labs page also changes. The
@@ -329,14 +320,14 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
     const changesBeforeAttach = workingShelfChanges;
     let changedWhileAttaching = false;
     try {
-      const attached = await hostSend("Target.attachToTarget", {
+      const attached = await send("Target.attachToTarget", {
         targetId,
         flatten: true,
       });
       const sessionId = attached.sessionId;
       // A core that stopped while this attach was waiting does not keep it.
       if (stopped) {
-        await hostSend("Target.detachFromTarget", { sessionId }).catch(() => {});
+        await send("Target.detachFromTarget", { sessionId }).catch(() => {});
         return;
       }
       sessionsByTarget.set(targetId, sessionId);
@@ -418,7 +409,7 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
       sessionsByTarget.delete(targetId);
       if (sessionId) {
         forgetSession(sessionId);
-        await hostSend("Target.detachFromTarget", { sessionId }).catch(() => {});
+        await send("Target.detachFromTarget", { sessionId }).catch(() => {});
       }
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
@@ -441,10 +432,10 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
     dispatch.targetDestroyed(sessionId);
   }
 
-  // Returns whether this core took the message. The host answers a paused
+  // Returns whether this core took the message. The launcher answers a paused
   // request that no core took.
   function handle(message) {
-    // Not the sessions of another version, nor the host's own short ones.
+    // Not the sessions of a core that was replaced, nor the launcher's own short ones.
     if (stopped || (message.sessionId && !ownsSession(message.sessionId))) return false;
     if (dispatch.handle(message)) return true;
 
@@ -498,19 +489,14 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
   async function start() {
     stopped = false;
     await watchWorkingShelf();
-    await hostSend("Target.setDiscoverTargets", { discover: true });
-    const { targetInfos = [] } = await hostSend("Target.getTargets");
+    await send("Target.setDiscoverTargets", { discover: true });
+    const { targetInfos = [] } = await send("Target.getTargets");
     await Promise.all(targetInfos.map(attachAndInject));
-  }
-
-  // Resolves when no attach is in progress.
-  async function settled() {
-    while (attaching.size > 0) await Promise.all([...attaching.values()]);
   }
 
   // Detaches every session, which drops its new-document scripts and
   // bindings. What already runs in a document stays until it reloads. The
-  // browser keeps intercepting T3 Code's script; the host answers what no
+  // browser keeps intercepting T3 Code's script; the launcher answers what no
   // core takes.
   async function stop() {
     stopped = true;
@@ -519,7 +505,7 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
     sessionsByTarget.clear();
     appPages.clear();
     workingShelfWatch = null;
-    await Promise.all(sessions.map((sessionId) => hostSend("Target.detachFromTarget", { sessionId }).catch(() => {})));
+    await Promise.all(sessions.map((sessionId) => send("Target.detachFromTarget", { sessionId }).catch(() => {})));
   }
 
   function ownsSession(sessionId) {
@@ -527,7 +513,7 @@ function prepareCore({ send: hostSend, log, rootDirectory, versionDirectory }) {
     return false;
   }
 
-  return { start, stop, settled, handle, ownsSession };
+  return { start, stop, handle, ownsSession };
 }
 
 // node:sqlite exists without a flag only in newer Node.js releases. Nothing
@@ -540,4 +526,4 @@ function sqliteLoads() {
   }
 }
 
-module.exports = { REQUIRES_HOST_API, prepareCore };
+module.exports = { prepareCore };

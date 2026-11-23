@@ -36,12 +36,7 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
-# The fix itself, which goes into a folder of its own for each install, so a
-# running T3 Code can switch to it, and the launcher host, which keeps T3
-# Code's debugging pipe and loads the fix.
-CORE_FILES="rtl.css injection.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js"
-HOST_FILE="t3-rtl-launcher.js"
-for f in $CORE_FILES $HOST_FILE; do
+for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js; do
   [ -f "$SRC/$f" ] || { echo "Missing file: src/$f"; exit 1; }
 done
 
@@ -75,58 +70,19 @@ for n in "$(command -v node 2>/dev/null || true)" /opt/homebrew/bin/node /usr/lo
 done
 if [ -n "$NODE_BIN" ]; then echo "Using Node.js: $NODE_BIN"; else echo "Node.js not found, will use T3 Code's built-in runtime"; fi
 
-run_node() {
-  if [ -n "$NODE_BIN" ]; then "$NODE_BIN" "$@"; else ELECTRON_RUN_AS_NODE=1 "$APP_EXE" "$@"; fi
-}
-
 # --- Copy files ---------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-
-# One install at a time, so the fix that current.txt names, the launcher
-# host, and the launcher app always come from the same install. macOS's
-# shlock holds the lock for this script's process and takes over, in one
-# step, a lock whose process has ended. The lock goes when this script ends.
-LOCK_FILE="$INSTALL_DIR/install.lock"
-# An empty lock folder left by an earlier test build of this installer.
-[ -d "$LOCK_FILE" ] && rmdir "$LOCK_FILE" 2>/dev/null || true
-if ! /usr/bin/shlock -f "$LOCK_FILE" -p $$; then
-  echo "Another install of T3 Code RTL Fix is running. Run this one again when it ends."
-  echo "If no install is running, delete $LOCK_FILE and run this one again."
-  exit 1
-fi
-trap 'rm -f "$LOCK_FILE"' EXIT
-
-# Whether the T3 Code that is open now runs this launcher host, which then
-# takes the update on its own: the host's record names a live process that
-# started when the record says, runs the host being installed, and offers
-# what the new fix needs.
-HOST_STATE="$(run_node -e '
-const fs = require("fs"), path = require("path"), crypto = require("crypto");
-const { execFileSync } = require("child_process");
-const [dir, src] = process.argv.slice(-2);
-try {
-  const record = JSON.parse(fs.readFileSync(path.join(dir, "running-host.json"), "utf8"));
-  process.kill(record.pid, 0);
-  const started = Date.parse(execFileSync("ps", ["-o", "lstart=", "-p", String(record.pid)], { encoding: "utf8" }).trim());
-  if (!(Math.abs(started - record.startedAt) <= 10000)) throw new Error("another process");
-  const hash = crypto.createHash("sha256").update(fs.readFileSync(path.join(src, "t3-rtl-launcher.js"))).digest("hex");
-  const api = (/const REQUIRES_HOST_API = (\d+);/.exec(fs.readFileSync(path.join(src, "launcher-core.js"), "utf8")) || [])[1];
-  console.log(hash === record.hash && api === String(record.hostApi) ? "live" : "restart");
-} catch {
-  console.log("none");
-}' "$INSTALL_DIR" "$SRC" 2>/dev/null || echo none)"
-
-# The fix, in a new folder. A running launcher looks at current.txt only,
-# and only once it names this folder, which is complete by then.
-VERSION_ID="$(date -u +%Y%m%d-%H%M%S)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 6)"
-VERSION_DIR="$INSTALL_DIR/versions/$VERSION_ID"
-mkdir -p "$VERSION_DIR"
-for f in $CORE_FILES; do
-  cp "$SRC/$f" "$VERSION_DIR/"
-done
-printf '%s' "$VERSION_ID" > "$INSTALL_DIR/current.txt.$$.tmp"
-mv -f "$INSTALL_DIR/current.txt.$$.tmp" "$INSTALL_DIR/current.txt"
-
+# An open T3 Code keeps the launcher it started with, and takes a new fix only
+# while that launcher is the one being installed.
+SAME_LAUNCHER=""
+cmp -s "$SRC/t3-rtl-launcher.js" "$INSTALL_DIR/t3-rtl-launcher.js" && SAME_LAUNCHER=1
+cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/launcher-core.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
+  "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
+  "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
+  "$SRC/working-shelf.js" "$INSTALL_DIR/"
+# Written after every file is in place: a running launcher loads the new fix
+# when this changes.
+printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
 cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
@@ -147,21 +103,6 @@ else
 fi
 LAUNCH
 chmod +x "$INSTALL_DIR/launch.sh"
-
-# The launcher host goes last: until here, the launcher that was installed
-# before still opens T3 Code with the files it knows.
-cp "$SRC/$HOST_FILE" "$INSTALL_DIR/$HOST_FILE.$$.tmp"
-mv -f "$INSTALL_DIR/$HOST_FILE.$$.tmp" "$INSTALL_DIR/$HOST_FILE"
-
-# Earlier versions that neither run nor are the fallback, after a week.
-KEEP_CURRENT="$(cat "$INSTALL_DIR/current.txt" 2>/dev/null || true)"
-KEEP_LAST_GOOD="$(cat "$INSTALL_DIR/last-good.txt" 2>/dev/null || true)"
-find "$INSTALL_DIR/versions" -mindepth 1 -maxdepth 1 -type d -mtime +7 2>/dev/null | while IFS= read -r old; do
-  name="$(basename "$old")"
-  # Only folders an installer made, by the shape of their name.
-  printf '%s' "$name" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$' || continue
-  [ "$name" = "$VERSION_ID" ] || [ "$name" = "$KEEP_CURRENT" ] || [ "$name" = "$KEEP_LAST_GOOD" ] || rm -rf "$old"
-done
 
 # --- Build the "T3 Code RTL" app ---------------------------------------------
 mkdir -p "$HOME/Applications"
@@ -221,23 +162,12 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 
 echo ""
 echo "Done."
-case "$HOST_STATE" in
-  live)
-    echo "The open T3 Code picks the update up in a few seconds: its windows reload, and running sessions keep running."
-    ;;
-  restart)
-    echo "This update changes the launcher itself."
-    echo "1. Quit T3 Code completely (Cmd+Q)."
-    echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
-    ;;
-  *)
-    echo "1. Quit T3 Code completely (Cmd+Q)."
-    echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
-    ;;
-esac
-echo "Your own CSS goes here, and updates never change it: $INSTALL_DIR/custom.css"
-if [ -f "$INSTALL_DIR/rtl.css" ]; then
-  echo "Earlier versions used $INSTALL_DIR/rtl.css. It stays there; copy any rules of your own from it into custom.css."
+if [ -n "$SAME_LAUNCHER" ]; then
+  echo "A T3 Code that is open through T3 Code RTL takes the update in a few seconds: its windows reload, and running sessions keep running."
+  echo "Otherwise:"
 fi
+echo "1. Quit T3 Code completely (Cmd+Q)."
+echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
+echo "Your own CSS goes here: $INSTALL_DIR/custom.css. Updates replace rtl.css but never change custom.css."
 echo "Log file: $INSTALL_DIR/launcher.log"
 open -R "$LAUNCHER_APP" 2>/dev/null || true

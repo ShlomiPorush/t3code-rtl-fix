@@ -1265,8 +1265,7 @@ test("the launcher loads repository status on its own and honors the opt-out", (
   const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
   for (const file of ["repo-status.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "cdp-dispatch.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js"]) {
     assert.ok(windowsInstaller.includes(`"${file}"`), `the Windows installer copies ${file}`);
-    const macFiles = /^CORE_FILES="([^"]*)"/m.exec(macInstaller)?.[1].split(" ") || [];
-    assert.ok(macFiles.includes(file), `the macOS installer copies ${file}`);
+    assert.ok(macInstaller.includes(` ${file}`) && macInstaller.includes(`"$SRC/${file}"`), `the macOS installer copies ${file}`);
   }
 });
 

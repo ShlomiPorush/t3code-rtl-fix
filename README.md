@@ -346,16 +346,13 @@ running, and text you are typing in the composer stays. A browser preview
 that is open in a window loads its page again, so text typed into the
 previewed page is lost.
 
-The installer says whether the open T3 Code takes the update:
+When the update also changes the launcher itself, the installer asks you to
+quit T3 Code fully once and open it again. This is rare.
 
-- When the update also changes the launcher itself, the installer asks you to
-  quit T3 Code fully once and open it again. This is rare.
-- When an update fails to start, the launcher goes back to the version that
-  ran before, reloads the windows, and writes the reason to `launcher.log`.
-  Quit T3 Code fully and open it again to finish the update.
-- When T3 Code opens and the newest version cannot start, the launcher uses
-  the last version that started. If none starts, T3 Code opens without the
-  fix.
+When the new version cannot load, the open T3 Code keeps the version it runs.
+When it loads but cannot start, T3 Code's windows reload without the fix.
+Either way the reason is in `launcher.log`. Run the install command again, or
+quit T3 Code fully and open it again.
 
 ## Requirements
 
@@ -415,9 +412,8 @@ when you fully quit and reopen T3 Code.
 %LOCALAPPDATA%\T3RTLFix\custom.css
 ```
 
-Earlier versions asked you to edit `rtl.css` in the same folder. That file
-stays where it is, but the fix no longer reads it, so copy your own rules
-from it into `custom.css`.
+Every install replaces `rtl.css` in the same folder, so keep your own rules
+in `custom.css`, not in `rtl.css`.
 
 ### Uninstall
 
@@ -523,17 +519,15 @@ changes, the launcher reloads each T3 Code window without the cache, which
 loads the script again through the pause. A reload restarts only the window.
 T3 Code's server, which runs the sessions, keeps running.
 
-The launcher has two parts. The small launcher host opens T3 Code and keeps
-the debugging pipe for as long as T3 Code runs. The fix itself, in
-`launcher-core.js` and the files beside it, is installed in a new folder under
-`versions` on each install. The installer copies that folder first, then names
-it in `current.txt`, and replaces the launcher host last. The host checks
-`current.txt` every two seconds. When it names a new version, the host stops
-the running version, starts the new one, and reloads each T3 Code window
-without the cache. It records the last version that started in
-`last-good.txt`. While it runs, the host writes `running-host.json`, which tells
-the installer whether the open T3 Code takes the update. Version folders that
-are neither current nor the last that started are removed after a week.
+The launcher has two parts. `t3-rtl-launcher.js` opens T3 Code and keeps the
+debugging pipe for as long as T3 Code runs. The fix itself is
+`launcher-core.js` and the files beside it. The installer writes
+`version.txt` after it has copied every other file, so the launcher never
+loads a half-copied fix. The launcher checks `version.txt` every two seconds.
+When it changes, the launcher loads the new fix, stops the running one,
+starts the new one, and reloads each T3 Code window without the cache. The
+installer compares the launcher it installs with the one already installed,
+to tell whether an open T3 Code takes the update.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.
@@ -579,7 +573,7 @@ tests/     Unit, browser smoke, and Windows installer tests
   code is written. A T3 Code update can turn it off until the fix is updated.
 - In the right-to-left layout, a new window can show T3 Code's own layout for
   a moment when T3 Code first opens, before the fix reaches it.
-- The first installation, and an update that changes the launcher host,
+- The first installation, and an update that changes the launcher itself,
   cannot reach an instance that is already open. Fully quit and reopen the app
   once.
 
