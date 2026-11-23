@@ -169,6 +169,36 @@ test("the core adds the fix to every window and detaches its sessions when it st
   }
 });
 
+test("a window whose open page rejects the fix gets the rest once and is detached when the core stops", async () => {
+  const added = async (rejects) => {
+    const { send, calls } = coreConnection();
+    const { core, cleanup } = realCore(async (method, params, sessionId) => {
+      const result = await send(method, params, sessionId);
+      if (rejects && method === "Runtime.evaluate" && params.expression.includes("data-t3-rtl-plan-card")) {
+        throw new Error("Inspected target navigated or closed");
+      }
+      return result;
+    });
+    try {
+      await core.start();
+      core.handle({ method: "Target.targetInfoChanged", params: { targetInfo: TARGETS[0] } });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await core.stop();
+    } finally {
+      cleanup();
+    }
+    const sent = (method) => calls.filter((call) => call.method === method);
+    return {
+      attached: sent("Target.attachToTarget").length,
+      scripts: sent("Page.addScriptToEvaluateOnNewDocument").length,
+      detached: sent("Target.detachFromTarget").map((call) => call.params.sessionId),
+    };
+  };
+  const rejected = await added(true);
+  assert.deepEqual(rejected, await added(false));
+  assert.deepEqual(rejected.detached, ["s1"]);
+});
+
 test("the core reads the shipped stylesheet and the user's custom.css", async () => {
   const { send, calls } = coreConnection();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-core-"));

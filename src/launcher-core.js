@@ -318,12 +318,12 @@ function prepareCore({ send, log, rootDirectory }) {
         { source: injectionSource },
         sessionId,
       );
-      await send(
-        "Runtime.evaluate",
-        { expression: injectionSource, returnByValue: true },
-        sessionId,
-      );
-      log(`RTL fix injected into ${targetInfo.url}`);
+      try {
+        await send("Runtime.evaluate", { expression: injectionSource, returnByValue: true }, sessionId);
+        log(`RTL fix injected into ${targetInfo.url}`);
+      } catch (error) {
+        log(`The RTL fix applies when ${targetInfo.url} next loads: ${error.message}`);
+      }
       if (replyStartSource) {
         try {
           await send("Page.addScriptToEvaluateOnNewDocument", { source: replyStartSource }, sessionId);
@@ -347,8 +347,6 @@ function prepareCore({ send, log, rootDirectory }) {
         }
       }
     } catch (error) {
-      // Stays in appPages until the window closes, so a Working switch change still reloads it.
-      sessionsByTarget.delete(targetId);
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
   }
