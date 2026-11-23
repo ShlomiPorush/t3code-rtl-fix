@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" alt="" width="96">
+
 # T3 Code RTL Fix
 
 Turns the whole T3 Code app right to left, and aligns each user and assistant
@@ -560,6 +562,7 @@ src/       The fix injected into T3 Code, shared by both platforms
 windows/   Windows installer, uninstaller, and shortcut launcher
 macos/     macOS installer and uninstaller
 tests/     Unit, browser smoke, and Windows installer tests
+assets/    The project icon
 ```
 
 ## Limitations
