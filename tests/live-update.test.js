@@ -169,6 +169,37 @@ test("the core adds the fix to every window and detaches its sessions when it st
   }
 });
 
+test("a window whose injection fails is detached and attached again", async () => {
+  const { send, calls } = coreConnection();
+  const { core, cleanup } = realCore(async (method, params, sessionId) => {
+    const result = await send(method, params, sessionId);
+    if (method === "Target.detachFromTarget" && params.sessionId === "s1") {
+      await new Promise((resolve) => setImmediate(resolve));
+      changed();
+    }
+    if (method === "Runtime.evaluate" && sessionId === "s1" && params.expression.includes("data-t3-rtl-plan-card")) {
+      throw new Error("Inspected target navigated or closed");
+    }
+    return result;
+  });
+  const changed = () => core.handle({ method: "Target.targetInfoChanged", params: { targetInfo: TARGETS[0] } });
+  const attached = () => calls.filter((call) => call.method === "Target.attachToTarget").length;
+  const detached = () => calls.filter((call) => call.method === "Target.detachFromTarget").map((call) => call.params.sessionId);
+  try {
+    await core.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(attached(), 1, "the event from the detach starts no attach");
+    assert.deepEqual(detached(), ["s1"]);
+    changed();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(calls.some((call) => call.method === "Page.addScriptToEvaluateOnNewDocument" && call.sessionId === "s2" && call.params.source.includes("data-t3-rtl-plan-card")));
+    await core.stop();
+    assert.deepEqual(detached(), ["s1", "s2"]);
+  } finally {
+    cleanup();
+  }
+});
+
 test("the core reads the shipped stylesheet and the user's custom.css", async () => {
   const { send, calls } = coreConnection();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-core-"));

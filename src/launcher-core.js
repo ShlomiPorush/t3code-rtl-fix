@@ -277,6 +277,7 @@ function prepareCore({ send, log, rootDirectory }) {
       });
       const sessionId = attached.sessionId;
       sessionsByTarget.set(targetId, sessionId);
+      // Before the later awaits, so a Working switch change from here on reloads this window too.
       if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
 
       if (!isPage) {
@@ -346,9 +347,19 @@ function prepareCore({ send, log, rootDirectory }) {
         }
       }
     } catch (error) {
-      sessionsByTarget.delete(targetId);
+      const sessionId = forgetTarget(targetId);
+      // Detaching sends an event for the window. Awaited, so that event does not start another attach.
+      if (sessionId) await send("Target.detachFromTarget", { sessionId }).catch(() => {});
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
+  }
+
+  function forgetTarget(targetId) {
+    const sessionId = sessionsByTarget.get(targetId);
+    if (sessionId) forgetSession(sessionId);
+    appPages.delete(targetId);
+    sessionsByTarget.delete(targetId);
+    return sessionId;
   }
 
   function forgetSession(sessionId) {
@@ -397,11 +408,7 @@ function prepareCore({ send, log, rootDirectory }) {
     }
 
     if (message.method === "Target.targetDestroyed") {
-      const targetId = message.params?.targetId;
-      const sessionId = sessionsByTarget.get(targetId);
-      if (sessionId) forgetSession(sessionId);
-      appPages.delete(targetId);
-      sessionsByTarget.delete(targetId);
+      forgetTarget(message.params?.targetId);
       return true;
     }
     return false;
