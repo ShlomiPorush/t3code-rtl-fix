@@ -185,8 +185,7 @@ function main() {
   let incoming = Buffer.alloc(0);
   const pending = new Map();
 
-  // Once the pipe closes, nothing more is sent, and every request still
-  // waiting fails, so no caller waits for an answer that cannot come.
+  // A closed pipe fails every waiting request, so no caller waits for an answer that cannot come.
   let cdpClosed = false;
   function closeConnection(reason) {
     if (cdpClosed) return;
@@ -263,14 +262,10 @@ function main() {
     if (poller) clearInterval(poller);
     closeConnection("T3 Code closed before the CDP request completed");
     log(`T3 Code exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
-    // T3 Code exits before an update is installed, and the update's installer
-    // reopens it directly, without the fix. The Windows helper waits a few
-    // minutes for that, then repairs the shortcuts and tells the user. It runs
-    // in its own process, outside the T3 Code executable that the installer
-    // replaces.
+    // A T3 Code update reopens the app without the fix. The helper, in its own
+    // process, waits for that, then repairs the shortcuts and tells the user.
     if (process.platform === "win32") startUpdateHelper();
-    // T3 Code's own processes, including one reopened by an update, can keep
-    // the debugging pipe open, so the launcher has to end on its own.
+    // T3 Code's own processes can keep the pipe open, so the launcher ends on its own.
     process.exit(0);
   });
 

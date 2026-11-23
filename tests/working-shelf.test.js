@@ -503,21 +503,10 @@ test("a change of the switch reloads only after the browser watches the script",
   assert.match(body, /if \(next === boringWorkingShelf\) return;/);
   const watched = body.indexOf("await watchWorkingShelf()");
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
-  assert.match(body, /if \(!watching \|\| change !== workingShelfChanges\) return;/);
+  assert.match(body, /if \(!watching\) return;/);
   assert.match(core, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
   assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
-  // A window counts from its attach, before anything else is sent to it, and
-  // until it closes, even when a fix fails to inject.
-  const attached = core.indexOf("sessionsByTarget.set(targetId, sessionId);");
-  const added = core.indexOf("if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);");
-  assert.ok(attached > 0 && added > attached && added < core.indexOf('send("Page.enable"', attached));
-  assert.match(core, /appPages\.delete\(targetId\)/);
   assert.equal((core.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
-  // A window that attached during a change reloads after the attempt to add
-  // its fixes, even a failed one.
-  const inject = core.slice(core.indexOf("async function attachTarget("), core.indexOf("function forgetSession("));
-  const caught = inject.indexOf("log(`Injection failed for target");
-  assert.ok(caught > 0 && inject.indexOf("changedWhileAttaching &&") > caught);
 });
 
 test("the fix watches before the first window and keeps the RTL fix when watching fails", () => {

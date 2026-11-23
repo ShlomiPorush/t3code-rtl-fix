@@ -13,8 +13,7 @@ const {
   watchAnnotations,
 } = require("./annotation-direction");
 
-// Extras read the regular build's data folder, so the development build's
-// page, whose provider list lives elsewhere, does not get them.
+// Extras read the regular build's data folder, so the development build gets none.
 function isRegularT3Page(targetInfo) {
   return /^t3code:\/\//i.test(targetInfo?.url || "");
 }
@@ -23,8 +22,6 @@ function isT3Page(targetInfo) {
   return targetInfo?.type === "page" && /^t3code(?:-dev)?:\/\//i.test(targetInfo.url || "");
 }
 
-// T3 Code's browser preview runs in a <webview>, where T3 draws its element
-// annotation window.
 function isT3Preview(targetInfo) {
   return targetInfo?.type === "webview";
 }
@@ -43,11 +40,7 @@ function readRtlAndCustomCss(rootDirectory, log) {
 function prepareCore({ send, log, rootDirectory }) {
   const injectionSource = buildInjectionSource(readRtlAndCustomCss(rootDirectory, log));
 
-  // Optional settings.json in the install folder, such as { "repoStatus": false },
-  // which the Extras section on T3 Code's Labs page also changes. The
-  // installer never writes it, so a reinstall keeps the user's choices. Each
-  // extra loads on its own, so a failure in one leaves the RTL fix and the
-  // others running.
+  // Each extra loads in its own try, so one that fails leaves the rest running.
   let settingsStore = null;
   let t3Home = null;
   try {
@@ -59,8 +52,6 @@ function prepareCore({ send, log, rootDirectory }) {
   }
   const initialSettings = settingsStore ? settingsStore.get() : { repoStatus: true, rtlLayout: true };
 
-  // The right-to-left layout of the whole app, which the Extras section turns
-  // on and off. It loads on its own, so a failure leaves the per-message fix.
   let buildLayoutSource = null;
   try {
     ({ buildLayoutSource } = require("./app-layout"));
@@ -69,7 +60,6 @@ function prepareCore({ send, log, rootDirectory }) {
   }
   let rtlLayout = initialSettings.rtlLayout !== false;
 
-  // The chat width chosen in the Extras section. It loads on its own too.
   let buildChatWidthSource = null;
   try {
     ({ buildChatWidthSource } = require("./chat-width"));
@@ -78,8 +68,6 @@ function prepareCore({ send, log, rootDirectory }) {
   }
   let chatWidth = initialSettings.chatWidth ?? null;
 
-  // Opens a thread at the start of the agent's last reply. It loads on its
-  // own too, so a failure leaves the rest of the fix running.
   let replyStartSource = null;
   try {
     replyStartSource = require("./reply-start").buildReplyStartSource();
@@ -87,12 +75,8 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`Opening threads at the start of the last reply is off: ${error.message}`);
   }
 
-  // The Working section in the boring sidebar. It rewrites T3 Code's sidebar
-  // code as the page loads it, only while the Extras switch is on. It loads on
-  // its own too.
   let boringWorkingShelf = initialSettings.boringWorkingShelf === true;
   let workingShelf = null;
-  // Resolves to whether the browser watches T3 Code's script.
   let workingShelfWatch = null;
   try {
     const { createWorkingShelfService } = require("./working-shelf");
@@ -105,8 +89,7 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`The Working section in the boring sidebar is off: ${error.message}`);
   }
 
-  // Interception starts with the first switch on and then stays, so a request
-  // that is paused while the switch turns off is still answered.
+  // Never turned off, so a request paused while the switch turns off is still answered.
   function watchWorkingShelf() {
     if (!workingShelf || !boringWorkingShelf) return Promise.resolve(false);
     if (!workingShelfWatch) {
@@ -118,18 +101,11 @@ function prepareCore({ send, log, rootDirectory }) {
     return workingShelfWatch;
   }
 
-  // A change of the switch reloads T3 Code's windows, so it applies without a
-  // restart. Without interception no window has a changed script, so there is
-  // nothing to reload.
-  // A change that a later one overtakes before its reload starts does not
-  // reload.
-  let workingShelfChanges = 0;
   async function switchWorkingShelf(next) {
     if (next === boringWorkingShelf) return;
     boringWorkingShelf = next;
-    const change = ++workingShelfChanges;
     const watching = next ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
-    if (!watching || change !== workingShelfChanges) return;
+    if (!watching) return;
     const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
     log(`Working section in the boring sidebar turned ${next ? "on" : "off"}, ${reloaded} windows reloaded`);
   }
@@ -205,17 +181,11 @@ function prepareCore({ send, log, rootDirectory }) {
   // By target, so start() also waits for an attach that an event began.
   const attaching = new Map();
   const annotationSessionsLogged = new Set();
-  // The T3 Code pages that get the layout, from the moment they are attached,
-  // and the new-document script of the layout in each, by session.
   const layoutSessions = new Set();
   const layoutScripts = new Map();
-  // The regular T3 Code windows, which load the script the Working section
-  // in the boring sidebar changes, by target. A window stays here from its
-  // attach until it closes, even when a fix fails to inject into it.
   const appPages = new Map();
 
-  // Layout work for each session runs one step at a time, so quick changes,
-  // such as one from a second window, never lose track of a script.
+  // One step at a time per session, so quick changes never lose track of a script.
   const layoutQueues = new Map();
   function queueLayout(sessionId, step) {
     const next = (layoutQueues.get(sessionId) || Promise.resolve()).then(step, step);
@@ -239,9 +209,6 @@ function prepareCore({ send, log, rootDirectory }) {
     }
   }
 
-  // The chat width follows the same steps as the layout: a new-document
-  // script for each session, replaced when the setting changes, and applied
-  // to the open page at once.
   const chatWidthSessions = new Set();
   const chatWidthScripts = new Map();
 
@@ -272,7 +239,6 @@ function prepareCore({ send, log, rootDirectory }) {
     });
   }
 
-  // Applies a changed setting to an open page at once.
   function switchLayout(sessionId) {
     return queueLayout(sessionId, async () => {
       if (!layoutSessions.has(sessionId)) return;
@@ -304,8 +270,6 @@ function prepareCore({ send, log, rootDirectory }) {
   async function attachTarget(targetInfo) {
     const targetId = targetInfo.targetId;
     const isPage = isT3Page(targetInfo);
-    const changesBeforeAttach = workingShelfChanges;
-    let changedWhileAttaching = false;
     try {
       const attached = await send("Target.attachToTarget", {
         targetId,
@@ -313,9 +277,7 @@ function prepareCore({ send, log, rootDirectory }) {
       });
       const sessionId = attached.sessionId;
       sessionsByTarget.set(targetId, sessionId);
-      // At once, so a change of the switch from now on reloads this window too.
       if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
-      changedWhileAttaching = workingShelfChanges !== changesBeforeAttach;
 
       if (!isPage) {
         await watchAnnotations(send, sessionId);
@@ -323,7 +285,6 @@ function prepareCore({ send, log, rootDirectory }) {
         return;
       }
 
-      // Page events, such as a reload, reach every service.
       await send("Page.enable", {}, sessionId);
       if (buildLayoutSource) {
         layoutSessions.add(sessionId);
@@ -388,13 +349,6 @@ function prepareCore({ send, log, rootDirectory }) {
       sessionsByTarget.delete(targetId);
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
-    // A change of the switch while this window was attaching may have been sent
-    // before the window was on the list. Reload it after the attempt to add
-    // every fix, whether that attempt failed or not.
-    const sessionId = appPages.get(targetId);
-    if (sessionId && changedWhileAttaching && workingShelfWatch && (await workingShelfWatch)) {
-      await workingShelf.reloadWindows([sessionId]);
-    }
   }
 
   function forgetSession(sessionId) {
@@ -422,8 +376,7 @@ function prepareCore({ send, log, rootDirectory }) {
       const trigger = message.params?.payload ?? "focus";
       applyAnnotationDirection(send, sessionId).then(
         ({ hosts, fields }) => {
-          // Record every miss, but a success only once per preview session, so
-          // the log does not grow with every comment typed.
+          // Success is logged once per preview, so the log does not grow with each comment.
           if (fields === 0) {
             log(`Annotation ${trigger}: no comment field was found in ${hosts} annotation hosts`);
           } else if (!annotationSessionsLogged.has(sessionId)) {
@@ -462,8 +415,7 @@ function prepareCore({ send, log, rootDirectory }) {
     await Promise.all(targetInfos.map(attachAndInject));
   }
 
-  // Interception stays on for the next core, and the launcher passes on what
-  // no core takes.
+  // Interception stays on for the next core; the launcher passes on what no core takes.
   async function stop() {
     const sessions = [...sessionsByTarget.values()];
     for (const sessionId of sessions) forgetSession(sessionId);
@@ -476,8 +428,7 @@ function prepareCore({ send, log, rootDirectory }) {
   return { start, stop, handle };
 }
 
-// node:sqlite exists without a flag only in newer Node.js releases. Nothing
-// is opened here.
+// node:sqlite exists without a flag only in newer Node.js releases.
 function sqliteLoads() {
   try {
     return typeof require("node:sqlite").DatabaseSync === "function";
