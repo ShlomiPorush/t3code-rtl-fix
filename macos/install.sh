@@ -36,7 +36,7 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
-for f in rtl.css injection.js t3-rtl-launcher.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js; do
+for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js; do
   [ -f "$SRC/$f" ] || { echo "Missing file: src/$f"; exit 1; }
 done
 
@@ -72,9 +72,10 @@ if [ -n "$NODE_BIN" ]; then echo "Using Node.js: $NODE_BIN"; else echo "Node.js 
 
 # --- Copy files ---------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
+cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/launcher-core.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
   "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
-  "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" "$INSTALL_DIR/"
+  "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
+  "$SRC/working-shelf.js" "$INSTALL_DIR/"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
 cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
@@ -152,10 +153,15 @@ touch "$LAUNCHER_APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$LAUNCHER_APP" >/dev/null 2>&1 || true
 
+# Last, so a running launcher never loads a half-finished install.
+printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
+
 echo ""
 echo "Done."
+echo "A T3 Code opened through this version of T3 Code RTL or a later one reloads its windows with the update within a few seconds, and running sessions keep running."
+echo "If the windows do not reload:"
 echo "1. Quit T3 Code completely (Cmd+Q)."
 echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
-echo "Edit the CSS here: $INSTALL_DIR/rtl.css"
+echo "Your own CSS goes here: $INSTALL_DIR/custom.css. Updates replace rtl.css but never change custom.css."
 echo "Log file: $INSTALL_DIR/launcher.log"
 open -R "$LAUNCHER_APP" 2>/dev/null || true

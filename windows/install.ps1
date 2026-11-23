@@ -115,6 +115,7 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "rtl.css"),
     (Join-Path $sourceDirectory "injection.js"),
     (Join-Path $sourceDirectory "t3-rtl-launcher.js"),
+    (Join-Path $sourceDirectory "launcher-core.js"),
     (Join-Path $sourceDirectory "annotation-direction.js"),
     (Join-Path $sourceDirectory "repo-status.js"),
     (Join-Path $sourceDirectory "cdp-dispatch.js"),
@@ -126,6 +127,7 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "css-mirror.js"),
     (Join-Path $sourceDirectory "chat-width.js"),
     (Join-Path $sourceDirectory "reply-start.js"),
+    (Join-Path $sourceDirectory "working-shelf.js"),
     (Join-Path $PSScriptRoot "launch-t3-rtl.vbs"),
     (Join-Path $PSScriptRoot "uninstall.ps1")
 )
@@ -254,6 +256,11 @@ $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object {
     [System.Text.Encoding]::Unicode
 )
 
+# Last, so a running launcher never loads a half-finished install.
+[System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), [guid]::NewGuid().ToString("N"))
+
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"
-Write-Output "Fully quit T3 Code, then open it from an updated shortcut."
+Write-Output "A T3 Code opened through this version of the fix or a later one reloads its windows with the update within a few seconds, and running sessions keep running."
+Write-Output "If the windows do not reload, fully quit T3 Code, then open it from an updated shortcut."
+Write-Output "Your own CSS goes in $(Join-Path $InstallDirectory 'custom.css'). Updates replace rtl.css but never change custom.css."

@@ -160,7 +160,7 @@ test("queued prompts and plan titles follow the current T3 Code markup", () => {
 });
 
 test("the launcher fixes the annotation comment in browser previews", () => {
-  const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "src", "launcher-core.js"), "utf8");
   const annotation = fs.readFileSync(path.join(root, "src", "annotation-direction.js"), "utf8");
   const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
   const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
@@ -325,9 +325,11 @@ test("every shipped source file contains only English UI text", () => {
     path.join("tests", "windows-powershell-compatibility.ps1"),
     path.join("src", "injection.js"),
     path.join("src", "t3-rtl-launcher.js"),
+    path.join("src", "launcher-core.js"),
     path.join("src", "annotation-direction.js"),
     path.join("src", "repo-status.js"),
     path.join("src", "reply-start.js"),
+    path.join("src", "working-shelf.js"),
     path.join("src", "rtl.css"),
   ];
   for (const file of files) {
