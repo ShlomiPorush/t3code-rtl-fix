@@ -277,6 +277,7 @@ function prepareCore({ send, log, rootDirectory }) {
       });
       const sessionId = attached.sessionId;
       sessionsByTarget.set(targetId, sessionId);
+      // Before the later awaits, so a Working switch change from here on reloads this window too.
       if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
 
       if (!isPage) {
@@ -346,6 +347,7 @@ function prepareCore({ send, log, rootDirectory }) {
         }
       }
     } catch (error) {
+      // Stays in appPages until the window closes, so a Working switch change still reloads it.
       sessionsByTarget.delete(targetId);
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
