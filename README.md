@@ -103,8 +103,9 @@ The whole app is mirrored, as in a right-to-left language:
   buttons keep clear of them. The layout has not been checked on macOS.
 - Messages keep the rule of each block: Hebrew and Arabic read right to left,
   and an English message stays left to right and left aligned.
-- An empty composer starts on the right, with its placeholder. A paragraph
-  typed in English turns left to right, as before.
+- An empty composer starts on the right, with its placeholder, and so does an
+  empty comment on quoted text. A paragraph typed in English turns left to
+  right, as before.
 - English text in the app itself, such as settings, button labels, work log
   rows, and placeholders, sits on the right and keeps its reading order, so
   punctuation stays at the end of the sentence.
