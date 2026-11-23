@@ -82,6 +82,8 @@ fs.writeFileSync(versionFile, "1.8.0 first");
 let latest = { tag_name: "v1.8.0", body: "" };
 const installs = [];
 let finishInstall = null;
+let holdCheck = false;
+let releaseCheck = null;
 
 let child;
 const pending = new Map();
@@ -169,7 +171,15 @@ async function run() {
   const store = createSettingsStore({ directory: fixDirectory, t3Home });
   const updates = createUpdateService({
     directory: fixDirectory,
-    fetchLatest: async () => latest,
+    fetchLatest: async () => {
+      if (holdCheck) {
+        holdCheck = false;
+        await new Promise((resolve) => {
+          releaseCheck = resolve;
+        });
+      }
+      return latest;
+    },
     runInstall: (version) => new Promise((resolve) => {
       installs.push(version);
       finishInstall = resolve;
@@ -349,18 +359,41 @@ async function run() {
   if (!offered.startsWith("RTL Fix 1.8.0 Version 1.9.0 is available.") || !offered.includes("What's changed in 1.9.0 Show one thing Install")) {
     throw new Error(`Unexpected version row: ${offered}`);
   }
+  // A check and an install change only the row, without moving what is around it.
+  const layout = `JSON.stringify([document.querySelector("[data-t3-extras-settings]") === window.__section, Math.round(${row}.getBoundingClientRect().height)])`;
+  const widthOf = `Math.round(document.querySelector("${rowButton}").getBoundingClientRect().width)`;
+  await evaluate(sessionId, `(window.__section = document.querySelector("[data-t3-extras-settings]"), 1)`);
+  const offeredLayout = await evaluate(sessionId, layout);
+  const offeredWidth = await evaluate(sessionId, widthOf);
+  latest = { tag_name: "v1.8.0", body: "" };
+  holdCheck = true;
+  const checking = updates.check();
+  await waitFor(sessionId, `document.querySelector("${rowButton}").innerText === "Checking…"`, "the check in the row");
+  if ((await evaluate(sessionId, widthOf)) !== offeredWidth) throw new Error("The check changed the width of the button");
+  if (!(await evaluate(sessionId, rowText)).includes("Version 1.9.0 is available.")) throw new Error("The check changed the text of the row before its result");
+  releaseCheck();
+  await checking;
+  await waitFor(sessionId, `${rowText}.includes("Up to date.")`, "the result in the row");
+  if ((await evaluate(sessionId, widthOf)) !== offeredWidth) throw new Error("The result changed the width of the button");
+  if (!(await evaluate(sessionId, "document.querySelector('[data-t3-extras-settings]') === window.__section"))) throw new Error("The check drew the whole section again");
+  latest = { tag_name: "v1.9.0", body: "* Show one thing by @someone in https://github.com/o/r/pull/1" };
+  await updates.check();
+  await waitFor(sessionId, `${rowText}.includes("Version 1.9.0 is available.")`, "the offer again");
+
   await evaluate(sessionId, `(document.querySelector("${rowButton}").click(), 1)`);
   await wait(300);
   if (installs.length) throw new Error("A synthetic click installed the update");
   await clickOn(sessionId, rowButton);
-  await waitFor(sessionId, `${rowText}.includes("Installing the update.") && document.querySelector("${rowButton}").getAttribute("aria-disabled") === "true"`, "the install");
+  await waitFor(sessionId, `${rowText}.includes("Installing…") && document.querySelector("${rowButton}").getAttribute("aria-disabled") === "true"`, "the install");
+  const installingLayout = await evaluate(sessionId, layout);
+  if (installingLayout !== offeredLayout) throw new Error(`The install moved the page: ${offeredLayout} became ${installingLayout}`);
   await clickOn(sessionId, rowButton);
   await wait(300);
   if (installs.join() !== "1.9.0") throw new Error(`Unexpected installs: ${installs}`);
   finishInstall();
   await waitFor(sessionId, `${rowText}.includes("The update was not installed.") && document.querySelector("${rowButton}").innerText === "Try again"`, "the failed install");
   await clickOn(sessionId, rowButton);
-  await waitFor(sessionId, `${rowText}.includes("Installing the update.")`, "the second install");
+  await waitFor(sessionId, `${rowText}.includes("Installing…")`, "the second install");
   fs.writeFileSync(versionFile, "1.9.0 second");
   finishInstall();
   await waitFor(sessionId, `${rowText}.startsWith("RTL Fix 1.9.0 Version 1.9.0 is installed.")`, "the finished install");

@@ -36,6 +36,7 @@ const LINK_CSS = `@layer theme, base, components, utilities;
 }
 .box { position: relative; width: 100px; height: 20px; }
 .font { background: url(img/dot.png); }
+[data-citation-comment-editor="true"] textarea { text-align: start !important; unicode-bidi: plaintext; }
 `;
 
 const PAGE = `<!doctype html><html><head>
@@ -59,6 +60,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
   <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
   <span id="plain-auto" dir="auto">English title</span>
+  <div data-citation-comment-editor="true"><textarea id="comment" dir="auto" placeholder="Add an optional comment..."></textarea></div>
 </div>
 <div id="menu">
   <div id="menu-skill" data-composer-item-id="skill:codex:bro"><span style="display: flex;"><span id="menu-skill-name">bro</span><span id="menu-skill-desc" class="text-left" style="flex: 1;">תיאור בעברית</span><span id="menu-skill-tip" data-popup-open>more</span></span></div>
@@ -268,6 +270,17 @@ async function run(port) {
     `A description in a left-to-right menu row did not keep its order on the left: ${JSON.stringify(on)}`);
   check(on.menuTooltipAlign === "start", `The full description did not sit on the side where it starts: ${on.menuTooltipAlign}`);
   check(await evaluate("window.__previewScrolls") === 2, "The floating preview was not measured at once and again when the layout turned on");
+
+  // An empty comment on quoted text starts on the right with its placeholder,
+  // and a typed one follows its text.
+  const comments = await evaluate(`["", "English", "עברית"].map((text) => {
+    const field = document.getElementById("comment");
+    field.value = text;
+    const style = getComputedStyle(field);
+    return [style.direction, style.textAlign].join(":");
+  })`);
+  check(JSON.stringify(comments) === JSON.stringify(["ltr:right", "ltr:start", "rtl:start"]),
+    `The comment field did not follow the layout and its text: ${JSON.stringify(comments)}`);
 
   // A style whose text changes is mirrored again.
   await evaluate(`document.getElementById("inline-style").textContent = ".inline-pr { padding-right: 11px; }"`);

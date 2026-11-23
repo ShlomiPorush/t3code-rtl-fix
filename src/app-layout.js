@@ -202,6 +202,12 @@ const HIGH_CSS = `
 :root[data-t3-rtl-app="on"] :is(input, textarea):not([dir]):dir(rtl):not(.composer-tiptap *):placeholder-shown {
   text-align: right;
 }
+
+/* The comment on quoted text has dir="auto" from the fix, which is left to
+   right while the field is empty. */
+:root[data-t3-rtl-app="on"] [data-citation-comment-editor="true"] textarea:placeholder-shown {
+  text-align: right !important;
+}
 `;
 
 // Parts of the app that stay left to right inside the right-to-left layout:

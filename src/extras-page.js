@@ -173,16 +173,18 @@ function pageMain(config) {
     return { label: "Check for Updates", icon: "refresh", type: "checkUpdate" };
   }
 
+  var settledText = "The version of t3code-rtl-fix that is installed.";
+
+  // While a check or an install runs, the text of the last result stays.
   function updateText() {
     var update = state.update;
     switch (update.status) {
       case "current": return "Up to date.";
       case "available": return "Version " + update.latest + " is available. Installing it reloads T3 Code's windows. Running sessions keep running.";
       case "checkFailed": return "Could not check for updates. Check your connection and try again.";
-      case "installing": return "Installing the update.";
       case "installed": return "Version " + update.installed + " is installed. The windows reload in a few seconds. If they do not, quit T3 Code and open it again.";
       case "installFailed": return "The update was not installed. The reason is in launcher.log. You can also run the install command again.";
-      default: return "The version of t3code-rtl-fix that is installed.";
+      default: return settledText;
     }
   }
 
@@ -500,7 +502,7 @@ function pageMain(config) {
     var button = updateButton("t3x-pop-btn", true);
     popFoot.appendChild(button);
     // Before the removal, which would take the focus out of the list and close it.
-    if (document.activeElement === previous) button.focus();
+    if (document.activeElement === previous) button.focus({ preventScroll: true });
     previous.remove();
   }
 
@@ -885,9 +887,16 @@ function pageMain(config) {
     return section;
   }
 
+  var rowSignature = "";
+
   function updateRow() {
-    var row = settingRow(updateName(), updateText(), updateButton("t3x-btn", false));
-    var notes = state.update.status === "available" ? state.update.notes : [];
+    rowSignature = JSON.stringify(state.update);
+    settledText = updateText();
+    var row = settingRow(updateName(), settledText, updateButton("t3x-btn", false));
+    row.classList.add("t3x-update-row");
+    var status = state.update.status;
+    var offered = status === "available" || status === "installing" || status === "installFailed";
+    var notes = offered ? state.update.notes : [];
     if (notes.length) {
       row.firstChild.appendChild(el("div", "t3x-notes-title", "What's changed in " + state.update.latest));
       var list = el("ul", "t3x-notes");
@@ -897,6 +906,16 @@ function pageMain(config) {
       row.firstChild.appendChild(list);
     }
     return row;
+  }
+
+  // Only this row follows the update, so the rest of the section does not flash.
+  function renderUpdateRow(section) {
+    var previous = section.querySelector(".t3x-update-row");
+    if (!previous || JSON.stringify(state.update) === rowSignature) return;
+    var row = updateRow();
+    previous.before(row);
+    if (previous.contains(document.activeElement)) row.querySelector("button").focus({ preventScroll: true });
+    previous.remove();
   }
 
   var sectionSignature = "";
@@ -914,7 +933,7 @@ function pageMain(config) {
     }
     var signature = JSON.stringify([state.settings, state.accounts.map(function (a) {
       return [a.id, a.name, a.provider, a.windows.length > 0];
-    }), state.repoStatusAvailable, state.problem, state.error, state.update]);
+    }), state.repoStatusAvailable, state.problem, state.error, !!state.update]);
     var current = container.querySelector(":scope > [" + SECTION + "]");
     if (current && !mine.has(current)) {
       current.remove();
@@ -922,7 +941,10 @@ function pageMain(config) {
     }
     for (var j = 0; j < existing.length; j++) if (existing[j] !== current) existing[j].remove();
     if (!current) notify({ type: "updateShown" });
-    if (current && signature === sectionSignature && current === container.lastElementChild) return;
+    if (current && signature === sectionSignature && current === container.lastElementChild) {
+      renderUpdateRow(current);
+      return;
+    }
     var focusedOption = listbox && listbox.contains(document.activeElement) && document.activeElement.dataset
       ? document.activeElement.dataset.id || ""
       : null;
@@ -940,7 +962,7 @@ function pageMain(config) {
       var again = Array.prototype.find.call(next.querySelectorAll("button"), function (button) {
         return (button.getAttribute("aria-label") || button.className) === hadFocus;
       });
-      if (again) again.focus();
+      if (again) again.focus({ preventScroll: true });
     }
   }
 
@@ -1118,7 +1140,7 @@ const PAGE_CSS = `
   border: 1px solid var(--t3x-input); border-radius: var(--control-radius, .5rem); background: var(--popover); color: var(--t3x-fg);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); font: inherit; font-weight: 500; cursor: pointer; transition: scale .15s;
 }
-.t3x-btn { height: 1.75rem; padding: 0 calc(.625rem - 1px); font-size: .875rem; line-height: 1.25rem; }
+.t3x-btn { min-width: 10rem; height: 1.75rem; padding: 0 calc(.625rem - 1px); font-size: .875rem; line-height: 1.25rem; }
 .t3x-pop-btn { width: 1.5rem; height: 1.5rem; padding: 0; }
 :is(.t3x-btn, .t3x-pop-btn):hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--accent) 50%, var(--popover)); }
 :is(.t3x-btn, .t3x-pop-btn):active:not([aria-disabled="true"]) { scale: .97; }
