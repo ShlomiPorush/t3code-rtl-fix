@@ -169,34 +169,27 @@ test("the core adds the fix to every window and detaches its sessions when it st
   }
 });
 
-test("a window whose open page rejects the fix gets the rest once and is detached when the core stops", async () => {
-  const added = async (rejects) => {
-    const { send, calls } = coreConnection();
-    const { core, cleanup } = realCore(async (method, params, sessionId) => {
-      const result = await send(method, params, sessionId);
-      if (rejects && method === "Runtime.evaluate" && params.expression.includes("data-t3-rtl-plan-card")) {
-        throw new Error("Inspected target navigated or closed");
-      }
-      return result;
-    });
-    try {
-      await core.start();
-      core.handle({ method: "Target.targetInfoChanged", params: { targetInfo: TARGETS[0] } });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await core.stop();
-    } finally {
-      cleanup();
+test("a window whose injection fails is detached and attached again", async () => {
+  const { send, calls } = coreConnection();
+  const { core, cleanup } = realCore(async (method, params, sessionId) => {
+    const result = await send(method, params, sessionId);
+    if (method === "Runtime.evaluate" && sessionId === "s1" && params.expression.includes("data-t3-rtl-plan-card")) {
+      throw new Error("Inspected target navigated or closed");
     }
-    const sent = (method) => calls.filter((call) => call.method === method);
-    return {
-      attached: sent("Target.attachToTarget").length,
-      scripts: sent("Page.addScriptToEvaluateOnNewDocument").length,
-      detached: sent("Target.detachFromTarget").map((call) => call.params.sessionId),
-    };
-  };
-  const rejected = await added(true);
-  assert.deepEqual(rejected, await added(false));
-  assert.deepEqual(rejected.detached, ["s1"]);
+    return result;
+  });
+  const detached = () => calls.filter((call) => call.method === "Target.detachFromTarget").map((call) => call.params.sessionId);
+  try {
+    await core.start();
+    assert.deepEqual(detached(), ["s1"]);
+    core.handle({ method: "Target.targetInfoChanged", params: { targetInfo: TARGETS[0] } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(calls.some((call) => call.method === "Page.addScriptToEvaluateOnNewDocument" && call.sessionId === "s2"));
+    await core.stop();
+    assert.deepEqual(detached(), ["s1", "s2"]);
+  } finally {
+    cleanup();
+  }
 });
 
 test("the core reads the shipped stylesheet and the user's custom.css", async () => {

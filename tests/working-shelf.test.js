@@ -506,7 +506,6 @@ test("a change of the switch reloads only after the browser watches the script",
   assert.match(body, /if \(!watching\) return;/);
   assert.match(core, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
   assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
-  assert.equal((core.match(/appPages\.delete\(/g) || []).length, 1, "only a closed window leaves the list");
 });
 
 test("the fix watches before the first window and keeps the RTL fix when watching fails", () => {

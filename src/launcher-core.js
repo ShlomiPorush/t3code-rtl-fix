@@ -318,12 +318,12 @@ function prepareCore({ send, log, rootDirectory }) {
         { source: injectionSource },
         sessionId,
       );
-      try {
-        await send("Runtime.evaluate", { expression: injectionSource, returnByValue: true }, sessionId);
-        log(`RTL fix injected into ${targetInfo.url}`);
-      } catch (error) {
-        log(`The RTL fix applies when ${targetInfo.url} next loads: ${error.message}`);
-      }
+      await send(
+        "Runtime.evaluate",
+        { expression: injectionSource, returnByValue: true },
+        sessionId,
+      );
+      log(`RTL fix injected into ${targetInfo.url}`);
       if (replyStartSource) {
         try {
           await send("Page.addScriptToEvaluateOnNewDocument", { source: replyStartSource }, sessionId);
@@ -347,8 +347,19 @@ function prepareCore({ send, log, rootDirectory }) {
         }
       }
     } catch (error) {
+      const sessionId = forgetTarget(targetId);
+      // Detaching drops the registered scripts, and the next event for the window attaches again.
+      if (sessionId) send("Target.detachFromTarget", { sessionId }).catch(() => {});
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
+  }
+
+  function forgetTarget(targetId) {
+    const sessionId = sessionsByTarget.get(targetId);
+    if (sessionId) forgetSession(sessionId);
+    appPages.delete(targetId);
+    sessionsByTarget.delete(targetId);
+    return sessionId;
   }
 
   function forgetSession(sessionId) {
@@ -397,11 +408,7 @@ function prepareCore({ send, log, rootDirectory }) {
     }
 
     if (message.method === "Target.targetDestroyed") {
-      const targetId = message.params?.targetId;
-      const sessionId = sessionsByTarget.get(targetId);
-      if (sessionId) forgetSession(sessionId);
-      appPages.delete(targetId);
-      sessionsByTarget.delete(targetId);
+      forgetTarget(message.params?.targetId);
       return true;
     }
     return false;
