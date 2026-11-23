@@ -153,8 +153,7 @@ touch "$LAUNCHER_APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$LAUNCHER_APP" >/dev/null 2>&1 || true
 
-# Written last, once the install has succeeded: a running launcher loads the
-# new fix when this changes.
+# Last, so a running launcher never loads a half-finished install.
 printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
 
 echo ""

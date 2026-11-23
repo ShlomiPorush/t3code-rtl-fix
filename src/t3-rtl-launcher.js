@@ -1,17 +1,5 @@
 "use strict";
 
-// The launcher. It opens T3 Code with a debugging pipe and keeps that pipe
-// for T3 Code's whole life. What the fix does in T3 Code's windows is the
-// core (launcher-core.js and the files beside it), which the launcher loads
-// from this folder. The installers write version.txt after every other file,
-// and while T3 Code runs the launcher checks it every two seconds. When it
-// changes, the launcher loads the new core, stops the running one, starts
-// the new one, and reloads T3 Code's windows. Only the windows reload; T3
-// Code's server and the sessions it runs keep running.
-//
-// A change to this file itself takes effect when T3 Code is next opened
-// through the launcher.
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -22,16 +10,14 @@ function isT3Page(targetInfo) {
   return targetInfo?.type === "page" && /^t3code(?:-dev)?:\/\//i.test(targetInfo.url || "");
 }
 
-// Runs one core at a time and hands it every message the browser sends.
-function createHost({ send, log, loadCore, readVersion }) {
+function createCoreRunner({ send, log, loadCore, readVersion }) {
   let core = null;
   let version = null;
   let busy = false;
 
   function route(message) {
     if (core && core.handle(message)) return;
-    // T3 Code's script, paused for a core that did not take it or is gone,
-    // goes on unchanged, so no window waits for it.
+    // A paused script that no core takes would leave its window waiting.
     const requestId = message.params?.requestId;
     if (message.method === "Fetch.requestPaused" && !message.sessionId && requestId) {
       send("Fetch.continueRequest", { requestId }).catch((error) => {
@@ -40,9 +26,8 @@ function createHost({ send, log, loadCore, readVersion }) {
     }
   }
 
-  // Loads the installed core, or returns null when it cannot be loaded. The
-  // version it read is not tried again until the next install.
   function load() {
+    // Recorded before loading, so a broken install is not retried every poll.
     version = readVersion();
     try {
       return loadCore();
@@ -65,8 +50,7 @@ function createHost({ send, log, loadCore, readVersion }) {
     }
   }
 
-  // Reloads every T3 Code window through a session of its own, so it works
-  // whatever core runs, or none.
+  // Through sessions of its own, since no core may be running.
   async function reloadWindows() {
     let reloaded = 0;
     try {
@@ -90,19 +74,12 @@ function createHost({ send, log, loadCore, readVersion }) {
     return reloaded;
   }
 
-  // At launch, with the core loaded before T3 Code started, if any.
   async function launch(prepared) {
     if (prepared) await start(prepared);
   }
 
-  // Replaces the running core when version.txt changed. An empty or missing
-  // version.txt, such as one being written, is no change. When the new core
-  // cannot be loaded, the running one stays. When it cannot start, T3 Code
-  // runs without the fix until the next install or launch.
   async function checkForUpdate() {
-    if (busy) return;
-    const installed = readVersion();
-    if (!installed || installed === version) return;
+    if (busy || readVersion() === version) return;
     busy = true;
     try {
       const next = load();
@@ -123,10 +100,8 @@ function createHost({ send, log, loadCore, readVersion }) {
   return { route, load, launch, checkForUpdate };
 }
 
-// Prepares the core installed in directory. This folder's modules leave
-// Node's cache first, so the files that an install replaced are read again;
-// a running core keeps the modules it has.
 function loadCore(directory, options) {
+  // Otherwise require returns the modules of the core that runs now.
   for (const file of Object.keys(require.cache)) {
     if (path.dirname(file) === directory && file !== __filename) delete require.cache[file];
   }
@@ -184,7 +159,7 @@ function main() {
     process.exit(1);
   }
 
-  const host = createHost({
+  const runner = createCoreRunner({
     send,
     log,
     readVersion,
@@ -192,7 +167,7 @@ function main() {
   });
 
   // Before T3 Code starts, so the first window finds the fix ready.
-  const prepared = host.load();
+  const prepared = runner.load();
 
   const child = spawn(appPath, ["--remote-debugging-pipe"], {
     env: t3Environment,
@@ -257,7 +232,7 @@ function main() {
       }
       return;
     }
-    host.route(message);
+    runner.route(message);
   }
 
   cdpOutput.on("data", (chunk) => {
@@ -314,12 +289,12 @@ function main() {
   }
 
   void (async () => {
-    await host.launch(prepared);
+    await runner.launch(prepared);
     if (cdpClosed) return;
-    poller = setInterval(() => void host.checkForUpdate(), POLL_MS);
+    poller = setInterval(() => void runner.checkForUpdate(), POLL_MS);
   })();
 }
 
 if (require.main === module) main();
 
-module.exports = { createHost, loadCore };
+module.exports = { createCoreRunner, loadCore };

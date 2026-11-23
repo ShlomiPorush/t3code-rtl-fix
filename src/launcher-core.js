@@ -1,13 +1,7 @@
 "use strict";
 
-// Everything the fix does in T3 Code's windows, as one unit that the launcher
-// (t3-rtl-launcher.js) prepares, starts, and stops. When an install replaces
-// these files, the launcher stops this core and starts the new one without
-// quitting T3 Code.
-//
-// prepareCore sends nothing over the debugging pipe. It throws when the fix
-// itself cannot be built; an extra that fails to load is only logged and left
-// off, as before, so a broken extra never takes the RTL fix down with it.
+// The launcher prepares the core before T3 Code starts, so prepareCore must
+// not send anything over the debugging pipe.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -35,9 +29,7 @@ function isT3Preview(targetInfo) {
   return targetInfo?.type === "webview";
 }
 
-// The shipped stylesheet, then the user's own custom.css from the install
-// folder, which no installer writes.
-function readStylesheet(rootDirectory, log) {
+function readRtlAndCustomCss(rootDirectory, log) {
   const css = fs.readFileSync(path.join(__dirname, "rtl.css"), "utf8");
   const customPath = path.join(rootDirectory, "custom.css");
   try {
@@ -49,10 +41,7 @@ function readStylesheet(rootDirectory, log) {
 }
 
 function prepareCore({ send, log, rootDirectory }) {
-  const injectionSource = buildInjectionSource(readStylesheet(rootDirectory, log));
-
-  // Until start, and from stop on, the core takes no message.
-  let stopped = true;
+  const injectionSource = buildInjectionSource(readRtlAndCustomCss(rootDirectory, log));
 
   // Optional settings.json in the install folder, such as { "repoStatus": false },
   // which the Extras section on T3 Code's Labs page also changes. The
@@ -179,7 +168,6 @@ function prepareCore({ send, log, rootDirectory }) {
       log(`Extras are off: ${error.message}`);
     }
     settingsStore.onChange((settings) => {
-      if (stopped) return;
       repoStatus?.setEnabled(settings.repoStatus && repoStatusRuns);
       const nextLayout = settings.rtlLayout !== false;
       if (nextLayout !== rtlLayout) {
@@ -214,8 +202,7 @@ function prepareCore({ send, log, rootDirectory }) {
   });
 
   const sessionsByTarget = new Map();
-  // Attaches in progress, by target, so a second event for the same target
-  // waits for the same attach.
+  // By target, so start() also waits for an attach that an event began.
   const attaching = new Map();
   const annotationSessionsLogged = new Set();
   // The T3 Code pages that get the layout, from the moment they are attached,
@@ -305,7 +292,7 @@ function prepareCore({ send, log, rootDirectory }) {
 
   function attachAndInject(targetInfo) {
     const targetId = targetInfo?.targetId;
-    if (stopped || (!isT3Page(targetInfo) && !isT3Preview(targetInfo)) || sessionsByTarget.has(targetId)) {
+    if ((!isT3Page(targetInfo) && !isT3Preview(targetInfo)) || sessionsByTarget.has(targetId)) {
       return Promise.resolve();
     }
     if (attaching.has(targetId)) return attaching.get(targetId);
@@ -325,11 +312,6 @@ function prepareCore({ send, log, rootDirectory }) {
         flatten: true,
       });
       const sessionId = attached.sessionId;
-      // A core that stopped while this attach was waiting does not keep it.
-      if (stopped) {
-        await send("Target.detachFromTarget", { sessionId }).catch(() => {});
-        return;
-      }
       sessionsByTarget.set(targetId, sessionId);
       // At once, so a change of the switch from now on reloads this window too.
       if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
@@ -403,14 +385,7 @@ function prepareCore({ send, log, rootDirectory }) {
         }
       }
     } catch (error) {
-      // Detached, so that what was registered in it goes too, and a later
-      // event for the window can attach again.
-      const sessionId = sessionsByTarget.get(targetId);
       sessionsByTarget.delete(targetId);
-      if (sessionId) {
-        forgetSession(sessionId);
-        await send("Target.detachFromTarget", { sessionId }).catch(() => {});
-      }
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
     // A change of the switch while this window was attaching may have been sent
@@ -432,11 +407,7 @@ function prepareCore({ send, log, rootDirectory }) {
     dispatch.targetDestroyed(sessionId);
   }
 
-  // Returns whether this core took the message. The launcher answers a paused
-  // request that no core took.
   function handle(message) {
-    // Not the sessions of a core that was replaced, nor the launcher's own short ones.
-    if (stopped || (message.sessionId && !ownsSession(message.sessionId))) return false;
     if (dispatch.handle(message)) return true;
 
     // Fetch is enabled for the browser, so its pauses come without a session.
@@ -483,23 +454,17 @@ function prepareCore({ send, log, rootDirectory }) {
     return false;
   }
 
-  // Interception first, before a window loads T3 Code's script; a failure
-  // there only leaves the Working section as T3 Code has it. Then every T3
-  // Code window and preview, now and later.
+  // Interception first, before a window loads T3 Code's script.
   async function start() {
-    stopped = false;
     await watchWorkingShelf();
     await send("Target.setDiscoverTargets", { discover: true });
     const { targetInfos = [] } = await send("Target.getTargets");
     await Promise.all(targetInfos.map(attachAndInject));
   }
 
-  // Detaches every session, which drops its new-document scripts and
-  // bindings. What already runs in a document stays until it reloads. The
-  // browser keeps intercepting T3 Code's script; the launcher answers what no
-  // core takes.
+  // Interception stays on for the next core, and the launcher passes on what
+  // no core takes.
   async function stop() {
-    stopped = true;
     const sessions = [...sessionsByTarget.values()];
     for (const sessionId of sessions) forgetSession(sessionId);
     sessionsByTarget.clear();
@@ -508,12 +473,7 @@ function prepareCore({ send, log, rootDirectory }) {
     await Promise.all(sessions.map((sessionId) => send("Target.detachFromTarget", { sessionId }).catch(() => {})));
   }
 
-  function ownsSession(sessionId) {
-    for (const owned of sessionsByTarget.values()) if (owned === sessionId) return true;
-    return false;
-  }
-
-  return { start, stop, handle, ownsSession };
+  return { start, stop, handle };
 }
 
 // node:sqlite exists without a flag only in newer Node.js releases. Nothing

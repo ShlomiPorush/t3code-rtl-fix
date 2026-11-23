@@ -256,8 +256,7 @@ $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object {
     [System.Text.Encoding]::Unicode
 )
 
-# Written last, once the install has succeeded: a running launcher loads the
-# new fix when this changes.
+# Last, so a running launcher never loads a half-finished install.
 [System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), [guid]::NewGuid().ToString("N"))
 
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
