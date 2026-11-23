@@ -38,16 +38,27 @@ try {
     }
 
     $searchRoots = @($desktopRoot, $startMenuRoot)
-    & (Join-Path $repositoryRoot "windows\install.ps1") `
-        -T3CodePath $fakeAppPath `
-        -InstallDirectory $installDirectory `
-        -ShortcutSearchRoots $searchRoots
+    $installAgain = {
+        (& (Join-Path $repositoryRoot "windows\install.ps1") `
+            -T3CodePath $fakeAppPath `
+            -InstallDirectory $installDirectory `
+            -ShortcutSearchRoots $searchRoots) -join " "
+    }
+    $firstOutput = & $installAgain
 
     $appPathFile = Join-Path $installDirectory "app-path.txt"
     $savedAppPath = [System.IO.File]::ReadAllText($appPathFile, [System.Text.Encoding]::Unicode)
     Assert-Equal $savedAppPath $fakeAppPath "The UTF-16 app path was not written correctly"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "node-path.txt")) $false "The installer still created a Node.js path file"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "injection.js")) $true "The browser injection helper was not installed"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "launcher-core.js")) $true "The fix core was not installed"
+    Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "custom.css")) $false "The installer wrote custom.css"
+    Assert-Equal ($firstOutput -like "*reloads its windows with the update*") $true "The installer did not say how an open T3 Code takes the update"
+
+    $versionPath = Join-Path $installDirectory "version.txt"
+    $firstVersion = [System.IO.File]::ReadAllText($versionPath)
+    & $installAgain | Out-Null
+    Assert-Equal ([System.IO.File]::ReadAllText($versionPath) -ne $firstVersion) $true "A second install did not change version.txt"
 
     & cscript.exe //nologo (Join-Path $installDirectory "launch-t3-rtl.vbs") /check
     if ($LASTEXITCODE -ne 0) {
@@ -182,7 +193,7 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "version.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {

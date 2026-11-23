@@ -1256,7 +1256,7 @@ test("the page script parses and renders text without HTML parsing", () => {
 });
 
 test("the launcher loads repository status on its own and honors the opt-out", () => {
-  const launcher = fs.readFileSync(path.join(root, "src", "t3-rtl-launcher.js"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "src", "launcher-core.js"), "utf8");
   assert.match(launcher, /initialSettings\.repoStatus !== false && repoStatusRuns/);
   assert.match(launcher, /try \{\s*const \{ REPO_STATUS_BINDING, createRepoStatusService, opensSqliteReadOnly \} = require\("\.\/repo-status"\)/);
   assert.match(launcher, /Repository status could not be added/);
