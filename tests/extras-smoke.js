@@ -12,6 +12,7 @@ const { spawn } = require("node:child_process");
 const { createDispatch } = require("../src/cdp-dispatch");
 const { createSettingsStore } = require("../src/extras-settings");
 const { EXTRAS_BINDING, createExtrasService } = require("../src/extras");
+const { createUpdateService } = require("../src/updates");
 
 const edgePath = path.join(process.env["ProgramFiles(x86)"] || "", "Microsoft", "Edge", "Application", "msedge.exe");
 if (process.platform !== "win32" || !fs.existsSync(edgePath)) {
@@ -76,6 +77,11 @@ const t3Home = path.join(root, "t3home");
 fs.mkdirSync(fixDirectory);
 fs.mkdirSync(path.join(t3Home, "userdata"), { recursive: true });
 const settingsFile = path.join(fixDirectory, "settings.json");
+const versionFile = path.join(fixDirectory, "version.txt");
+fs.writeFileSync(versionFile, "1.8.0 first");
+let latest = { tag_name: "v1.8.0", body: "" };
+const installs = [];
+let finishInstall = null;
 
 let child;
 const pending = new Map();
@@ -126,7 +132,9 @@ async function waitFor(sessionId, expression, description) {
 
 async function clickOn(sessionId, selector) {
   const point = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
-    const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    const node = document.querySelector(${JSON.stringify(selector)});
+    node.scrollIntoView({ block: "nearest" });
+    const rect = node.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   })())`));
   for (const type of ["mousePressed", "mouseReleased"]) {
@@ -159,11 +167,20 @@ async function run() {
   child.stdio[4].on("data", onData);
 
   const store = createSettingsStore({ directory: fixDirectory, t3Home });
+  const updates = createUpdateService({
+    directory: fixDirectory,
+    fetchLatest: async () => latest,
+    runInstall: (version) => new Promise((resolve) => {
+      installs.push(version);
+      finishInstall = resolve;
+    }),
+  });
   const service = createExtrasService({
     send,
     store,
     reader: { read: async () => ({ accounts, problem: null }) },
     repoStatusAvailable: () => true,
+    updates,
     protocol: "http:",
   });
   dispatch = createDispatch({
@@ -234,6 +251,59 @@ async function run() {
   await press(sessionId, "Escape", "Escape", 27);
   await waitFor(sessionId, `!document.querySelector("[data-t3-extras-usage-pop]")`, "the popover to close");
 
+  // The version line of the usage list: Tab reaches its button, a check shows
+  // its result in place, and the focus stays on the button.
+  const FOOT = "[data-t3-extras-usage-pop] .t3x-pop-foot";
+  const footText = `(() => {
+    const foot = document.querySelector("${FOOT}");
+    return foot && [foot.innerText.trim(), foot.querySelector("[role=img]")?.getAttribute("aria-label"), foot.querySelector("button").getAttribute("aria-label")].join(" | ");
+  })()`;
+  await evaluate(sessionId, `${STRIP}.querySelector("button").focus(), 1`);
+  await press(sessionId, "Enter", "Enter", 13);
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 | Up to date | Check for Updates"`, "the version in the usage list");
+  // A press on "Check" that is released after an update was found installs nothing.
+  const check = JSON.parse(await evaluate(sessionId, `JSON.stringify((() => {
+    const rect = document.querySelector("${FOOT} button").getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, button: "left", clickCount: 1 };
+  })())`));
+  latest = { tag_name: "v1.9.0", body: "" };
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...check }, sessionId);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", ...check }, sessionId);
+  await updates.check();
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 → 1.9.0 |  | Install"`, "the version found during the press");
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...check }, sessionId);
+  await wait(300);
+  if (installs.length) throw new Error("A press on Check installed the update");
+  latest = { tag_name: "v1.8.0", body: "" };
+  await updates.check();
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 | Up to date | Check for Updates"`, "the version without an update");
+  await evaluate(sessionId, `${STRIP}.querySelector("button").focus(), 1`);
+
+  // Holding Enter on "Check" installs nothing either.
+  latest = { tag_name: "v1.9.0", body: "" };
+  await press(sessionId, "Tab", "Tab", 9);
+  await waitFor(sessionId, `document.activeElement.classList.contains("t3x-pop-btn")`, "the focus on the version button");
+  const enter = { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" };
+  await send("Input.dispatchKeyEvent", enter, sessionId);
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 → 1.9.0 |  | Install"`, "the version found by Enter");
+  for (let i = 0; i < 3; i += 1) await send("Input.dispatchKeyEvent", { ...enter, autoRepeat: true }, sessionId);
+  await send("Input.dispatchKeyEvent", { ...enter, type: "keyUp", text: undefined }, sessionId);
+  await wait(300);
+  if (installs.length) throw new Error("Holding Enter on Check installed the update");
+  latest = { tag_name: "v1.8.0", body: "" };
+  await updates.check();
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 | Up to date | Check for Updates"`, "the version without an update again");
+  await evaluate(sessionId, `${STRIP}.querySelector("button").focus(), 1`);
+
+  latest = { tag_name: "v1.9.0", body: "* Show one thing by @someone in https://github.com/o/r/pull/1" };
+  await press(sessionId, "Tab", "Tab", 9);
+  await waitFor(sessionId, `document.activeElement.classList.contains("t3x-pop-btn")`, "the focus on the version button");
+  await press(sessionId, " ", "Space", 32);
+  await waitFor(sessionId, `${footText} === "RTL Fix 1.8.0 → 1.9.0 |  | Install"`, "the available version in the usage list");
+  if (!(await evaluate(sessionId, `document.activeElement.classList.contains("t3x-pop-btn")`))) throw new Error("The version button lost the focus");
+  await press(sessionId, "Escape", "Escape", 27);
+  await waitFor(sessionId, `!document.querySelector("[data-t3-extras-usage-pop]") && document.activeElement === ${STRIP}.querySelector("button")`, "the list to close from its button");
+
   // A popover whose button React replaced closes with it.
   await evaluate(sessionId, `${STRIP}.querySelector("button").focus(), 1`);
   await press(sessionId, "Enter", "Enter", 13);
@@ -270,6 +340,30 @@ async function run() {
   if (!section.last || section.count !== 1 || !section.text.includes("Added by t3code-rtl-fix") || !section.text.includes("All accounts")) {
     throw new Error(`Unexpected Extras section: ${JSON.stringify(section)}`);
   }
+
+  // The version row of the section installs on a real click only.
+  const row = `[...document.querySelectorAll("[data-t3-extras-settings] .t3x-row")].find((node) => node.querySelector(".t3x-btn"))`;
+  const rowText = `${row}.innerText.replace(/\\s+/g, " ").trim()`;
+  const rowButton = "[data-t3-extras-settings] .t3x-btn";
+  const offered = await evaluate(sessionId, rowText);
+  if (!offered.startsWith("RTL Fix 1.8.0 Version 1.9.0 is available.") || !offered.includes("What's changed in 1.9.0 Show one thing Install")) {
+    throw new Error(`Unexpected version row: ${offered}`);
+  }
+  await evaluate(sessionId, `(document.querySelector("${rowButton}").click(), 1)`);
+  await wait(300);
+  if (installs.length) throw new Error("A synthetic click installed the update");
+  await clickOn(sessionId, rowButton);
+  await waitFor(sessionId, `${rowText}.includes("Installing the update.") && document.querySelector("${rowButton}").getAttribute("aria-disabled") === "true"`, "the install");
+  await clickOn(sessionId, rowButton);
+  await wait(300);
+  if (installs.join() !== "1.9.0") throw new Error(`Unexpected installs: ${installs}`);
+  finishInstall();
+  await waitFor(sessionId, `${rowText}.includes("The update was not installed.") && document.querySelector("${rowButton}").innerText === "Try again"`, "the failed install");
+  await clickOn(sessionId, rowButton);
+  await waitFor(sessionId, `${rowText}.includes("Installing the update.")`, "the second install");
+  fs.writeFileSync(versionFile, "1.9.0 second");
+  finishInstall();
+  await waitFor(sessionId, `${rowText}.startsWith("RTL Fix 1.9.0 Version 1.9.0 is installed.")`, "the finished install");
 
   // A click made by a script writes nothing.
   const usageSwitch = `[data-t3-extras-settings] [role=switch][aria-label="Usage limits in the sidebar"]`;

@@ -241,7 +241,8 @@ a separate weekly limit for one model. The reset shows in words, such as
 "resets in 21h", on the account's line when all its limits reset together, as
 with Claude, and on each limit's line when they differ. Point at a reset to see
 its date and time, or at an account's name to see when T3 Code last checked
-it. Escape closes the list.
+it. The last line shows the version of the fix and its update. Tab moves to its
+button. Escape closes the list. See [Updates from T3 Code](#updates-from-t3-code).
 
 - The numbers come from the files where T3 Code keeps what it last read about
   each account. The fix only reads them, and only the account's name, color,
@@ -330,6 +331,8 @@ the fix:
 - **Working section in the boring sidebar** shows T3 Code's Working section
   at the top of the boring sidebar. It is off by default. See
   [Working section in the boring sidebar](#working-section-in-the-boring-sidebar).
+- **RTL Fix** shows the installed version, checks for a newer one, and installs
+  it. See [Updates from T3 Code](#updates-from-t3-code).
 
 Changes apply at once, without a restart. A change of the Working section in
 the boring sidebar reloads T3 Code's windows. They are saved in `settings.json`
@@ -339,12 +342,30 @@ overwritten: the section says so, and changes wait until you fix or delete it.
 An existing `{ "repoStatus": false }` keeps working. Problems are written once
 each to `launcher.log` in the same folder.
 
+## Updates from T3 Code
+
+From version 1.8.0, the Extras section and the usage list show the installed
+version of the fix. The usage list shows icons in place of words. Point at one
+to read what it means. **Check for Updates** asks GitHub for the latest release
+of this repository. When it is newer, the Extras section shows what changed in
+it, and **Install** installs it and reloads T3 Code's windows, as described in
+[Updates without a restart](#updates-without-a-restart). Nothing is installed
+without a click.
+
+Opening the Labs page or the usage list checks as well, at most once an hour
+while T3 Code is open. The check sends nothing about you or your T3 Code.
+
+Like every install, an update replaces `rtl.css` and keeps `custom.css` and
+your settings. The output of the installer is in `launcher.log` in the
+installed folder. When an update fails, the installed version stays the one
+shown, and **Try again** takes the release that is the latest by then.
+
 ## Updates without a restart
 
 Once this version is installed, running the install command again updates
-the fix in a T3 Code that is already open. Within a few seconds the launcher
-loads the new version and reloads T3 Code's windows. Running sessions keep
-running, and text you are typing in the composer stays. A browser preview
+the fix in a T3 Code that is already open, and so does **Install** in the
+Extras section. Within a few seconds the launcher loads the new version and
+reloads T3 Code's windows. Running sessions keep running, and text you are typing in the composer stays. A browser preview
 that is open in a window loads its page again, so text typed into the
 previewed page is lost.
 
@@ -370,10 +391,10 @@ quit T3 Code fully and open it again.
 Run this in PowerShell:
 
 ```powershell
-irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/install.ps1' | iex
+irm 'https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/install.ps1' | iex
 ```
 
-The command downloads the current version of this repository, installs it, and
+The command downloads the latest release of this repository, installs it, and
 removes the downloaded copy. Run the same command again to update the fix, or
 after a T3 Code update if the fix stops loading. If you edited the installed
 `rtl.css`, copy your rules to `custom.css` first, because an update replaces
@@ -397,7 +418,7 @@ open T3 Code, as described in
 If T3 Code is installed in a non-default location, pass the executable path:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/install.ps1'))) `
+& ([scriptblock]::Create((irm 'https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/install.ps1'))) `
   -T3CodePath "D:\Apps\T3 Code (Beta).exe"
 ```
 
@@ -438,10 +459,10 @@ The uninstaller restores the original shortcuts. You can then delete the
 Run this in Terminal:
 
 ```bash
-curl -fsSL 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh' | bash
+curl -fsSL 'https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/install.sh' | bash
 ```
 
-The command downloads the current version of this repository, installs it, and
+The command downloads the latest release of this repository, installs it, and
 removes the downloaded copy. Run the same command again to update the fix.
 If you edited the installed `rtl.css`, copy your rules to `custom.css` first,
 because an update replaces `rtl.css`.
@@ -461,7 +482,7 @@ and open **T3 Code RTL** again.
 If T3 Code is installed in a non-default location, pass the app path:
 
 ```bash
-curl -fsSL 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh' |
+curl -fsSL 'https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/install.sh' |
   bash -s -- "/path/to/T3 Code (Alpha).app"
 ```
 
@@ -530,30 +551,38 @@ T3 Code's server, which runs the sessions, keeps running.
 The launcher has two parts. `t3-rtl-launcher.js` opens T3 Code and keeps the
 debugging pipe for as long as T3 Code runs. The fix itself is
 `launcher-core.js` and the files beside it. The installer writes
-`version.txt` last, once everything else is in place, so the launcher never
-loads a half-copied fix. The launcher checks `version.txt` every two seconds.
+`version.txt`, with the version, last, once everything else is in place, so the
+launcher never loads a half-copied fix. The launcher checks `version.txt`
+every two seconds.
 When it changes, the launcher loads the new fix, stops the running one,
 starts the new one, and reloads each T3 Code window without the cache.
 
 The connection uses inherited process pipes. It does not open a local TCP
-debugging port, and the RTL fix does not send data over the network.
+debugging port. The network requests of the fix are the check for a newer
+release, the download of an update you install, and the ones that `gh` makes to
+GitHub for the repository status section.
 
 For the repository status section, the launcher adds a DevTools binding to
 the T3 Code page. The page reports the address of the open thread through it,
 and the launcher answers with the counts. The launcher runs `git` and `gh`
 without a shell, and the page receives only the repository name, the counts,
 and their details. When a row or a link is clicked, the launcher opens only a GitHub page
-of that repository that it sent to the page itself. The only network requests
-are the ones `gh` makes to GitHub.
+of that repository that it sent to the page itself.
 
 The usage chips and the Extras section run in a separate script world that
 the launcher creates in the T3 Code page. Their binding exists only in that
 world, so T3 Code's own scripts and the frames inside the page, such as HTML
 that an agent made, cannot call it or receive its data. What the chips and the
 section show is ordinary text in T3 Code's page. The page can change only
-the three Extras settings, one at a time, and the launcher writes them to its own
+the Extras settings, one at a time, and the launcher writes them to its own
 `settings.json`, never to a T3 Code file. It refuses when its folder is inside
 T3 Code's data folder.
+
+For an update, the page can only ask the launcher to check or to install. The
+launcher builds the address of the package from the version of the latest
+release, which must be three numbers, and runs the installer that the last
+install left in the installed folder, without a shell. The installer runs in a
+process of its own, so it finishes when T3 Code closes.
 
 ## Repository layout
 
@@ -561,7 +590,7 @@ T3 Code's data folder.
 src/       The fix injected into T3 Code, shared by both platforms
 windows/   Windows installer, uninstaller, and shortcut launcher
 macos/     macOS installer and uninstaller
-tests/     Unit, browser smoke, and Windows installer tests
+tests/     Unit, browser smoke, and installer tests
 assets/    The project icon
 ```
 
@@ -608,6 +637,19 @@ T3 Code installed on this machine, run:
 ```powershell
 $env:T3_CHECK_INSTALLED = "1"; node --test tests/working-shelf.test.js
 ```
+
+The macOS installer test, `tests/macos-installer.sh`, runs in CI. It installs
+from a release package and then updates it, with stand-ins for T3 Code and the
+download.
+
+## Release
+
+Users get a change when it is released, not when it is merged. Raise
+`version` in `package.json`, merge, and run the **Release** workflow on
+`main`. It runs the tests and publishes that version with its notes, the
+package, and the two install scripts. A version that was already released is
+refused. Marking an earlier release as the latest on GitHub withdraws a broken
+one.
 
 ## Credits
 

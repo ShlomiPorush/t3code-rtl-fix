@@ -126,6 +126,13 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`Repository status is off: ${error.message}`);
   }
 
+  let updates = null;
+  try {
+    updates = require("./updates").createUpdateService({ directory: rootDirectory, log });
+  } catch (error) {
+    log(`Updates of the fix from Extras are off: ${error.message}`);
+  }
+
   let extras = null;
   let extrasBinding = null;
   if (settingsStore) {
@@ -139,6 +146,7 @@ function prepareCore({ send, log, rootDirectory }) {
         store: settingsStore,
         reader: createUsageReader({ t3Home, log }),
         repoStatusAvailable: () => !!repoStatus && repoStatusRuns,
+        updates,
       });
     } catch (error) {
       log(`Extras are off: ${error.message}`);

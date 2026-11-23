@@ -36,13 +36,13 @@ test("the installers can run as one-line commands without a local clone", () => 
   const windowsInstaller = fs.readFileSync(path.join(root, "windows", "install.ps1"), "utf8");
   const macInstaller = fs.readFileSync(path.join(root, "macos", "install.sh"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-  assert.match(windowsInstaller, /archive\/refs\/heads\/main\.zip/);
+  assert.match(windowsInstaller, /t3code-rtl-fix\/releases\/latest\/download\/t3code-rtl-fix\.zip/);
   assert.match(windowsInstaller, /-UseBasicParsing/);
   assert.match(windowsInstaller, /SecurityProtocolType\]::Tls12/);
-  assert.match(macInstaller, /archive\/refs\/heads\/main\.zip/);
+  assert.match(macInstaller, /t3code-rtl-fix\/releases\/latest\/download\/t3code-rtl-fix\.zip/);
   assert.match(macInstaller, /\.\.\/src\/injection\.js/);
-  assert.match(readme, /irm 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/windows\/install\.ps1' \| iex/);
-  assert.match(readme, /curl -fsSL 'https:\/\/raw\.githubusercontent\.com\/ShlomiPorush\/t3code-rtl-fix\/main\/macos\/install\.sh' \| bash/);
+  assert.match(readme, /irm 'https:\/\/github\.com\/ShlomiPorush\/t3code-rtl-fix\/releases\/latest\/download\/install\.ps1' \| iex/);
+  assert.match(readme, /curl -fsSL 'https:\/\/github\.com\/ShlomiPorush\/t3code-rtl-fix\/releases\/latest\/download\/install\.sh' \| bash/);
 });
 
 test("each platform keeps its scripts in its own folder", () => {
@@ -330,6 +330,8 @@ test("every shipped source file contains only English UI text", () => {
     path.join("src", "repo-status.js"),
     path.join("src", "reply-start.js"),
     path.join("src", "working-shelf.js"),
+    path.join("src", "updates.js"),
+    path.join("src", "extras-page.js"),
     path.join("src", "rtl.css"),
   ];
   for (const file of files) {

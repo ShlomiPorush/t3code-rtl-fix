@@ -1,7 +1,8 @@
 "use strict";
 
-// The page side of Extras: the usage chips in the sidebar footer and the
-// Extras section on T3 Code's Labs settings page. It runs in an isolated
+// The page side of Extras: the usage chips in the sidebar footer, with the
+// version of the fix in their list, and the Extras section on T3 Code's Labs
+// settings page. It runs in an isolated
 // world that the launcher creates in the main frame, so T3 Code's own scripts
 // and the frames inside the page cannot reach its binding or its receiver.
 //
@@ -41,6 +42,7 @@ function pageMain(config) {
     problem: null,
     error: null,
     busy: false,
+    update: null,
   };
 
   function claim() {
@@ -82,6 +84,16 @@ function pageMain(config) {
     if (className) node.className = className;
     if (text !== undefined) node.textContent = text;
     return node;
+  }
+
+  function icon(className, path) {
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", className);
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.appendChild(document.createElementNS(ns, "path")).setAttribute("d", path);
+    return svg;
   }
 
   // Each account shows in its own color from T3 Code, as #rrggbb, or in the
@@ -143,9 +155,96 @@ function pageMain(config) {
     document.head.appendChild(style);
   }
 
+  // ---- Version of the fix -------------------------------------------------
+
+  var ICONS = {
+    refresh: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5",
+    download: "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5",
+    check: "M20 6 9 17l-5-5",
+    warning: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01",
+  };
+
+  function updateAction() {
+    var status = state.update.status;
+    if (status === "checking") return { label: "Checking…", icon: "refresh", type: null };
+    if (status === "installing") return { label: "Installing…", icon: "refresh", type: null };
+    if (status === "available") return { label: "Install", icon: "download", type: "installUpdate" };
+    if (status === "installFailed") return { label: "Try again", icon: "download", type: "installUpdate" };
+    return { label: "Check for Updates", icon: "refresh", type: "checkUpdate" };
+  }
+
+  function updateText() {
+    var update = state.update;
+    switch (update.status) {
+      case "current": return "Up to date.";
+      case "available": return "Version " + update.latest + " is available. Installing it reloads T3 Code's windows. Running sessions keep running.";
+      case "checkFailed": return "Could not check for updates. Check your connection and try again.";
+      case "installing": return "Installing the update.";
+      case "installed": return "Version " + update.installed + " is installed. The windows reload in a few seconds. If they do not, quit T3 Code and open it again.";
+      case "installFailed": return "The update was not installed. The reason is in launcher.log. You can also run the install command again.";
+      default: return "The version of t3code-rtl-fix that is installed.";
+    }
+  }
+
+  function updateName() {
+    return "RTL Fix" + (state.update.installed ? " " + state.update.installed : "");
+  }
+
+  var MARKS = {
+    current: { icon: "check", tone: "success", label: "Up to date" },
+    installed: { icon: "check", tone: "success", label: "Installed" },
+    checkFailed: { icon: "warning", tone: "warning", label: "Check failed" },
+    installFailed: { icon: "warning", tone: "destructive", label: "Update failed" },
+  };
+
+  // The version in the usage list, on one line: icons in place of words.
+  function updateSummary() {
+    var update = state.update;
+    var offered = update.status === "available" || update.status === "installing";
+    var summary = el("span", "t3x-pop-version");
+    summary.appendChild(el("span", "", updateName() + (offered ? " → " + update.latest : "")));
+    var mark = MARKS[update.status];
+    if (mark) {
+      var node = el("span", "t3x-mark");
+      node.setAttribute("role", "img");
+      node.setAttribute("aria-label", mark.label);
+      node.title = mark.label;
+      node.style.color = "var(--" + mark.tone + ")";
+      node.appendChild(icon("t3x-icon", ICONS[mark.icon]));
+      summary.appendChild(node);
+    }
+    return summary;
+  }
+
+  // Each action gets a button of its own, so a press on "Check" that is released
+  // after an update was found never installs it. A button that is disabled
+  // would lose the focus.
+  function updateButton(className, iconOnly) {
+    var action = updateAction();
+    var button = el("button", className, iconOnly ? "" : action.label);
+    button.type = "button";
+    if (iconOnly) {
+      button.setAttribute("aria-label", action.label);
+      button.title = action.label;
+      button.dataset.icon = action.icon;
+      button.appendChild(icon("t3x-icon", ICONS[action.icon]));
+    }
+    button.setAttribute("aria-disabled", action.type ? "false" : "true");
+    // A key that is held on "Check" reaches the "Install" that takes its place.
+    button.addEventListener("keydown", function (event) {
+      if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+    });
+    button.addEventListener("click", function (event) {
+      if (event.isTrusted && action.type) notify({ type: action.type });
+    });
+    return button;
+  }
+
   // ---- Footer chips -------------------------------------------------------
 
   var popover = null;
+  var popBody = null;
+  var popFoot = null;
   var signatures = new WeakMap();
   var popAnchor = null;
   var showTimer = 0;
@@ -297,17 +396,22 @@ function pageMain(config) {
     if (!popover) {
       popover = el("div", "t3x-pop");
       popover.setAttribute(POP, "");
-      popover.setAttribute("role", "tooltip");
+      popover.setAttribute("role", "dialog");
+      popover.setAttribute("aria-label", "Usage limits");
       popover.id = "t3-extras-usage-pop";
+      popBody = el("div");
+      popover.appendChild(popBody);
+      popFoot = buildPopFoot();
+      popover.appendChild(popFoot);
       popover.addEventListener("mouseenter", function () {
         clearTimeout(hideTimer);
       });
       popover.addEventListener("mouseleave", scheduleHide);
     }
-    popover.textContent = "";
+    popBody.textContent = "";
     var head = el("div", "t3x-pop-head");
     head.appendChild(el("span", "t3x-pop-title", "Usage limits"));
-    popover.appendChild(head);
+    popBody.appendChild(head);
     var list = el("div", "t3x-pop-list");
     accounts.forEach(function (account) {
       var row = tint(el("div", "t3x-acct" + (Date.now() - account.checkedAt > config.dimAfterMs ? " t3x-old" : "")), account);
@@ -354,11 +458,50 @@ function pageMain(config) {
       });
       list.appendChild(row);
     });
-    popover.appendChild(list);
+    popBody.appendChild(list);
+    renderPopFoot();
     if (!popover.isConnected) document.body.appendChild(popover);
     place(anchor);
     // A refresh keeps the place the reader scrolled to.
     popover.scrollTop = scrolled;
+  }
+
+  // The version line stays when the list is drawn again, so its button keeps
+  // the focus.
+  var footSignature = "";
+  function buildPopFoot() {
+    var foot = el("div", "t3x-pop-foot");
+    foot.hidden = true;
+    foot.appendChild(el("span"));
+    foot.appendChild(el("button"));
+    foot.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" && event.key !== "Tab") return;
+      var anchor = popAnchor;
+      if (event.key === "Escape" || event.shiftKey) event.preventDefault();
+      event.stopPropagation();
+      // From the chips, Tab moves on to what follows them.
+      if (anchor) anchor.focus();
+      if (event.key === "Escape" || !event.shiftKey) hidePop();
+    });
+    foot.addEventListener("focusout", function (event) {
+      // Closing the list takes the focus out of it as well.
+      if (popAnchor && !popover.contains(event.relatedTarget) && event.relatedTarget !== popAnchor) hidePop();
+    });
+    return foot;
+  }
+
+  function renderPopFoot() {
+    var signature = JSON.stringify(state.update);
+    if (!state.update || signature === footSignature) return;
+    footSignature = signature;
+    popFoot.hidden = false;
+    popFoot.firstChild.replaceWith(updateSummary());
+    var previous = popFoot.lastChild;
+    var button = updateButton("t3x-pop-btn", true);
+    popFoot.appendChild(button);
+    // Before the removal, which would take the focus out of the list and close it.
+    if (document.activeElement === previous) button.focus();
+    previous.remove();
   }
 
   function place(anchor) {
@@ -385,8 +528,9 @@ function pageMain(config) {
       if (popAnchor && popAnchor.isConnected) buildPop(popAnchor);
       else hidePop();
     }, 30000);
-    anchor.setAttribute("aria-describedby", popover.id);
+    anchor.setAttribute("aria-controls", popover.id);
     anchor.setAttribute("aria-expanded", "true");
+    notify({ type: "updateShown" });
   }
 
   function hidePop() {
@@ -394,7 +538,7 @@ function pageMain(config) {
     clearTimeout(hideTimer);
     clearInterval(popTimer);
     if (popAnchor) {
-      popAnchor.removeAttribute("aria-describedby");
+      popAnchor.removeAttribute("aria-controls");
       popAnchor.setAttribute("aria-expanded", "false");
     }
     popAnchor = null;
@@ -409,6 +553,7 @@ function pageMain(config) {
   }
 
   function wireStrip(strip) {
+    strip.setAttribute("aria-haspopup", "dialog");
     strip.setAttribute("aria-expanded", "false");
     strip.addEventListener("mouseenter", function () {
       clearTimeout(hideTimer);
@@ -424,8 +569,8 @@ function pageMain(config) {
     strip.addEventListener("focus", function () {
       if (strip.matches(":focus-visible")) showPop(strip);
     });
-    strip.addEventListener("blur", function () {
-      hidePop();
+    strip.addEventListener("blur", function (event) {
+      if (!popover || !popover.contains(event.relatedTarget)) hidePop();
     });
     strip.addEventListener("click", function () {
       if (popAnchor === strip) hidePop();
@@ -438,6 +583,9 @@ function pageMain(config) {
       if (event.key === "Escape" && popAnchor) {
         event.stopPropagation();
         hidePop();
+      } else if (event.key === "Tab" && !event.shiftKey && popAnchor === strip && !popFoot.hidden) {
+        event.preventDefault();
+        popFoot.lastChild.focus();
       } else if (popAnchor === strip && popover && (Object.prototype.hasOwnProperty.call(scrollKeys, event.key) || event.key === "Home" || event.key === "End")) {
         event.preventDefault();
         var step = scrollKeys[event.key];
@@ -584,14 +732,7 @@ function pageMain(config) {
         option.setAttribute("aria-selected", hidden.has(account.id) ? "false" : "true");
         option.dataset.id = account.id;
         var box = el("span", "t3x-check");
-        var ns = "http://www.w3.org/2000/svg";
-        var tick = document.createElementNS(ns, "svg");
-        tick.setAttribute("viewBox", "0 0 24 24");
-        tick.setAttribute("aria-hidden", "true");
-        var tickPath = document.createElementNS(ns, "path");
-        tickPath.setAttribute("d", "M20 6 9 17l-5-5");
-        tick.appendChild(tickPath);
-        box.appendChild(tick);
+        box.appendChild(icon("", "M20 6 9 17l-5-5"));
         option.appendChild(box);
         var name = el("span", "t3x-option-name", account.name);
         name.dir = "auto";
@@ -696,7 +837,7 @@ function pageMain(config) {
     // A change in progress keeps the list open; toggle() waits for it.
     trigger.disabled = !settings.writable || !settings.usageLimits || !state.accounts.length;
     trigger.appendChild(el("span", "", accountsLabel()));
-    trigger.appendChild(el("span", "t3x-caret", "▾"));
+    trigger.appendChild(icon("t3x-caret", "m6 9 6 6 6-6"));
     trigger.addEventListener("click", function (event) {
       if (!event.isTrusted) return;
       if (listbox) closeList(false);
@@ -733,6 +874,7 @@ function pageMain(config) {
         change({ type: "set", key: "boringWorkingShelf", value: value });
       }),
     ));
+    if (state.update) card.appendChild(updateRow());
     var message = errorText();
     if (message) {
       var error = el("p", "t3x-error", message);
@@ -741,6 +883,20 @@ function pageMain(config) {
     }
     section.appendChild(card);
     return section;
+  }
+
+  function updateRow() {
+    var row = settingRow(updateName(), updateText(), updateButton("t3x-btn", false));
+    var notes = state.update.status === "available" ? state.update.notes : [];
+    if (notes.length) {
+      row.firstChild.appendChild(el("div", "t3x-notes-title", "What's changed in " + state.update.latest));
+      var list = el("ul", "t3x-notes");
+      notes.forEach(function (note) {
+        list.appendChild(el("li", "", note));
+      });
+      row.firstChild.appendChild(list);
+    }
+    return row;
   }
 
   var sectionSignature = "";
@@ -758,13 +914,14 @@ function pageMain(config) {
     }
     var signature = JSON.stringify([state.settings, state.accounts.map(function (a) {
       return [a.id, a.name, a.provider, a.windows.length > 0];
-    }), state.repoStatusAvailable, state.problem, state.error]);
+    }), state.repoStatusAvailable, state.problem, state.error, state.update]);
     var current = container.querySelector(":scope > [" + SECTION + "]");
     if (current && !mine.has(current)) {
       current.remove();
       current = null;
     }
     for (var j = 0; j < existing.length; j++) if (existing[j] !== current) existing[j].remove();
+    if (!current) notify({ type: "updateShown" });
     if (current && signature === sectionSignature && current === container.lastElementChild) return;
     var focusedOption = listbox && listbox.contains(document.activeElement) && document.activeElement.dataset
       ? document.activeElement.dataset.id || ""
@@ -813,6 +970,7 @@ function pageMain(config) {
     }
     ensureStyle();
     renderStrip();
+    if (popAnchor) renderPopFoot();
     renderSection();
   }
   function schedule() {
@@ -827,6 +985,7 @@ function pageMain(config) {
     if (Array.isArray(data.accounts)) state.accounts = data.accounts;
     if (typeof data.repoStatusAvailable === "boolean") state.repoStatusAvailable = data.repoStatusAvailable;
     if ("problem" in data) state.problem = data.problem;
+    if ("update" in data) state.update = data.update;
     if (data.kind === "result") {
       state.busy = false;
       state.error = data.ok ? null : data.error;
@@ -897,97 +1056,154 @@ function pageMain(config) {
 /* eslint-enable no-var */
 
 const PAGE_CSS = `
+/* T3 Code's own colors at the contrast set in its Appearance settings. */
+.t3x-host, .t3x-pop, .t3x-section {
+  --t3x-muted: var(--contrast-muted-foreground, var(--muted-foreground));
+  --t3x-fg: var(--contrast-foreground, var(--foreground));
+  --t3x-popover-fg: var(--contrast-popover-foreground, var(--popover-foreground));
+  --t3x-accent-fg: var(--contrast-accent-foreground, var(--accent-foreground));
+  --t3x-border: var(--contrast-border, var(--border));
+  --t3x-input: var(--contrast-input, var(--input));
+  --t3x-icon-muted: var(--contrast-icon-muted, var(--muted-foreground));
+}
 .t3x-host[data-t3-extras-usage] { flex: 1 1 auto; min-width: 0; display: flex; list-style: none; margin: 0; padding: 0; }
 [data-t3-extras-usage] > button.t3x-strip {
   flex: 1 1 auto; width: 100%; min-width: 0; overflow: hidden; display: flex; justify-content: center;
-  align-items: center; height: 28px; padding: 0 6px; margin: 0 4px; border: 0; border-radius: 6px;
+  align-items: center; height: 1.75rem; padding: 0 .375rem; margin: 0 .25rem; border: 0; border-radius: .375rem;
   background: transparent; color: inherit; font: inherit; cursor: default; direction: ltr;
 }
 .t3x-strip:hover, .t3x-strip[aria-expanded="true"] { background: color-mix(in srgb, currentColor 8%, transparent); }
 .t3x-strip:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.t3x-strip-inner { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.t3x-strip-inner { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
 .t3x-chip {
-  display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 999px;
-  background: color-mix(in srgb, var(--t3x-accent) 22%, transparent); font-size: 11px; font-weight: 600;
-  font-variant-numeric: tabular-nums; line-height: 16px;
+  display: inline-flex; align-items: center; gap: .25rem; padding: 1px .375rem; border-radius: 999px;
+  background: color-mix(in srgb, var(--t3x-accent) 22%, transparent); font-size: .6875rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; line-height: 1rem;
 }
-.t3x-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--t3x-accent, var(--muted-foreground)); flex: none; }
-.t3x-acct-name .t3x-dot { margin-inline-end: 6px; vertical-align: middle; }
-.t3x-pace { width: 11px; height: 11px; flex: none; fill: none; stroke: var(--t3x-accent, var(--muted-foreground)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.t3x-dot { display: inline-block; width: .375rem; height: .375rem; border-radius: 50%; background: var(--t3x-accent, var(--t3x-muted)); flex: none; }
+.t3x-acct-name .t3x-dot { margin-inline-end: .375rem; vertical-align: middle; }
+.t3x-pace { width: .6875rem; height: .6875rem; flex: none; fill: none; stroke: var(--t3x-accent, var(--t3x-muted)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .t3x-pop {
-  position: fixed; z-index: 2147483000; width: 232px; overflow: auto; box-sizing: border-box;
-  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--popover); color: var(--popover-foreground); direction: ltr;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.28); font-size: 12px;
+  position: fixed; z-index: 2147483000; width: 14.5rem; overflow: auto; box-sizing: border-box;
+  padding: .625rem .75rem; border: 1px solid var(--t3x-border); border-radius: .625rem;
+  background: var(--popover); color: var(--t3x-popover-fg); direction: ltr;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.28); font-size: .75rem;
 }
-.t3x-pop-head { margin-bottom: 6px; }
-.t3x-pop-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
-.t3x-acct { padding: 6px 0; border-top: 1px solid var(--border); }
+.t3x-pop-head { margin-bottom: .375rem; }
+.t3x-pop-title { font-size: .6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--t3x-muted); }
+.t3x-acct { padding: .375rem 0; border-top: 1px solid var(--t3x-border); }
 .t3x-acct:first-child { border-top: 0; }
 .t3x-acct.t3x-old { opacity: .6; }
-.t3x-acct-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 1px; }
+.t3x-acct-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; margin-bottom: 1px; }
 .t3x-acct-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t3x-window-line { display: grid; grid-template-columns: 1fr 40px 32px 11px; gap: 6px; align-items: center; margin-top: 3px; }
-.t3x-window-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.t3x-window-line { display: grid; grid-template-columns: 1fr 2.5rem 2rem .6875rem; gap: .375rem; align-items: center; margin-top: .1875rem; }
+.t3x-window-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t3x-muted); }
 .t3x-acct .t3x-pct { text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
 .t3x-pace-cell { display: flex; align-items: center; justify-content: center; }
-.t3x-reset { flex: none; font-size: 11px; color: var(--muted-foreground); }
-.t3x-bar { height: 4px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, currentColor 12%, transparent); }
-.t3x-bar i { display: block; height: 100%; border-radius: 2px; background: var(--t3x-accent); }
-.t3x-section { display: grid; gap: 12px; direction: ltr; }
+.t3x-reset { flex: none; font-size: .6875rem; color: var(--t3x-muted); }
+.t3x-bar { height: .25rem; border-radius: .125rem; overflow: hidden; background: color-mix(in srgb, currentColor 12%, transparent); }
+.t3x-bar i { display: block; height: 100%; border-radius: .125rem; background: var(--t3x-accent); }
+.t3x-pop-foot {
+  position: sticky; bottom: -.625rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  margin: .375rem -.75rem -.625rem; padding: .5rem .75rem; border-top: 1px solid var(--t3x-border); background: var(--popover);
+}
+.t3x-pop-foot[hidden] { display: none; }
+.t3x-pop-version { min-width: 0; display: flex; align-items: center; gap: .375rem; color: var(--t3x-muted); white-space: nowrap; }
+.t3x-mark { flex: none; display: inline-flex; }
+.t3x-icon { width: .875rem; height: .875rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The sizes, colors, and shapes of T3 Code's own settings controls. The sizes
+   are in rem, so they follow its interface text size. */
+.t3x-btn, .t3x-pop-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap;
+  border: 1px solid var(--t3x-input); border-radius: var(--control-radius, .5rem); background: var(--popover); color: var(--t3x-fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); font: inherit; font-weight: 500; cursor: pointer; transition: scale .15s;
+}
+.t3x-btn { height: 1.75rem; padding: 0 calc(.625rem - 1px); font-size: .875rem; line-height: 1.25rem; }
+.t3x-pop-btn { width: 1.5rem; height: 1.5rem; padding: 0; }
+:is(.t3x-btn, .t3x-pop-btn):hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--accent) 50%, var(--popover)); }
+:is(.t3x-btn, .t3x-pop-btn):active:not([aria-disabled="true"]) { scale: .97; }
+:is(.t3x-btn, .t3x-pop-btn)[aria-disabled="true"] { opacity: .64; cursor: not-allowed; }
+.dark :is(.t3x-btn, .t3x-pop-btn, .t3x-trigger) { background: color-mix(in srgb, var(--t3x-input) 32%, transparent); }
+.dark :is(.t3x-btn, .t3x-pop-btn):hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--t3x-input) 64%, transparent); }
+.t3x-pop-foot .t3x-pop-btn[data-icon="download"] { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.t3x-pop-foot .t3x-pop-btn[data-icon="download"]:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--primary) 90%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .t3x-pop-btn[aria-disabled="true"] .t3x-icon { animation: t3x-spin 1s linear infinite; }
+}
+@keyframes t3x-spin { to { rotate: 360deg; } }
+.t3x-section { display: grid; gap: .625rem; direction: ltr; }
 /* In the right-to-left layout the section and the usage list read right to
    left like the rest of the app. */
 :root[data-t3-rtl-app="on"] :is(.t3x-section, .t3x-pop) { direction: rtl; }
-.t3x-title { margin: 0; font-size: 16px; font-weight: 600; }
-.t3x-sub { margin: 2px 0 0; font-size: 13px; color: var(--muted-foreground); }
-.t3x-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--card-foreground); }
-.t3x-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-top: 1px solid var(--border); }
-.t3x-row:first-child { border-top: 0; }
-.t3x-row-title { font-size: 14px; font-weight: 500; }
-.t3x-row-desc { margin-top: 2px; font-size: 13px; color: var(--muted-foreground); }
+.t3x-head { padding: 0 .75rem; }
+.t3x-title { margin: 0; font-size: 1rem; line-height: 1.75rem; font-weight: 600; }
+.t3x-sub, .t3x-row-desc, .t3x-notes, .t3x-notes-title, .t3x-error { font-size: .75rem; line-height: 1.125rem; }
+.t3x-sub, .t3x-row-desc, .t3x-notes { color: var(--t3x-muted); }
+.t3x-sub { margin: 0; }
+.t3x-card {
+  container-type: inline-size; border: 1px solid color-mix(in srgb, var(--t3x-border) 60%, transparent); border-radius: calc(var(--radius, 8px) + 4px);
+  background: color-mix(in srgb, var(--card) 40%, transparent); color: var(--t3x-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+.t3x-row { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; padding: .75rem; }
+.t3x-card > :not(:first-child) { border-top: 1px solid color-mix(in srgb, var(--t3x-border) 50%, transparent); }
+@container (min-width: 32rem) {
+  .t3x-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2rem; }
+}
+@media (min-width: 640px) {
+  .t3x-head { padding: 0 1rem; }
+  .t3x-row { padding: .75rem 1rem; }
+}
+.t3x-row-title { font-size: .875rem; line-height: 1.25rem; font-weight: 500; }
+.t3x-row-desc { max-width: 42rem; margin-top: .25rem; text-wrap: pretty; }
+.t3x-notes-title { margin-top: .5rem; font-weight: 500; }
+.t3x-notes { margin: 0; padding-inline-start: 1rem; list-style: disc; }
 .t3x-switch {
-  position: relative; flex: none; width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px;
-  background: var(--input); cursor: pointer; transition: background .15s;
+  flex: none; display: inline-flex; align-items: center; width: calc(2rem - 2px); height: calc(1rem + 2px); padding: 2px; border: 0; border-radius: 999px;
+  background: var(--t3x-input); cursor: pointer; transition: background-color .2s, box-shadow .2s;
 }
 .t3x-switch[aria-checked="true"] { background: var(--primary); }
-.t3x-switch:disabled { opacity: .5; cursor: not-allowed; }
-.t3x-switch:focus-visible, .t3x-trigger:focus-visible, .t3x-option:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.t3x-knob { position: absolute; top: 2px; inset-inline-start: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--background); transition: transform .15s; }
-.t3x-switch[aria-checked="true"] .t3x-knob { transform: translateX(16px); }
-.t3x-switch[aria-checked="true"]:dir(rtl) .t3x-knob { transform: translateX(-16px); }
-.t3x-seg { display: inline-flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.t3x-knob { width: calc(1rem - 2px); height: calc(1rem - 2px); border-radius: 50%; background: var(--background); box-shadow: 0 1px 3px rgb(0 0 0 / 0.05); transition: translate .15s; }
+.dark .t3x-switch[aria-checked="false"] .t3x-knob { background: var(--t3x-muted); }
+.t3x-switch[aria-checked="true"] .t3x-knob { translate: calc(1rem - 4px); }
+.t3x-switch[aria-checked="true"]:dir(rtl) .t3x-knob { translate: calc(4px - 1rem); }
+.t3x-seg { display: inline-flex; flex: none; gap: .125rem; padding: .125rem; border-radius: var(--radius, .5rem); background: color-mix(in srgb, var(--t3x-input) 40%, transparent); }
 .t3x-seg-btn {
-  padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground);
-  font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+  height: 1.5rem; padding: 0 .625rem; border: 0; border-radius: calc(var(--radius, 8px) - 2px); background: transparent;
+  color: var(--t3x-muted); font: inherit; font-size: .75rem; line-height: 1rem; font-weight: 500;
+  font-variant-numeric: tabular-nums; cursor: pointer; transition: color .15s, background-color .15s;
 }
-.t3x-seg-btn:hover:not(:disabled) { color: var(--foreground); }
-.t3x-seg-btn[aria-checked="true"] { background: var(--accent); color: var(--accent-foreground); }
-.t3x-seg-btn:disabled { opacity: .5; cursor: not-allowed; }
-.t3x-seg-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.t3x-seg-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--background) 55%, transparent); color: var(--t3x-fg); }
+.t3x-seg-btn[aria-checked="true"], .t3x-seg-btn[aria-checked="true"]:hover { background: var(--background); color: var(--t3x-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
+.dark .t3x-seg-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--t3x-input) 32%, transparent); }
+.dark .t3x-seg-btn[aria-checked="true"] { background: color-mix(in srgb, var(--t3x-input) 72%, transparent); }
 .t3x-select { position: relative; flex: none; }
 .t3x-trigger {
-  display: inline-flex; align-items: center; gap: 8px; min-width: 160px; justify-content: space-between;
-  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background);
-  color: inherit; font: inherit; font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: .375rem; min-width: 10rem; height: 1.75rem; padding: 0 calc(.625rem - 1px); justify-content: space-between;
+  box-sizing: border-box; border: 1px solid var(--t3x-input); border-radius: var(--radius, .5rem); background: var(--background);
+  color: var(--t3x-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); font: inherit; font-size: .875rem; line-height: 1.25rem; cursor: pointer;
 }
-.t3x-trigger:disabled { opacity: .5; cursor: not-allowed; }
-.t3x-caret { color: var(--muted-foreground); }
+:is(.t3x-switch, .t3x-seg-btn, .t3x-trigger):disabled { opacity: .64; cursor: not-allowed; }
+.t3x-caret { flex: none; width: .875rem; height: .875rem; margin-inline-end: -.25rem; color: var(--t3x-icon-muted); opacity: .7; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+:is(.t3x-btn, .t3x-pop-btn, .t3x-switch, .t3x-seg-btn, .t3x-trigger, .t3x-option):focus-visible {
+  outline: none; box-shadow: inset 0 0 0 1px var(--background), inset 0 0 0 3px var(--ring);
+}
 .t3x-list {
-  position: absolute; inset-inline-end: 0; top: calc(100% + 4px); z-index: 50; min-width: 240px; max-height: 320px; overflow: auto;
-  padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--popover);
-  color: var(--popover-foreground); box-shadow: 0 10px 30px rgb(0 0 0 / 0.28);
+  position: absolute; inset-inline-end: 0; top: calc(100% + 4px); z-index: 50; min-width: 15rem; max-height: 20rem; overflow: auto;
+  padding: .25rem; border: 1px solid var(--t3x-border); border-radius: var(--radius, .5rem); background: var(--popover);
+  color: var(--t3x-popover-fg); box-shadow: 0 16px 40px -18px rgb(0 0 0 / 0.55);
 }
 .t3x-list.t3x-up { top: auto; bottom: calc(100% + 4px); }
-.t3x-group-title { padding: 6px 8px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
-.t3x-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.t3x-option:hover, .t3x-option:focus { background: var(--accent); color: var(--accent-foreground); outline: none; }
-.t3x-check { width: 16px; height: 16px; flex: none; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, currentColor 40%, transparent); border-radius: 4px; display: grid; place-items: center; }
-.t3x-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+@container (max-width: 31.99rem) { .t3x-list { inset-inline: 0 auto; } }
+.t3x-group-title { padding: .375rem .5rem; font-size: .75rem; line-height: 1rem; font-weight: 500; color: var(--t3x-muted); }
+.t3x-option { display: flex; align-items: center; gap: .5rem; min-height: 1.75rem; box-sizing: border-box; padding: .25rem .5rem; border-radius: calc(var(--radius, 8px) - 4px); font-size: .875rem; line-height: 1.25rem; cursor: pointer; }
+.t3x-option:hover, .t3x-option:focus { background: var(--accent); color: var(--t3x-accent-fg); outline: none; }
+.t3x-check { width: 1rem; height: 1rem; flex: none; box-sizing: border-box; border: 1px solid color-mix(in srgb, currentColor 40%, transparent); border-radius: .25rem; display: grid; place-items: center; }
+.t3x-check svg { width: .75rem; height: .75rem; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
 .t3x-option[aria-selected="true"] .t3x-check { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 .t3x-option[aria-selected="true"] .t3x-check svg { visibility: visible; }
 .t3x-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t3x-option-note { font-size: 11px; color: var(--muted-foreground); }
-.t3x-error { margin: 0; padding: 10px 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--destructive); }
+.t3x-option-note { font-size: .75rem; color: var(--t3x-muted); }
+.t3x-error { margin: 0; padding: .75rem 1rem; color: var(--destructive); }
 `;
 
 function buildExtrasPageSource({ binding, receiver, protocol = "t3code:", refreshMs = 60 * 1000, dimAfterMs = 30 * 60 * 1000 }) {

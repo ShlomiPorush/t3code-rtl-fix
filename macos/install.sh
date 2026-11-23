@@ -1,22 +1,25 @@
 #!/bin/bash
 # T3 Code RTL Fix - macOS installer
 # Usage:  bash macos/install.sh ["/Applications/T3 Code (Alpha).app"]
-#    or:  curl -fsSL https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/macos/install.sh | bash
+#    or:  curl -fsSL https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/install.sh | bash
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 
-# Run through "curl ... | bash", this script has no repository around it.
-# Download the repository, run the installer it contains, and remove the
-# download. T3_RTL_FIX_SOURCE can point to a local ZIP instead.
-if [ ! -f "$SCRIPT_DIR/../src/injection.js" ]; then
-  PACKAGE="${T3_RTL_FIX_SOURCE:-https://github.com/ShlomiPorush/t3code-rtl-fix/archive/refs/heads/main.zip}"
+# Run through "curl ... | bash", this script has no file and no repository
+# around it. Download the repository, run the installer it contains, and remove
+# the download. T3_RTL_FIX_SOURCE can point to another package, an https
+# address or a local ZIP. An update from Extras runs the installed copy of this
+# script with it, and the install replaces that copy. Bash reads the whole
+# block before it runs it, so the exit must stay inside the block.
+if [ -n "${T3_RTL_FIX_SOURCE:-}" ] || [ -z "${BASH_SOURCE[0]:-}" ] || [ ! -f "$SCRIPT_DIR/../src/injection.js" ]; then
+  PACKAGE="${T3_RTL_FIX_SOURCE:-https://github.com/ShlomiPorush/t3code-rtl-fix/releases/latest/download/t3code-rtl-fix.zip}"
   WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/t3-rtl-install.XXXXXX")"
   trap 'rm -rf "$WORK_DIR"' EXIT
   case "$PACKAGE" in
     https://*)
       echo "Downloading T3 Code RTL Fix..."
-      curl -fsSL "$PACKAGE" -o "$WORK_DIR/package.zip"
+      curl -fsSL --connect-timeout 30 --max-time 300 "$PACKAGE" -o "$WORK_DIR/package.zip"
       ;;
     *)
       cp "$PACKAGE" "$WORK_DIR/package.zip"
@@ -28,7 +31,7 @@ if [ ! -f "$SCRIPT_DIR/../src/injection.js" ]; then
     echo "The downloaded package does not contain the macOS installer and its src folder."
     exit 1
   fi
-  bash "$INSTALLER" "$@"
+  env -u T3_RTL_FIX_SOURCE bash "$INSTALLER" "$@"
   exit 0
 fi
 
@@ -36,9 +39,12 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
-for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js; do
+for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js updates.js; do
   [ -f "$SRC/$f" ] || { echo "Missing file: src/$f"; exit 1; }
 done
+
+VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/../package.json" | head -n 1)"
+[ -n "$VERSION" ] || { echo "Missing version in package.json"; exit 1; }
 
 # --- Find T3 Code.app ---------------------------------------------------------
 APP="${1:-}"
@@ -75,10 +81,10 @@ mkdir -p "$INSTALL_DIR"
 cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/launcher-core.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
   "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
   "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
-  "$SRC/working-shelf.js" "$INSTALL_DIR/"
+  "$SRC/working-shelf.js" "$SRC/updates.js" "$INSTALL_DIR/"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
-cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+cp "$SCRIPT_DIR/uninstall.sh" "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/"
 
 cat > "$INSTALL_DIR/launch.sh" <<'LAUNCH'
 #!/bin/bash
@@ -99,9 +105,14 @@ chmod +x "$INSTALL_DIR/launch.sh"
 
 # --- Build the "T3 Code RTL" app ---------------------------------------------
 mkdir -p "$HOME/Applications"
-rm -rf "$LAUNCHER_APP"
-osacompile -o "$LAUNCHER_APP" \
+# Built aside, so a build that fails keeps the app the user opens T3 Code with.
+BUILD_DIR="$(mktemp -d "$INSTALL_DIR/build.XXXXXX")"
+trap 'rm -rf "$BUILD_DIR"' EXIT
+NEW_APP="$BUILD_DIR/T3 Code RTL.app"
+osacompile -o "$NEW_APP" \
   -e "do shell script \"/bin/bash \" & quoted form of \"$INSTALL_DIR/launch.sh\" & \" > /dev/null 2>&1 &\""
+rm -rf "$LAUNCHER_APP"
+mv "$NEW_APP" "$HOME/Applications/"
 
 # --- Use T3 Code's exact icon --------------------------------------------------
 # osacompile gives the wrapper a default script icon (applet.icns and, on newer
@@ -153,8 +164,9 @@ touch "$LAUNCHER_APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$LAUNCHER_APP" >/dev/null 2>&1 || true
 
-# Last, so a running launcher never loads a half-finished install.
-printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
+# Last, so a running launcher never loads a half-finished install, and Extras
+# never takes one for the new version.
+printf '%s' "$VERSION $(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
 
 echo ""
 echo "Done."
@@ -164,4 +176,5 @@ echo "1. Quit T3 Code completely (Cmd+Q)."
 echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
 echo "Your own CSS goes here: $INSTALL_DIR/custom.css. Updates replace rtl.css but never change custom.css."
 echo "Log file: $INSTALL_DIR/launcher.log"
-open -R "$LAUNCHER_APP" 2>/dev/null || true
+# An update from Extras has no terminal and does not need the Finder.
+if [ -t 1 ]; then open -R "$LAUNCHER_APP" 2>/dev/null || true; fi
