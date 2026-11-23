@@ -95,11 +95,14 @@ function createHost({ send, log, loadCore, readVersion }) {
     if (prepared) await start(prepared);
   }
 
-  // Replaces the running core when version.txt changed. When the new core
+  // Replaces the running core when version.txt changed. An empty or missing
+  // version.txt, such as one being written, is no change. When the new core
   // cannot be loaded, the running one stays. When it cannot start, T3 Code
   // runs without the fix until the next install or launch.
   async function checkForUpdate() {
-    if (busy || readVersion() === version) return;
+    if (busy) return;
+    const installed = readVersion();
+    if (!installed || installed === version) return;
     busy = true;
     try {
       const next = load();

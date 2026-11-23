@@ -72,17 +72,10 @@ if [ -n "$NODE_BIN" ]; then echo "Using Node.js: $NODE_BIN"; else echo "Node.js 
 
 # --- Copy files ---------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-# An open T3 Code keeps the launcher it started with, and takes a new fix only
-# while that launcher is the one being installed.
-SAME_LAUNCHER=""
-cmp -s "$SRC/t3-rtl-launcher.js" "$INSTALL_DIR/t3-rtl-launcher.js" && SAME_LAUNCHER=1
 cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/launcher-core.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
   "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
   "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
   "$SRC/working-shelf.js" "$INSTALL_DIR/"
-# Written after every file is in place: a running launcher loads the new fix
-# when this changes.
-printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
 cp "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
@@ -160,12 +153,14 @@ touch "$LAUNCHER_APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$LAUNCHER_APP" >/dev/null 2>&1 || true
 
+# Written last, once the install has succeeded: a running launcher loads the
+# new fix when this changes.
+printf '%s' "$(date +%s)-$$-$RANDOM" > "$INSTALL_DIR/version.txt"
+
 echo ""
 echo "Done."
-if [ -n "$SAME_LAUNCHER" ]; then
-  echo "A T3 Code that is open through T3 Code RTL takes the update in a few seconds: its windows reload, and running sessions keep running."
-  echo "Otherwise:"
-fi
+echo "If T3 Code is open through T3 Code RTL, its windows reload with the update within a few seconds, and running sessions keep running."
+echo "If they do not reload:"
 echo "1. Quit T3 Code completely (Cmd+Q)."
 echo "2. Open \"T3 Code RTL\" from ~/Applications (or Spotlight: Cmd+Space -> T3 Code RTL)."
 echo "Your own CSS goes here: $INSTALL_DIR/custom.css. Updates replace rtl.css but never change custom.css."

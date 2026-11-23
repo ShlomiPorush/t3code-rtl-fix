@@ -53,17 +53,13 @@ try {
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "injection.js")) $true "The browser injection helper was not installed"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "launcher-core.js")) $true "The fix core was not installed"
     Assert-Equal (Test-Path -LiteralPath (Join-Path $installDirectory "custom.css")) $false "The installer wrote custom.css"
-    Assert-Equal ($firstOutput -like "*takes the update in a few seconds*") $false "A first install said that an open T3 Code takes it"
+    Assert-Equal ($firstOutput -like "*reload with the update*") $true "The installer did not say how an open T3 Code takes the update"
 
-    # A running launcher loads the new fix when version.txt changes, which an
-    # install with the same launcher can do without a restart.
+    # A running launcher loads the new fix when version.txt changes.
     $versionPath = Join-Path $installDirectory "version.txt"
     $firstVersion = [System.IO.File]::ReadAllText($versionPath)
-    $secondOutput = & $installAgain
+    & $installAgain | Out-Null
     Assert-Equal ([System.IO.File]::ReadAllText($versionPath) -ne $firstVersion) $true "A second install did not change version.txt"
-    Assert-Equal ($secondOutput -like "*takes the update in a few seconds*") $true "The installer did not say that an open T3 Code takes the update"
-    [System.IO.File]::AppendAllText((Join-Path $installDirectory "t3-rtl-launcher.js"), "// an older launcher")
-    Assert-Equal ((& $installAgain) -like "*takes the update in a few seconds*") $false "The installer said that an older launcher takes the update"
 
     & cscript.exe //nologo (Join-Path $installDirectory "launch-t3-rtl.vbs") /check
     if ($LASTEXITCODE -ne 0) {

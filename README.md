@@ -346,8 +346,10 @@ running, and text you are typing in the composer stays. A browser preview
 that is open in a window loads its page again, so text typed into the
 previewed page is lost.
 
-When the update also changes the launcher itself, the installer asks you to
-quit T3 Code fully once and open it again. This is rare.
+An open T3 Code keeps the launcher it was opened with. When an update also
+changes the launcher itself, which is rare, or when T3 Code was opened before
+this version was installed, the windows do not reload. Quit T3 Code fully once
+and open it again.
 
 When the new version cannot load, the open T3 Code keeps the version it runs.
 When it loads but cannot start, T3 Code's windows reload without the fix.
@@ -371,7 +373,9 @@ irm 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/windows/
 
 The command downloads the current version of this repository, installs it, and
 removes the downloaded copy. Run the same command again to update the fix, or
-after a T3 Code update if the fix stops loading. An update that renames the
+after a T3 Code update if the fix stops loading. If you edited the installed
+`rtl.css`, copy your rules to `custom.css` first, because an update replaces
+`rtl.css`. An update that renames the
 app, such as T3 Code 0.1.0 renaming "T3 Code (Alpha)" to "T3 Code (Beta)",
 replaces its shortcuts with ones that open T3 Code without the fix.
 
@@ -437,6 +441,8 @@ curl -fsSL 'https://raw.githubusercontent.com/ShlomiPorush/t3code-rtl-fix/main/m
 
 The command downloads the current version of this repository, installs it, and
 removes the downloaded copy. Run the same command again to update the fix.
+If you edited the installed `rtl.css`, copy your rules to `custom.css` first,
+because an update replaces `rtl.css`.
 
 The installer finds T3 Code in `/Applications` or `~/Applications`, copies the
 fix to `~/Library/Application Support/T3RTLFix`, and creates a separate
@@ -522,12 +528,10 @@ T3 Code's server, which runs the sessions, keeps running.
 The launcher has two parts. `t3-rtl-launcher.js` opens T3 Code and keeps the
 debugging pipe for as long as T3 Code runs. The fix itself is
 `launcher-core.js` and the files beside it. The installer writes
-`version.txt` after it has copied every other file, so the launcher never
+`version.txt` last, once everything else is in place, so the launcher never
 loads a half-copied fix. The launcher checks `version.txt` every two seconds.
 When it changes, the launcher loads the new fix, stops the running one,
-starts the new one, and reloads each T3 Code window without the cache. The
-installer compares the launcher it installs with the one already installed,
-to tell whether an open T3 Code takes the update.
+starts the new one, and reloads each T3 Code window without the cache.
 
 The connection uses inherited process pipes. It does not open a local TCP
 debugging port, and the RTL fix does not send data over the network.

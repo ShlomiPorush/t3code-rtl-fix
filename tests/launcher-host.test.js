@@ -59,12 +59,17 @@ function setup(versions = {}) {
 }
 
 test("at launch the installed core starts and no window reloads", async () => {
-  const { host, events, reloads } = setup();
+  const { host, events, installed, reloads } = setup();
   await host.launch(host.load());
   assert.deepEqual(events, ["a.load", "a.start"]);
   assert.deepEqual(reloads(), []);
   await host.checkForUpdate();
   assert.deepEqual(events, ["a.load", "a.start"], "nothing to do while version.txt stays");
+  installed.version = "";
+  await host.checkForUpdate();
+  installed.version = null;
+  await host.checkForUpdate();
+  assert.deepEqual(events, ["a.load", "a.start"], "an empty or missing version.txt is no change");
 });
 
 test("a paused script that no core takes passes unchanged", async () => {

@@ -138,20 +138,9 @@ foreach ($requiredFile in $requiredFiles) {
 }
 
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
-
-# An open T3 Code keeps the launcher it started with, and takes a new fix only
-# while that launcher is the one being installed.
-$installedLauncher = Join-Path $InstallDirectory "t3-rtl-launcher.js"
-$sameLauncher =
-    (Test-Path -LiteralPath $installedLauncher) -and
-    (Get-FileHash -LiteralPath $installedLauncher).Hash -eq (Get-FileHash -LiteralPath (Join-Path $sourceDirectory "t3-rtl-launcher.js")).Hash
-
 foreach ($requiredFile in $requiredFiles) {
     Copy-Item -LiteralPath $requiredFile -Destination $InstallDirectory -Force
 }
-# Written after every file is in place: a running launcher loads the new fix
-# when this changes.
-[System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), [guid]::NewGuid().ToString("N"))
 
 [System.IO.File]::WriteAllText(
     (Join-Path $InstallDirectory "app-path.txt"),
@@ -267,12 +256,12 @@ $repairPaths = @($manifest | Where-Object { -not $_.Created } | ForEach-Object {
     [System.Text.Encoding]::Unicode
 )
 
+# Written last, once the install has succeeded: a running launcher loads the
+# new fix when this changes.
+[System.IO.File]::WriteAllText((Join-Path $InstallDirectory "version.txt"), [guid]::NewGuid().ToString("N"))
+
 Write-Output "T3 Code RTL Fix was installed in $InstallDirectory"
 Write-Output "Updated shortcuts: $updated"
-if ($sameLauncher) {
-    Write-Output "A T3 Code that is open through the fix takes the update in a few seconds: its windows reload, and running sessions keep running."
-    Write-Output "Otherwise, fully quit T3 Code, then open it from an updated shortcut."
-} else {
-    Write-Output "Fully quit T3 Code, then open it from an updated shortcut."
-}
+Write-Output "If T3 Code is open, its windows reload with the update within a few seconds, and running sessions keep running."
+Write-Output "If they do not reload, fully quit T3 Code, then open it from an updated shortcut."
 Write-Output "Your own CSS goes in $(Join-Path $InstallDirectory 'custom.css'). Updates replace rtl.css but never change custom.css."
