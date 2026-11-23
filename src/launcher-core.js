@@ -348,8 +348,8 @@ function prepareCore({ send, log, rootDirectory }) {
       }
     } catch (error) {
       const sessionId = forgetTarget(targetId);
-      // Detaching drops the registered scripts, and the next event for the window attaches again.
-      if (sessionId) send("Target.detachFromTarget", { sessionId }).catch(() => {});
+      // Detaching sends an event for the window. Awaited, so that event does not start another attach.
+      if (sessionId) await send("Target.detachFromTarget", { sessionId }).catch(() => {});
       log(`Injection failed for target ${targetId}: ${error.message}`);
     }
   }
