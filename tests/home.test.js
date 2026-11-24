@@ -565,17 +565,17 @@ test("pinned projects come first, then working ones, then the latest, and a pinn
 });
 
 test("a pull request is on the row of the thread it is linked to, and otherwise has its own row", () => {
-  const link = (number, overrides = {}) => ({ host: "github.com", repository: "O/App", number, snapshot: { state: "open" }, ...overrides });
+  const link = (number, overrides = {}) => ({ host: "github.com", repository: "O/App", number, linkedAt: before(9), snapshot: { state: "open" }, ...overrides });
   const pulls = [pullFact(1), pullFact(2, { stage: "open", tone: "warn", note: "conflicts" }), pullFact(3, { update: true })];
-  const threads = [thread({ pullRequests: [link(1), link(8), link(9, { snapshot: { state: "merged" } }), link(2, { repository: "o/other" })] })];
+  const threads = [thread({ pullRequests: [link(1), link(7), link(8, { linkedAt: before(1) }), link(9, { snapshot: { state: "merged" } }), link(2, { repository: "o/other" })] })];
   const projects = [project("app", "o/app")];
-  const page = renderHome({ projects, threads, github: answered({ "o/app": facts({ pulls, openPulls: 3 }) }) });
+  const page = renderHome({ projects, threads, github: answered({ "o/app": facts({ pulls, openPulls: 3, readAt: Date.parse(before(5)) }) }) });
   const rows = page.having("t3h-row");
   assert.match(rows[0], /^A thread\n2h\n#1 ready to merge\n#8 open$/);
   assert.match(rows[1], /^Pull 2\n1m\n#2 conflicts$/);
   assert.equal(rows.length, 2, "dependency updates have no row");
   assert.ok(page.links.some((item) => item.name.trim() === "#1 ready to merge" && item.href === "https://github.com/o/app/pull/1"));
-  assert.match(renderHome({ projects, threads }).having("t3h-row")[0], /#1 open/);
+  assert.match(renderHome({ projects, threads }).having("t3h-row")[0], /#1 open\n#7 open\n#8 open$/, "T3 Code's links alone, until GitHub is read");
 });
 
 test("rows past the fifth are behind a button, and threads left long ago come last", () => {
@@ -612,8 +612,6 @@ test("a project has no open work only when its pull requests were read, and othe
   assert.match(known, /No open work\n2 projects/);
   assert.match(known, /read[\s\S]*local/);
   assert.match(unknown, /cut[\s\S]*waiting\nReading GitHub…[\s\S]*failed\nGitHub is not available/);
-  assert.doesNotMatch(shown, /Nothing is in the middle/);
-  assert.match(renderHome({ projects: [project("read", "o/read")], github }).shown, /Nothing is in the middle/);
   const update = answered({ "o/read": facts({ pulls: [pullFact(1, { update: true })], openPulls: 1 }) });
   assert.equal(renderHome({ projects: [project("read", "o/read")], github: update }).tiles.length, 1, "updates alone are not open work");
 });

@@ -132,7 +132,7 @@ function homeView({
 
   function pullRow(entry, pull) {
     return {
-      key: `pull${pull.number}`, kind: "pull", tone: pull.tone, text: pull.title, at: pull.at, link: pullUrl(entry, pull.number),
+      key: `pull${pull.number}`, tone: pull.tone, text: pull.title, at: pull.at, link: pullUrl(entry, pull.number),
       notes: [{ key: "stage", text: `#${pull.number} ${pullWord(pull)}`, tone: pull.tone }],
     };
   }
@@ -143,17 +143,21 @@ function homeView({
     done: { text: "Finished, not read yet", tone: "ok" },
   };
 
-  function threadRow(entry, item, pulls, now) {
+  function threadRow(entry, item, facts, now) {
     const { thread, at, state } = item;
+    const pulls = pullsOf(facts);
+    // T3 Code can keep a link open long after its pull request was closed.
+    const isOpen = ({ number, linkedAt }) =>
+      !isRead(facts) || facts.cut || pulls.some((pull) => pull.number === number) || timeOf(linkedAt) > facts.readAt;
     const linked = (thread.pullRequests || []).filter((link) =>
-      link.host === "github.com" && link.repository?.toLowerCase() === entry.repository && link.snapshot?.state === "open");
+      link.host === "github.com" && link.repository?.toLowerCase() === entry.repository && link.snapshot?.state === "open" && isOpen(link));
     const stateNote = state === "run" ? { text: `Working, ${ago(now - workingSince(thread))}`, tone: "run" } : STATE_NOTES[state];
     const notes = linked.map(({ number }) => {
       const pull = pulls.find((other) => other.number === number);
       return { key: number, text: `#${number} ${pull ? pullWord(pull) : "open"}`, tone: pull?.tone, pull: pullUrl(entry, number) };
     });
     return {
-      key: `${thread.environmentId}:${thread.id}`, kind: "thread", state, text: thread.title, at, thread,
+      key: `${thread.environmentId}:${thread.id}`, state, text: thread.title, at, thread,
       linked: linked.map((link) => link.number),
       // The head of the card says the state of its first thread.
       notes: stateNote && item !== entry.lead ? [{ key: "state", ...stateNote }, ...notes] : notes,
@@ -164,10 +168,9 @@ function homeView({
     timeOf(thread.runtime?.activityStartedAt || thread.latestRun?.startedAt || thread.latestRun?.requestedAt) || activityOf(thread);
 
   function rowsOf(entry, facts, now) {
-    const pulls = pullsOf(facts);
-    const threads = entry.threads.map((item) => threadRow(entry, item, pulls, now));
+    const threads = entry.threads.map((item) => threadRow(entry, item, facts, now));
     const linked = new Set(threads.flatMap((row) => row.linked));
-    const others = pulls.filter((pull) => !linked.has(pull.number));
+    const others = pullsOf(facts).filter((pull) => !linked.has(pull.number));
     const rowsFor = (update) => others.filter((pull) => pull.update === update).map((pull) => pullRow(entry, pull));
     return {
       rows: [...threads.filter((row) => !row.old), ...rowsFor(false), ...threads.filter((row) => row.old)],
@@ -215,7 +218,7 @@ function homeView({
     const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
     return h("li", { className: `t3h-row${row.old ? " t3h-old" : ""}` },
       h("span", { className: `t3h-mark ${toneOf(row.tone)}`, "aria-hidden": true },
-        row.kind === "pull" ? h(Glyph, { size: 14 }, GLYPHS.pull) : h("i", { className: `t3h-state t3h-is-${row.state}` })),
+        row.thread ? h("i", { className: `t3h-state t3h-is-${row.state}` }) : h(Glyph, { size: 14 }, GLYPHS.pull)),
       row.thread
         ? h("button", { ...title, type: "button", onClick: () => actions.openThread(row.thread) }, row.text)
         : h("a", { ...title, ...openPull(row.link) }, row.text),
@@ -230,7 +233,6 @@ function homeView({
 
   const rowList = (rows, now, actions) => (rows.length ? h("ul", { className: "t3h-rows" }, rows.map((row) => h(Row, { key: row.key, row, now, actions }))) : null);
 
-  // How many of all have a word: "", " high" when all have it, or ", 4 high".
   const share = (all, number, word) => (number === 0 ? "" : number === all ? ` ${word}` : `, ${number} ${word}`);
 
   // A count that GitHub does not give is left out, so 0 always means 0.
@@ -313,7 +315,6 @@ function homeView({
       h(Foot, { entry, facts, now }));
   }
 
-  // About how many lines a card takes.
   function heightOf({ facts, rows }, opened) {
     const shown = shownRows(rows, opened);
     const notes = shown.filter((row) => row.notes.length > 0).length;
@@ -387,7 +388,6 @@ function homeView({
     const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
     return h("div", null,
       open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, now, actions })) : null,
-      open.length === 0 && known.length === rest.length ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
       h(Tiles, { title: "No open work", cards: known, actions }),
       h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), actions }));
   }
