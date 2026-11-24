@@ -878,7 +878,7 @@ function pageMain(config) {
     ));
     card.appendChild(settingRow(
       "Done section in the boring sidebar",
-      "Show threads that finished and that you have not opened since in a Done section, below Working and above Pinned. A change reloads the window. Running sessions keep running.",
+      "Show threads that wait for your input, and threads that finished and that you have not opened since, in a Done section, below Working and above Pinned. A change reloads the window. Running sessions keep running.",
       sw(settings.boringDoneShelf === true, locked, "Done section in the boring sidebar", function (value) {
         change({ type: "set", key: "boringDoneShelf", value: value });
       }),

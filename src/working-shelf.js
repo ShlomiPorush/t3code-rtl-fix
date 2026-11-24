@@ -9,7 +9,8 @@
 // - Working: T3 Code's Working section also shows with the boring sidebar,
 //   still behind T3 Code's own "Working section" setting,
 // - Done: the boring sidebar has a Done section of the threads that T3 Code
-//   labels Done, which finished and were not opened since,
+//   labels Input, which wait for the user's answer, or Done, which finished and
+//   were not opened since,
 // - Pinned: the pinned threads of the boring sidebar are plain rows, not cards, and
 // - with the boring sidebar only, the sections sit at the top of the
 //   sidebar, above Pinned, in the rows, in their keyboard order, and in the
@@ -80,17 +81,19 @@ function isModuleName(source, name) {
 }
 
 // A thread is Done when it is ready and unread by the functions of T3 Code's own
-// label, unless its run failed, which that label can also call Done. T3 Code marks
+// label, unless its run failed, which that label can also call Done. A thread
+// that waits for input is in the section until it is answered. T3 Code marks
 // a thread read when it opens, so the open thread stays until it is left, but a
 // thread that finishes while it is open does not enter.
 function doneHook({ status, unread, lastVisited, visits }) {
   return (
     `function ${DONE_HOOK}(threads,keyOf,openKey,react,useStored,schema){` +
     `const visited=${visits}(e=>e.threadLastVisitedAtById),[expanded,setExpanded]=useStored("t3-rtl-fix:sidebar:done-expanded",!0,schema),` +
-    "kept=react.useRef(new Set),done=threads.filter(e=>{" +
+    "kept=react.useRef(new Set),finished=threads.filter(e=>{" +
     `const key=keyOf(e),thread={...e,lastVisitedAt:${lastVisited}(e.lastVisitedAt,visited[key])};` +
     `return ${status}(thread)==="ready"&&(key===openKey?kept.current.has(key):${unread}(thread)&&e.latestRun.status!=="failed")` +
-    "}).sort((a,b)=>Date.parse(b.latestRun?.completedAt)-Date.parse(a.latestRun?.completedAt));" +
+    "}).sort((a,b)=>Date.parse(b.latestRun?.completedAt)-Date.parse(a.latestRun?.completedAt))," +
+    `done=[...threads.filter(e=>${status}(e)==="input"),...finished];` +
     "react.useLayoutEffect(()=>{kept.current=new Set(done.map(keyOf))});" +
     "const rows=expanded?done:done.filter(e=>keyOf(e)===openKey);" +
     "return{threads:done,rows,expanded,toggle:()=>setExpanded(e=>!e),items:done.length===0?[]:" +
