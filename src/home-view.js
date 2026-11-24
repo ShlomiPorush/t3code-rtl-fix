@@ -119,12 +119,12 @@ function homeView({
       const [{ project }] = copies.sort((a, b) => b.connected - a.connected || b.latest - a.latest);
       const first = (item) => (item.state === "ask" ? 2 : item.state === "run" ? 1 : 0);
       entry.threads.sort((a, b) => first(b) - first(a) || b.at - a.at);
-      return { ...entry, project, latest, pinned, lead: entry.threads.find((item) => item.state === "ask" || item.state === "run") };
+      return { ...entry, project, latest, pinned };
     });
-    const runs = (entry) => entry.threads.some((item) => item.state === "run");
-    return entries.sort((a, b) => b.pinned - a.pinned || runs(b) - runs(a) || b.latest - a.latest);
+    return entries.sort((a, b) => b.pinned - a.pinned || has(b, "run") - has(a, "run") || b.latest - a.latest);
   }
 
+  const has = (entry, state) => entry.threads.some((item) => item.state === state);
   const isRead = (facts) => facts?.status === "read";
   const pullsOf = (facts) => (isRead(facts) ? facts.pulls : []);
   const pullUrl = (entry, number) => `https://github.com/${entry.repository}/pull/${number}`;
@@ -137,10 +137,12 @@ function homeView({
     };
   }
 
-  const STATE_NOTES = {
+  const STATES = {
     ask: { text: "Waiting for you", tone: "warn" },
+    run: { text: "Working", tone: "run" },
     fail: { text: "Stopped on an error", tone: "bad" },
     done: { text: "Finished, not read yet", tone: "ok" },
+    idle: { text: "Open" },
   };
 
   function threadRow(entry, item, facts, now) {
@@ -151,16 +153,13 @@ function homeView({
       !isRead(facts) || facts.cut || pulls.some((pull) => pull.number === number) || timeOf(linkedAt) > facts.readAt;
     const linked = (thread.pullRequests || []).filter((link) =>
       link.host === "github.com" && link.repository?.toLowerCase() === entry.repository && link.snapshot?.state === "open" && isOpen(link));
-    const stateNote = state === "run" ? { text: `Working, ${ago(now - workingSince(thread))}`, tone: "run" } : STATE_NOTES[state];
-    const notes = linked.map(({ number }) => {
-      const pull = pulls.find((other) => other.number === number);
-      return { key: number, text: `#${number} ${pull ? pullWord(pull) : "open"}`, tone: pull?.tone, pull: pullUrl(entry, number) };
-    });
     return {
       key: `${thread.environmentId}:${thread.id}`, state, text: thread.title, at, thread,
       linked: linked.map((link) => link.number),
-      // The head of the card says the state of its first thread.
-      notes: stateNote && item !== entry.lead ? [{ key: "state", ...stateNote }, ...notes] : notes,
+      notes: linked.map(({ number }) => {
+        const pull = pulls.find((other) => other.number === number);
+        return { key: number, text: `#${number} ${pull ? pullWord(pull) : "open"}`, tone: pull?.tone, pull: pullUrl(entry, number) };
+      }),
       old: state === "idle" && linked.length === 0 && thread.pinnedAt == null && now - at > OLD_MS,
     };
   }
@@ -217,8 +216,9 @@ function homeView({
     const title = { className: "t3h-text", dir: directionOf(row.text) };
     const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
     return h("li", { className: `t3h-row${row.old ? " t3h-old" : ""}` },
-      h("span", { className: `t3h-mark ${toneOf(row.tone)}`, "aria-hidden": true },
-        row.thread ? h("i", { className: `t3h-state t3h-is-${row.state}` }) : h(Glyph, { size: 14 }, GLYPHS.pull)),
+      row.thread
+        ? h("span", { className: "t3h-mark", role: "img", title: STATES[row.state].text, "aria-label": STATES[row.state].text }, h("i", { className: `t3h-state t3h-is-${row.state}` }))
+        : h("span", { className: `t3h-mark ${toneOf(row.tone)}` }, h(Glyph, { size: 14 }, GLYPHS.pull)),
       row.thread
         ? h("button", { ...title, type: "button", onClick: () => actions.openThread(row.thread) }, row.text)
         : h("a", { ...title, ...openPull(row.link) }, row.text),
@@ -288,42 +288,59 @@ function homeView({
       h(Counts, { entry, facts }));
   }
 
-  function headline(entry, now) {
-    if (entry.lead?.state === "ask") return ["Waiting for you", "t3h-warn"];
-    if (entry.lead) return [`Working, ${ago(now - workingSince(entry.lead.thread))}`, "t3h-run"];
-    return [entry.latest ? `${ago(now - entry.latest)} ago` : "", ""];
+  function Headline({ entry, now }) {
+    const running = entry.threads.find((item) => item.state === "run");
+    const states = ["ask", "run", "fail", "done"].filter((state) => has(entry, state));
+    if (states.length === 0) return small(entry.latest ? `${ago(now - entry.latest)} ago` : "\u00a0");
+    return h("div", { className: "t3h-headline" }, states.map((state) =>
+      h("span", { key: state, className: `t3h-small t3h-${STATES[state].tone}`, dir: "ltr" },
+        STATES[state].text, state === "run" ? `, ${ago(now - workingSince(running.thread))}` : "")));
   }
 
   const shownRows = (rows, opened) => (opened ? rows : rows.slice(0, ROWS));
 
   function Card({ entry, facts, rows, now, actions, opened, toggle }) {
-    const [state, tone] = headline(entry, now);
+    const lit = ["ask", "run"].find((state) => has(entry, state));
     const shown = shownRows(rows, opened);
     const more = rows.length - shownRows(rows, false).length;
     const { title } = entry.project;
-    return h("article", { className: `t3h-card${entry.lead ? ` t3h-card-${entry.lead.state}` : ""}` },
+    return h("article", { className: `t3h-card${lit ? ` t3h-card-${lit}` : ""}` },
       h("div", { className: "t3h-head" },
         h(Picture, { project: entry.project, className: "t3h-icon" }),
         h("div", { className: "t3h-names" },
           h("h3", null,
             entry.pinned ? h("span", { className: "t3h-pin", title: "Pinned", role: "img", "aria-label": "Pinned" }, h(Glyph, { size: 15 }, GLYPHS.pin)) : null,
             h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title)),
-          state ? small(state, tone) : null),
+          h(Headline, { entry, now })),
         h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
       rowList(shown, now, actions),
       more ? h("button", { type: "button", className: "t3h-more t3h-small", "aria-expanded": opened, "aria-label": opened ? `Show less of ${title}` : `${more} more in ${title}`, onClick: () => toggle(entry.key) }, text(opened ? "Show less" : `${more} more`)) : null,
       h(Foot, { entry, facts, now }));
   }
 
-  function heightOf({ facts, rows }, opened) {
-    const shown = shownRows(rows, opened);
+  function heightOf({ entry, rows }) {
+    const shown = shownRows(rows, false);
     const notes = shown.filter((row) => row.notes.length > 0).length;
-    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (isRead(facts) ? (facts.release ? 1.6 : 0) + 1.9 : 0);
+    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 3.5 : 0);
   }
 
-  // Cards keep their own height, and each goes to the column that is the
-  // shortest so far. CSS columns would fill the first column first.
-  function Wall({ cards, now, actions }) {
+  // Each card goes to the column that is the shortest so far, and stays there.
+  // Agents start and stop all the time, and cards that follow them never rest.
+  function place(before, cards) {
+    const byKey = new Map(cards.map((card) => [card.entry.key, card]));
+    const columns = before.map((keys) => keys.filter((key) => byKey.has(key)));
+    const heights = columns.map((keys) => keys.reduce((sum, key) => sum + heightOf(byKey.get(key)), 0));
+    const placed = new Set(columns.flat());
+    for (const [key, card] of byKey) {
+      if (placed.has(key)) continue;
+      const shortest = heights.indexOf(Math.min(...heights));
+      columns[shortest].push(key);
+      heights[shortest] += heightOf(card);
+    }
+    return columns;
+  }
+
+  function Wall({ cards, complete, now, actions }) {
     const [columns, setColumns] = React.useState(1);
     const [opened, setOpened] = React.useState(() => new Set());
     const wall = React.useRef(null);
@@ -342,15 +359,13 @@ function homeView({
       if (!after.delete(key)) after.add(key);
       return after;
     });
-    const filled = Array.from({ length: columns }, () => ({ height: 0, cards: [] }));
-    for (const card of cards) {
-      const shortest = filled.reduce((best, column) => (column.height < best.height ? column : best));
-      shortest.cards.push(card);
-      shortest.height += heightOf(card, opened.has(card.entry.key));
-    }
-    return h("div", { className: "t3h-wall", ref: wall }, filled.map((column, index) =>
-      h("div", { key: index, className: "t3h-column" }, column.cards.map((card) =>
-        h(Card, { key: card.entry.key, ...card, now, actions, opened: opened.has(card.entry.key), toggle })))));
+    const places = React.useRef([]);
+    const kept = complete && places.current.length === columns;
+    places.current = place(kept ? places.current : Array.from({ length: columns }, () => []), cards);
+    const cardOf = (key) => cards.find((card) => card.entry.key === key);
+    return h("div", { className: "t3h-wall", ref: wall }, places.current.map((keys, index) =>
+      h("div", { key: index, className: "t3h-column" }, keys.map((key) =>
+        h(Card, { key, ...cardOf(key), now, actions, opened: opened.has(key), toggle })))));
   }
 
   function Tile({ entry, facts, actions }) {
@@ -381,13 +396,27 @@ function homeView({
     return h("h2", { className: "t3h-section" }, text(title), h("small", { dir: "ltr" }, count(cards.length, "project")));
   }
 
-  function Overview({ entries, factsOf, now, actions }) {
+  // Threads keep their order while Home is open, and new ones come first.
+  function useSteadyThreads(entries, complete) {
+    const ranks = React.useRef(new Map());
+    if (!complete) return;
+    const keyOf = ({ thread }) => `${thread.environmentId}:${thread.id}`;
+    for (const { threads } of entries) {
+      for (const item of [...threads].reverse()) {
+        if (!ranks.current.has(keyOf(item))) ranks.current.set(keyOf(item), -ranks.current.size);
+      }
+      threads.sort((a, b) => ranks.current.get(keyOf(a)) - ranks.current.get(keyOf(b)));
+    }
+  }
+
+  function Overview({ entries, factsOf, complete, now, actions }) {
+    useSteadyThreads(entries, complete);
     const cards = entries.map((entry) => ({ entry, facts: factsOf(entry), rows: rowsOf(entry, factsOf(entry), now).rows }));
     const open = cards.filter(({ entry, rows }) => rows.length > 0 || entry.pinned);
     const rest = cards.filter((card) => !open.includes(card));
     const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
     return h("div", null,
-      open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, now, actions })) : null,
+      open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, complete, now, actions })) : null,
       h(Tiles, { title: "No open work", cards: known, actions }),
       h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), actions }));
   }
@@ -395,7 +424,7 @@ function homeView({
   function Project({ entry, facts, now, actions }) {
     const heading = React.useRef(null);
     React.useEffect(() => heading.current?.focus(), [entry.key]);
-    const { rows, updates } = rowsOf({ ...entry, lead: null }, facts, now);
+    const { rows, updates } = rowsOf(entry, facts, now);
     return h("div", { className: "t3h-project" },
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
@@ -412,14 +441,22 @@ function homeView({
   }
 
   // Facts come from the launcher, through the fix's own script in this page.
+  let lastGithub = null;
   function useGithub(repositories) {
-    const [github, setGithub] = React.useState(null);
+    const [github, setGithub] = React.useState(() => lastGithub);
     const asked = JSON.stringify(repositories);
     React.useEffect(() => {
       const ask = () => {
         if (document.visibilityState === "visible" && asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
       };
-      const receive = (event) => setGithub(JSON.parse(event.detail));
+      // All the first answers together, so the page changes once and not with
+      // every repository.
+      const receive = (event) => {
+        const next = JSON.parse(event.detail);
+        if (Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
+        lastGithub = next;
+        setGithub(next);
+      };
       document.addEventListener("t3-rtl-home:facts", receive);
       // The fix's script can start after this page.
       document.addEventListener("t3-rtl-home:ready", ask);
@@ -457,7 +494,7 @@ function homeView({
     });
   }
 
-  function Page({ projects }) {
+  function Page({ projects, complete }) {
     const { useOpenPull } = mainParts();
     const threads = useThreads();
     const { environments } = useEnvironments();
@@ -497,7 +534,7 @@ function homeView({
       h("div", { className: "t3h", key: entry ? entry.key : "map" },
         h("div", { className: "t3h-page" },
           notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
-          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, now, actions }))));
+          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions }))));
   }
 
   class Boundary extends React.Component {
@@ -521,7 +558,7 @@ function homeView({
   return function Home({ native }) {
     const projects = useProjects().filter((project) => project.archivedAt == null);
     const bootstrapped = useBootstrapped();
-    if (projects.length > 0) return h(Boundary, { native }, h(Page, { projects }));
+    if (projects.length > 0) return h(Boundary, { native }, h(Page, { projects, complete: bootstrapped }));
     return bootstrapped ? h(native) : null;
   };
 }
@@ -555,7 +592,8 @@ const HOME_CSS = `
 .t3h-card-ask { --t3h-edge: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--card)); }
 .t3h-head { display: flex; align-items: center; gap: .7rem; }
 .t3h-names { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: .1rem; line-height: 1.3; }
-.t3h-names > .t3h-small:is(.t3h-run, .t3h-warn) { font-weight: 600; }
+.t3h-headline { display: flex; gap: .7rem; overflow: hidden; }
+.t3h-headline > * { flex: none; font-weight: 600; }
 .t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
 .t3h .t3h-name:hover { color: var(--primary); }

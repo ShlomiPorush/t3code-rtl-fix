@@ -20,6 +20,10 @@ Projects that are pinned in T3 Code come first and always have a card. Next are
 projects with a working agent, and then the projects you used last. Projects of
 the same repository, such as one on each computer, are one card.
 
+Cards and their rows keep their places while Home is open. A new card goes to the
+end, and a new thread to the top of its card. The order is made again when you
+open Home.
+
 | Mark | What it says |
 |---|---|
 | Dot that pulses | An agent works, in a connected computer. The card is lit. |
@@ -27,6 +31,9 @@ the same repository, such as one on each computer, are one card.
 | Green dot | The agent finished, and you did not open the thread since. |
 | Red dot | The last run stopped on an error. |
 | Ring | An open thread that nobody works on. |
+
+The head of a card says these states in words. Rest the pointer on a dot to see
+the state of its thread.
 
 A pull request is on the row of the thread it is linked to, or has a row of its
 own. "Ready to merge" means that GitHub can merge it now. In a repository

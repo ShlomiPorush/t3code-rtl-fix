@@ -412,20 +412,21 @@ test("a list of many repositories fits, and other messages keep their small limi
 });
 
 // Just enough of React to render the component to text: state keeps its first
-// value, and effects do not run.
-function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [] } = {}) {
+// value, effects do not run, and refs given by the test stay between renders.
+function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [] } = {}) {
   const calls = [];
+  let nextRef = 0;
   const React = {
     Component: class { constructor(props) { this.props = props; } },
     Fragment: ({ children }) => children,
     createElement: (type, props, ...children) => ({ type, props: { ...props, ...(children.length ? { children: children.length > 1 ? children : children[0] } : {}) } }),
     useState: (first) => {
-      const value = typeof first === "function" ? first() : first ?? github;
-      return [value instanceof Set ? new Set(opened) : value, () => {}];
+      const value = typeof first === "function" ? first() : first;
+      return [value instanceof Set ? new Set(opened) : value ?? github, () => {}];
     },
     useEffect() {},
     useLayoutEffect() {},
-    useRef: (current) => ({ current }),
+    useRef: (current) => (refs[nextRef++] ??= { current }),
     useCallback: (fn) => fn,
     useSyncExternalStore: (subscribe, read) => read(),
   };
@@ -564,6 +565,22 @@ test("pinned projects come first, then working ones, then the latest, and a pinn
   const { cards, tiles } = renderHome({ projects, threads });
   assert.deepEqual(cards.map((card) => /(quiet|new|works|pinned|old)/.exec(card)[1]), ["pinned", "works", "new", "old"]);
   assert.equal(tiles.length, 1);
+});
+
+test("cards and their rows stay where they are while Home is open", () => {
+  const refs = [];
+  const projects = [project("a"), project("b"), project("c")];
+  const of = (projectId, id, hours, overrides = {}) => thread({ id, title: id, projectId, createdAt: before(hours), ...overrides });
+  const show = (threads, options = {}) => {
+    const page = renderHome({ projects, threads, refs, ...options });
+    return [page.cards.map((card) => card.split("\n")[1]), page.having("t3h-row").map((row) => row.split("\n")[0])];
+  };
+  assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2), of("b", "b1", 3)]), [["a", "b"], ["a1", "a2", "b1"]]);
+  assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2, running), of("b", "b1", 3, running)]), [["a", "b"], ["a1", "a2", "b1"]], "agents start");
+  assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2), of("a", "a3", 0.1), of("b", "b1", 3), of("c", "c1", 0)]), [["a", "b", "c"], ["a3", "a1", "a2", "b1", "c1"]], "a new card is last, and a new thread first");
+  assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)]), [["b", "c"], ["b1", "c1"]]);
+  assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)], { refs: [] }), [["c", "b"], ["c1", "b1"]], "the next visit orders them again");
+  assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)], { bootstrapped: false }), [["c", "b"], ["c1", "b1"]], "until T3 Code loaded everything");
 });
 
 test("a pull request is on the row of the thread it is linked to, and otherwise has its own row", () => {
