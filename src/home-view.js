@@ -63,20 +63,26 @@ function homeView({
       const repository = repositoryOf(project);
       const id = `${project.environmentId}:${project.id}`;
       const key = repository || id;
-      const entry = byKey.get(key) || { key, repository, project, latest: "", working: [] };
+      const entry = byKey.get(key) || { key, repository, copies: [], working: [] };
+      const copy = { project, connected: connected.has(project.environmentId), latest: "" };
+      entry.copies.push(copy);
       byKey.set(key, entry);
-      byProject.set(id, entry);
+      byProject.set(id, { entry, copy });
     }
     for (const thread of threads) {
-      const entry = byProject.get(`${thread.environmentId}:${thread.projectId}`);
-      if (!entry) continue;
-      if (thread.updatedAt > entry.latest) {
-        entry.latest = thread.updatedAt;
-        entry.project = projects.find((project) => project.id === thread.projectId && project.environmentId === thread.environmentId);
-      }
-      if (isWorking(thread, connected)) entry.working.push(thread);
+      const found = byProject.get(`${thread.environmentId}:${thread.projectId}`);
+      if (!found) continue;
+      if (thread.updatedAt > found.copy.latest) found.copy.latest = thread.updatedAt;
+      if (isWorking(thread, connected)) found.entry.working.push(thread);
     }
-    return [...byKey.values()].sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
+    const newest = (a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0);
+    const entries = [...byKey.values()].map(({ copies, ...entry }) => {
+      const [{ latest }] = [...copies].sort(newest);
+      // A new thread starts here, so a connected computer comes first.
+      const [{ project }] = copies.sort((a, b) => b.connected - a.connected || newest(a, b));
+      return { ...entry, project, latest };
+    });
+    return entries.sort(newest);
   }
 
   function pullItem(entry, pull, now) {
@@ -196,12 +202,17 @@ function homeView({
         h(Picture, { project: entry.project, className: "t3h-icon-small" }), text(entry.project.title))));
   }
 
+  // Whether nothing about the project is missing.
+  const isComplete = (entry, facts) =>
+    !entry.repository || (facts?.status === "read" && !facts.partial && facts.release?.ahead !== null);
+
   function Overview({ entries, factsOf, now, actions }) {
     const rows = entries.map((entry) => ({ entry, facts: factsOf(entry), stations: stationsOf(entry, factsOf(entry), now) }));
     const open = rows.filter((row) => row.stations.some((station) => station.marks.length > 0));
     const idle = (test) => rows.filter((row) => !open.includes(row) && test(row)).map((row) => row.entry);
     const total = (index) => open.reduce((sum, row) => sum + row.stations[index].marks.reduce((all, mark) => all + (mark.update ? 0 : mark.number), 0), 0);
-    const more = (index) => open.some((row) => row.stations[index].marks.some((mark) => mark.label.endsWith("+")));
+    // A list that was cut can hold more of both kinds of pull request.
+    const more = (index) => (index === 1 || index === 2) && rows.some((row) => row.facts?.partial);
     const has = (test) => open.some((row) => row.stations.some((station) => station.marks.some(test)));
     const keys = [
       has((mark) => mark.tone === "warn") && ["warn", "Conflicts"],
@@ -214,7 +225,7 @@ function homeView({
         STATIONS.slice(0, 4).map((name, index) => h("div", { key: name, dir: "ltr" },
           h("b", { className: total(index) ? undefined : "t3h-zero" }, total(index), more(index) ? "+" : ""), name)),
         h("div", { dir: "ltr" }, STATIONS[4])),
-      rows.every(({ entry, facts, stations }) => (!entry.repository || facts?.status === "read") && stations.every((station) => station.marks.length === 0))
+      rows.every(({ entry, facts, stations }) => isComplete(entry, facts) && stations.every((station) => station.marks.length === 0))
         ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is open.")
         : null,
       open.map(({ entry, facts, stations }, index) => h("section", { key: entry.key, className: `t3h-row${index > 3 && index > open.length - 4 ? " t3h-low" : ""}` },
@@ -225,7 +236,8 @@ function homeView({
           h(Release, { entry, facts, now })))),
       h("div", { className: "t3h-foot" },
         h("div", { className: "t3h-groups" },
-          h(Names, { label: "Nothing open", actions, entries: idle(({ entry, facts }) => entry.repository && facts?.status === "read") }),
+          h(Names, { label: "Nothing open", actions, entries: idle(({ entry, facts }) => entry.repository && isComplete(entry, facts)) }),
+          h(Names, { label: "Read in part", actions, entries: idle(({ entry, facts }) => facts?.status === "read" && !isComplete(entry, facts)) }),
           h(Names, { label: "Reading GitHub", actions, entries: idle(({ entry, facts }) => entry.repository && (!facts || facts.status === "waiting")) }),
           h(Names, { label: "GitHub is not available", actions, entries: idle(({ facts }) => facts?.status === "unavailable") }),
           h(Names, { label: "Not on GitHub", actions, entries: idle(({ entry }) => !entry.repository) })),
@@ -258,7 +270,7 @@ function homeView({
             h("div", null, h("h2", { dir: "ltr" }, name), station.items.map((item) => h(Item, { key: item.key, item, actions }))));
         })),
       url && !read ? h("p", { className: "t3h-small", dir: "ltr" }, facts?.status === "unavailable" ? "GitHub could not be read for this project." : "Reading GitHub…") : null,
-      read && facts.partial ? h("p", { className: "t3h-small", dir: "ltr" }, "GitHub gave only a part of this project.") : null);
+      read && !isComplete(entry, facts) ? h("p", { className: "t3h-small", dir: "ltr" }, "GitHub gave only a part of this project.") : null);
   }
 
   // Facts come from the launcher, through the fix's own script in this page.
@@ -420,7 +432,7 @@ const HOME_CSS = `
 .t3h-rail { grid-column: 2 / -1; display: grid; grid-template-columns: subgrid; align-items: center; align-self: stretch; position: relative; }
 .t3h-rail::before { content: ""; position: absolute; top: calc(50% - 1px); height: 2px; inset-inline: .95rem 6.9rem; border-radius: 2px; background: color-mix(in srgb, var(--muted-foreground) 32%, var(--background)); }
 .t3h-sp { position: relative; display: flex; align-items: center; align-self: stretch; }
-.t3h-sp:is(:hover, :focus-within) { z-index: 30; }
+.t3h-sp:is(:hover, :has(:focus-visible)) { z-index: 30; }
 .t3h-marks { position: relative; display: flex; gap: .3rem; border-radius: 99px; }
 .t3h-release { font-size: .95rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .t3h-release.t3h-small { font-size: .78rem; font-weight: 400; }
@@ -428,8 +440,7 @@ const HOME_CSS = `
 /* The padding keeps the pointer inside on its way to the card. */
 .t3h-pop { display: none; position: absolute; z-index: 20; top: calc(50% + .95rem); inset-inline-start: -.9rem; padding-top: .55rem; width: max-content; max-width: 22rem; }
 .t3h-low .t3h-pop { top: auto; bottom: calc(50% + .95rem); padding: 0 0 .55rem; }
-.t3h-sp:is(:hover, :focus-within) > .t3h-pop { display: block; }
-.t3h-map:has(.t3h-sp:hover) .t3h-sp:not(:hover) > .t3h-pop { display: none; }
+.t3h-sp:is(:hover, :has(:focus-visible)) > .t3h-pop { display: block; }
 .t3h-card { display: grid; gap: .6rem; max-height: 20rem; overflow: auto; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 14px 34px -12px rgb(0 0 0 / .38); font-size: .95rem; line-height: 1.4; }
 .t3h-text { display: block; width: 100%; overflow-wrap: anywhere; }
 :is(a, button).t3h-text:hover { color: var(--primary) !important; }

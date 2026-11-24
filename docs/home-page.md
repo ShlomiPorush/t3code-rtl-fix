@@ -27,7 +27,7 @@ them. Click a project's name to open its page.
 - A "+" means that there are more pull requests than the 20 that were read last.
 - Projects of the same repository, such as one on each computer, are one row.
 - Projects without open items are listed below the map. Projects that GitHub did
-  not answer for have a list of their own.
+  not answer for, or answered for in part, have lists of their own.
 
 Home does not change anything on GitHub.
 

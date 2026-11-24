@@ -135,7 +135,7 @@ test("Home turned off while the route is read passes the route unchanged, and an
 
 test("a request names repositories only", () => {
   assert.deepEqual(readRequest(["Owner/Repo", "owner/repo", "a_b/c.d"]), ["owner/repo", "a_b/c.d"]);
-  for (const bad of [null, "a/b", [1], ["a"], ["a/b/c"], ["a/.."], ["a/b\"){x}"], ["a b/c"], ["-"], Array(201).fill("a/b")]) {
+  for (const bad of [null, "a/b", [1], ["a"], ["a/b/c"], ["a/.."], ["a/b\"){x}"], ["a b/c"], ["-"]]) {
     assert.equal(readRequest(bad), null, JSON.stringify(bad)?.slice(0, 40));
   }
 });
@@ -420,6 +420,16 @@ test("an agent counts as working only while it runs, in a connected computer, an
   assert.equal(working({}, []), false);
 });
 
+test("a project whose release or comparison is unknown is read in part, not nothing open", () => {
+  for (const unknown of [facts({ partial: true, release: undefined }), facts({ release: { tag: "v1", at: 1, ahead: null } })]) {
+    const { shown } = renderHome({ projects: [project("app", "o/app")], github: { problem: null, repositories: { "o/app": unknown } } });
+    assert.match(shown, /Read in part(AP)?\s*app/);
+    assert.doesNotMatch(shown, /Nothing/);
+  }
+  const absent = { problem: null, repositories: { "o/app": facts() } };
+  assert.match(renderHome({ projects: [project("app", "o/app")], github: absent }).shown, /Nothing open/);
+});
+
 test("a project is nothing open only when GitHub was read, and otherwise says what is known", () => {
   const projects = [project("read", "o/read"), project("waiting", "o/waiting"), project("failed", "o/failed"), project("local")];
   const github = { problem: null, repositories: { "o/read": facts(), "o/waiting": { status: "waiting" }, "o/failed": { status: "unavailable" } } };
@@ -440,8 +450,8 @@ test("totals leave dependency updates out, and say when a list is cut", () => {
   assert.match(shown, /0\nWorking\n1\nPull request\n1\nReady to merge\n5\nNot released/);
   assert.ok(buttons.some((button) => button.label === "app: 1 pull request, 1 dependency update"));
   assert.ok(links.some((link) => link.name === "Pull 1" && link.href === "https://github.com/o/app/pull/1"));
-  const cut = { problem: null, repositories: { "o/app": facts({ pulls, partial: true }) } };
-  assert.match(renderHome({ projects: [project("app", "o/app")], github: cut }).shown, /1\+\nPull request/);
+  const cut = { problem: null, repositories: { "o/app": facts({ pulls: pulls.slice(2), partial: true }) } };
+  assert.match(renderHome({ projects: [project("app", "o/app")], github: cut }).shown, /1\+\nPull request\n0\+\nReady to merge\n0\nNot released/);
 });
 
 test("projects of one repository are one row, whose new thread starts in the project used last", () => {
@@ -452,6 +462,9 @@ test("projects of one repository are one row, whose new thread starts in the pro
   const page = renderHome({ projects, threads, connected: ["local", "remote"], search: { project: "o/app" } });
   page.buttons.find((button) => /New thread/.test(button.name)).click();
   assert.deepEqual(page.calls.at(-1), ["new", { environmentId: "remote", projectId: "there" }]);
+  const offline = renderHome({ projects, threads, connected: ["local"], search: { project: "o/app" } });
+  offline.buttons.find((button) => /New thread/.test(button.name)).click();
+  assert.deepEqual(offline.calls.at(-1), ["new", { environmentId: "local", projectId: "here" }], "a connected computer comes first");
   page.buttons.find((button) => /Home/.test(button.name)).click();
   assert.deepEqual(page.calls.at(-1), ["go", { to: "/" }]);
 });

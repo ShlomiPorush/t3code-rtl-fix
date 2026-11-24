@@ -9,7 +9,6 @@ const { runFile } = require("./repo-status");
 // One query per repository: GitHub answers a large one slowly, and fails a
 // query of several together with its neighbors.
 const LANES = 4;
-const MAX_REPOSITORIES = 200;
 const PULLS = 20;
 const FRESH_MS = 5 * 60 * 1000;
 
@@ -33,8 +32,7 @@ const QUERY = `query($owner: String!, $name: String!) {
 
 // Returns the repositories of a page's request, or null for anything else.
 function readRequest(value) {
-  if (!Array.isArray(value) || value.length > MAX_REPOSITORIES) return null;
-  if (!value.every((name) => typeof name === "string" && REPOSITORY.test(name))) return null;
+  if (!Array.isArray(value) || !value.every((name) => typeof name === "string" && REPOSITORY.test(name))) return null;
   return [...new Set(value.map((name) => name.toLowerCase()))];
 }
 

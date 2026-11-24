@@ -83,9 +83,11 @@ function prepareCore({ send, log, rootDirectory }) {
   let sidebarSections = sectionsOf(initialSettings);
   let homePage = initialSettings.homePage === true;
   let workingShelf = null;
+  let forgetScripts = null;
   let workingShelfWatch = null;
   try {
     const { createWorkingShelfService } = require("./working-shelf");
+    ({ forgetScripts } = require("./working-shelf"));
     workingShelf = createWorkingShelfService({
       send: (...args) => send(...args),
       sections: () => sidebarSections,
@@ -306,6 +308,9 @@ function prepareCore({ send, log, rootDirectory }) {
       }
 
       await send("Page.enable", {}, sessionId);
+      // After an update of the fix the launcher reloads this window, and the
+      // launcher that runs then can be older than this file.
+      if (forgetScripts) await forgetScripts(send, sessionId);
       if (buildLayoutSource) {
         layoutSessions.add(sessionId);
         await queueLayout(sessionId, async () => {

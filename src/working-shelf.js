@@ -545,6 +545,13 @@ function patchSidebarChunk(source, sections) {
   return { source: patched, applied: true };
 }
 
+// Page.reload without the cache covers the scripts of the load itself. T3 Code
+// loads its start page's script later, so the browser must forget its copy too.
+async function forgetScripts(send, sessionId) {
+  await send("Network.setCacheDisabled", { cacheDisabled: true }, sessionId);
+  await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
+}
+
 // Answers the browser's paused requests for T3 Code's main script and for the
 // script of its start route. Every paused request is answered once: patched
 // when its switch is on and the code is recognized, passed on unchanged otherwise.
@@ -632,10 +639,7 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
     let reloaded = 0;
     for (const sessionId of sessionIds) {
       try {
-        // ignoreCache covers the scripts of the load itself. T3 Code loads its
-        // start page's script later, so the browser must forget its copy too.
-        await send("Network.setCacheDisabled", { cacheDisabled: true }, sessionId);
-        await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
+        await forgetScripts(send, sessionId);
         await send("Page.reload", { ignoreCache: true }, sessionId);
         reloaded += 1;
       } catch (error) {
@@ -648,4 +652,4 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
   return { enable, handlePaused, reloadWindows };
 }
 
-module.exports = { URL_PATTERN, patchSidebarChunk, createWorkingShelfService };
+module.exports = { URL_PATTERN, patchSidebarChunk, createWorkingShelfService, forgetScripts };

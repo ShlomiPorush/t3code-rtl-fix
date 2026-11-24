@@ -59,10 +59,6 @@ function createCoreRunner({ send, log, loadCore, readVersion }) {
         try {
           const { sessionId } = await send("Target.attachToTarget", { targetId: targetInfo.targetId, flatten: true });
           try {
-            // ignoreCache covers the scripts of the load itself. T3 Code loads its
-            // start page's script later, so the browser must forget its copy too.
-            await send("Network.setCacheDisabled", { cacheDisabled: true }, sessionId);
-            await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
             await send("Page.reload", { ignoreCache: true }, sessionId);
             reloaded += 1;
           } finally {
