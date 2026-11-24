@@ -108,6 +108,8 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-layout-test-"));
 let child = null;
 const pending = new Map();
 let nextId = 1;
+let traced = [];
+let traceComplete = null;
 let incoming = Buffer.alloc(0);
 
 function send(method, params = {}, sessionId) {
@@ -120,6 +122,23 @@ function send(method, params = {}, sessionId) {
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+// How many elements the browser restyled between the two marks an expression makes.
+async function restyledBy(sessionId, expression) {
+  traced = [];
+  const complete = new Promise((resolve) => (traceComplete = resolve));
+  await send("Tracing.start", {
+    traceConfig: { includedCategories: ["devtools.timeline", "blink.user_timing"], excludedCategories: ["*"] },
+    transferMode: "ReportEvents",
+  }, sessionId);
+  await send("Runtime.evaluate", { expression }, sessionId);
+  await send("Tracing.end", {}, sessionId);
+  await complete;
+  const at = (name) => traced.find((event) => event.name === name).ts;
+  return traced
+    .filter((event) => event.name === "UpdateLayoutTree" && event.ts >= at("t3-rtl-write") && event.ts <= at("t3-rtl-written"))
+    .reduce((sum, event) => sum + (event.args.elementCount || 0), 0);
 }
 
 async function run(port) {
@@ -139,6 +158,8 @@ async function run(port) {
       incoming = incoming.subarray(separator + 1);
       if (!raw) continue;
       const message = JSON.parse(raw);
+      if (message.method === "Tracing.dataCollected") traced.push(...message.params.value);
+      if (message.method === "Tracing.tracingComplete") traceComplete();
       const request = message.id ? pending.get(message.id) : null;
       if (!request) continue;
       pending.delete(message.id);
@@ -239,6 +260,22 @@ async function run(port) {
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
+  // T3 Code writes the style of the conversation as it scrolls and streams, so
+  // such a write must not restyle everything inside it.
+  const restyled = await restyledBy(sessionId, `(() => {
+    const box = document.createElement("div");
+    box.style.left = "0px";
+    box.innerHTML = "<p><span>text</span></p>".repeat(500);
+    document.body.append(box);
+    document.body.offsetHeight;
+    performance.mark("t3-rtl-write");
+    box.style.left = "1px";
+    document.body.offsetHeight;
+    performance.mark("t3-rtl-written");
+    box.remove();
+  })()`);
+  check(restyled > 0 && restyled < 20, `A style write restyled ${restyled} elements`);
+
   // The floating preview and the page inside a preview are placed and scaled
   // by T3 Code from their physical sides, so they keep them.
   check(on.pillOffset === 0, `The floating preview's buttons left its corner: ${on.pillOffset}px`);

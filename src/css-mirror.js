@@ -52,11 +52,12 @@ function mirrorCss(text, options) {
   // Notifications are placed, animated, and swiped by T3 Code from the
   // pointer's physical movement, so their rules stay as they are.
   const KEEP_PRELUDE = /data-position|data-swipe-direction|toast/i;
-  // --t3-rtl-x is -1 in a right-to-left box and 1 in a left-to-right one
-  // (see app-layout.js), so a value can follow the side a box lands on by
-  // arithmetic.
-  const ltrOnly = "(1 + var(--t3-rtl-x, 1)) / 2";
-  const rtlOnly = "(1 - var(--t3-rtl-x, 1)) / 2";
+  // This is -1 in a right-to-left box, and 1 in a left-to-right one and where
+  // a script placed the element (see app-layout.js), so a value can follow the
+  // side a box lands on by arithmetic.
+  const sideways = "max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))";
+  const ltrOnly = `(1 + ${sideways}) / 2`;
+  const rtlOnly = `(1 - ${sideways}) / 2`;
   // A mirrored side takes the window inset of the side it lands on.
   const swapSides = (value) =>
     value
@@ -200,14 +201,12 @@ function mirrorCss(text, options) {
     const name = head.trim().toLowerCase();
     // Tailwind moves an element sideways through this variable. A mirrored
     // element moves the other way, such as one centered from its new side or
-    // a switch thumb that starts on the right. The layout sets --t3-rtl-x to
-    // -1 in right-to-left boxes and to 1 in left-to-right islands and where a
-    // script places an element from its physical side.
+    // a switch thumb that starts on the right.
     if (name === "--tw-translate-x") {
       const [body, priority] = splitPriority(statement.slice(colon + 1));
       if (!body.trim() || /^\s*0(?:px)?\s*$/.test(body)) return statement;
       changed++;
-      return head + ":calc(var(--t3-rtl-x, 1) * (" + body.trim() + "))" + priority;
+      return head + ":calc(" + sideways + " * (" + body.trim() + "))" + priority;
     }
     if (!name || name.startsWith("--")) return statement;
     // A mirrored arrow icon turns the other way, so an open chevron that T3

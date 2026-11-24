@@ -80,7 +80,7 @@ test("does not touch selectors, strings, comments, or custom properties", () => 
 test("keeps room for the window's buttons only where a header ends on the right", () => {
   assert.equal(
     mirror(".wco\:pr-x:is(.wco,.wco *){padding-right:var(--workspace-native-controls-inset)}"),
-    ".wco\:pr-x:is(.wco,.wco *){padding-inline-end:calc(var(--workspace-native-controls-inset) * (1 + var(--t3-rtl-x, 1)) / 2)}",
+    ".wco\:pr-x:is(.wco,.wco *){padding-inline-end:calc(var(--workspace-native-controls-inset) * (1 + max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2)}",
   );
   const kept = "@media (display-mode:window-controls-overlay){.t{padding-right:env(titlebar-area-x)}}";
   assert.equal(mirror(kept), kept);
@@ -90,15 +90,15 @@ test("keeps room for the window's buttons only where a header ends on the right"
 test("widens the room beside the sidebar's buttons by the window's buttons on the right", () => {
   assert.equal(
     mirror(".logo{margin-left:var(--workspace-titlebar-content-left)}"),
-    ".logo{margin-inline-start:calc(var(--workspace-titlebar-content-left) + (var(--workspace-controls-right) - var(--workspace-controls-left)) * (1 - var(--t3-rtl-x, 1)) / 2)}",
+    ".logo{margin-inline-start:calc(var(--workspace-titlebar-content-left) + (var(--workspace-controls-right) - var(--workspace-controls-left)) * (1 - max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2)}",
   );
 });
 
 test("moves a mirrored control to the window inset of its new side", () => {
   assert.equal(
     mirror(".a{left:var(--workspace-controls-left)}.b{margin-left:calc(var(--workspace-controls-left) + 1px - env(safe-area-inset-left))}"),
-    ".a{inset-inline-start:calc(var(--workspace-controls-left) * (1 + var(--t3-rtl-x, 1)) / 2 + var(--workspace-controls-right) * (1 - var(--t3-rtl-x, 1)) / 2)}" +
-      ".b{margin-inline-start:calc(calc(var(--workspace-controls-left) * (1 + var(--t3-rtl-x, 1)) / 2 + var(--workspace-controls-right) * (1 - var(--t3-rtl-x, 1)) / 2) + 1px - calc(env(safe-area-inset-left) * (1 + var(--t3-rtl-x, 1)) / 2 + env(safe-area-inset-right) * (1 - var(--t3-rtl-x, 1)) / 2))}",
+    ".a{inset-inline-start:calc(var(--workspace-controls-left) * (1 + max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2 + var(--workspace-controls-right) * (1 - max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2)}" +
+      ".b{margin-inline-start:calc(calc(var(--workspace-controls-left) * (1 + max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2 + var(--workspace-controls-right) * (1 - max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2) + 1px - calc(env(safe-area-inset-left) * (1 + max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2 + env(safe-area-inset-right) * (1 - max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1))) / 2))}",
   );
 });
 
@@ -110,7 +110,7 @@ test("leaves the room for the details card logical, so it follows the card", () 
 test("moves mirrored elements sideways the other way", () => {
   assert.equal(
     mirror(".a{--tw-translate-x:calc(1 / 2 * 100%);translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}"),
-    ".a{--tw-translate-x:calc(var(--t3-rtl-x, 1) * (calc(1 / 2 * 100%)));translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}",
+    ".a{--tw-translate-x:calc(max(var(--t3-rtl-x, 1), var(--t3-rtl-placed, -1)) * (calc(1 / 2 * 100%)));translate:var(--tw-translate-x) var(--tw-translate-y)}.b{--tw-translate-x:0}",
   );
 });
 
