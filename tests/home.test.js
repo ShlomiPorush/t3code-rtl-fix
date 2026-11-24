@@ -433,6 +433,8 @@ test("the thread details card's counts update Home, keep what they do not say, a
   ]);
   assert.deepEqual(facts.alerts, { total: 3, critical: 0, high: 2, sources: ["Dependabot", "code scanning", "secret scanning"] });
   assert.equal(facts.release.tag, "v1");
+  service.note("o/one", { ...counts, pulls: { value: 1, items: [item(7, "someone", true)] } });
+  assert.equal(got.at(-1).pulls[0].note, "draft", "a ready one that went back to draft");
   pass(1);
   service.read("a", ["o/one"], (next) => got.push(next.repositories["o/one"]));
   await settle();

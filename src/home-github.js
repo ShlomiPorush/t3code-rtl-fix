@@ -145,7 +145,7 @@ function noteAlerts(before, { dependabot, codeScanning, secretScanning }) {
 // whether one can be merged.
 function notePulls(before, { value, items }) {
   const pulls = items.map(({ number, title, author, time, draft }) => {
-    const known = before.find((pull) => pull.number === number);
+    const known = before.find((pull) => pull.number === number && !(draft && pull.stage === "ready"));
     const stage = known ? { stage: known.stage, tone: known.tone, note: known.note } : { stage: "open", tone: "", note: draft ? "draft" : "merge state unknown" };
     return { number, title, at: time, update: isUpdate(author), ...stage };
   });
