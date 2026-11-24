@@ -577,10 +577,18 @@ test("cards and their rows stay where they are while Home is open", () => {
   };
   assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2), of("b", "b1", 3)]), [["a", "b"], ["a1", "a2", "b1"]]);
   assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2, running), of("b", "b1", 3, running)]), [["a", "b"], ["a1", "a2", "b1"]], "agents start");
+  const long = 24 * 20;
+  const old = [1, 2, 3, 4].map((number) => of("a", `x${number}`, number)).concat(of("a", "y1", long), of("a", "y2", long + 1));
+  const oldRefs = [];
+  const order = show(old, { refs: oldRefs })[1];
+  assert.deepEqual(order, ["x1", "x2", "x3", "x4", "y1"]);
+  assert.deepEqual(show([...old.slice(0, 5), of("a", "y2", long + 1, { hasPendingApprovals: true })], { refs: oldRefs })[1], order, "an old thread wakes");
   assert.deepEqual(show([of("a", "a1", 1), of("a", "a2", 2), of("a", "a3", 0.1), of("b", "b1", 3), of("c", "c1", 0)]), [["a", "b", "c"], ["a3", "a1", "a2", "b1", "c1"]], "a new card is last, and a new thread first");
   assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)]), [["b", "c"], ["b1", "c1"]]);
   assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)], { refs: [] }), [["c", "b"], ["c1", "b1"]], "the next visit orders them again");
-  assert.deepEqual(show([of("b", "b1", 3), of("c", "c1", 0)], { bootstrapped: false }), [["c", "b"], ["c1", "b1"]], "until T3 Code loaded everything");
+  const partly = [];
+  show([of("b", "b1", 1), of("c", "c1", 2)], { bootstrapped: false, refs: partly });
+  assert.deepEqual(show([of("b", "b1", 1), of("c", "c1", 2, running)], { refs: partly })[0], ["c", "b"], "the order is kept from when T3 Code loaded everything");
 });
 
 test("a pull request is on the row of the thread it is linked to, and otherwise has its own row", () => {

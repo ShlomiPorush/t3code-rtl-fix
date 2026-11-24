@@ -110,7 +110,8 @@ function homeView({
       const at = activityOf(thread);
       found.copy.latest = Math.max(found.copy.latest, at);
       if (thread.settledOverride === "settled" || isSnoozed(thread, now)) continue;
-      found.entry.threads.push({ thread, at, state: stateOf(thread, connected) });
+      const state = stateOf(thread, connected);
+      found.entry.threads.push({ thread, at, state, old: state === "idle" && thread.pinnedAt == null && now - at > OLD_MS });
     }
     const entries = [...byKey.values()].map(({ copies, ...entry }) => {
       const latest = Math.max(...copies.map((copy) => copy.latest));
@@ -118,7 +119,7 @@ function homeView({
       // A new thread starts here, so a connected computer comes first.
       const [{ project }] = copies.sort((a, b) => b.connected - a.connected || b.latest - a.latest);
       const first = (item) => (item.state === "ask" ? 2 : item.state === "run" ? 1 : 0);
-      entry.threads.sort((a, b) => first(b) - first(a) || b.at - a.at);
+      entry.threads.sort((a, b) => a.old - b.old || first(b) - first(a) || b.at - a.at);
       return { ...entry, project, latest, pinned };
     });
     return entries.sort((a, b) => b.pinned - a.pinned || has(b, "run") - has(a, "run") || b.latest - a.latest);
@@ -145,8 +146,7 @@ function homeView({
     idle: { text: "Open" },
   };
 
-  function threadRow(entry, item, facts, now) {
-    const { thread, at, state } = item;
+  function threadRow(entry, { thread, at, state, old }, facts) {
     const pulls = pullsOf(facts);
     // T3 Code can keep a link open long after its pull request was closed.
     const isOpen = ({ number, linkedAt }) =>
@@ -160,14 +160,14 @@ function homeView({
         const pull = pulls.find((other) => other.number === number);
         return { key: number, text: `#${number} ${pull ? pullWord(pull) : "open"}`, tone: pull?.tone, pull: pullUrl(entry, number) };
       }),
-      old: state === "idle" && linked.length === 0 && thread.pinnedAt == null && now - at > OLD_MS,
+      old,
     };
   }
   const workingSince = (thread) =>
     timeOf(thread.runtime?.activityStartedAt || thread.latestRun?.startedAt || thread.latestRun?.requestedAt) || activityOf(thread);
 
-  function rowsOf(entry, facts, now) {
-    const threads = entry.threads.map((item) => threadRow(entry, item, facts, now));
+  function rowsOf(entry, facts) {
+    const threads = entry.threads.map((item) => threadRow(entry, item, facts));
     const linked = new Set(threads.flatMap((row) => row.linked));
     const others = pullsOf(facts).filter((pull) => !linked.has(pull.number));
     const rowsFor = (update) => others.filter((pull) => pull.update === update).map((pull) => pullRow(entry, pull));
@@ -215,7 +215,7 @@ function homeView({
   function Row({ row, now, actions }) {
     const title = { className: "t3h-text", dir: directionOf(row.text) };
     const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
-    return h("li", { className: `t3h-row${row.old ? " t3h-old" : ""}` },
+    return h("li", { className: `t3h-row${row.old && row.state === "idle" ? " t3h-old" : ""}` },
       row.thread
         ? h("span", { className: "t3h-mark", role: "img", title: STATES[row.state].text, "aria-label": STATES[row.state].text }, h("i", { className: `t3h-state t3h-is-${row.state}` }))
         : h("span", { className: `t3h-mark ${toneOf(row.tone)}` }, h(Glyph, { size: 14 }, GLYPHS.pull)),
@@ -289,12 +289,11 @@ function homeView({
   }
 
   function Headline({ entry, now }) {
-    const running = entry.threads.find((item) => item.state === "run");
-    const states = ["ask", "run", "fail", "done"].filter((state) => has(entry, state));
-    if (states.length === 0) return small(entry.latest ? `${ago(now - entry.latest)} ago` : "\u00a0");
-    return h("div", { className: "t3h-headline" }, states.map((state) =>
-      h("span", { key: state, className: `t3h-small t3h-${STATES[state].tone}`, dir: "ltr" },
-        STATES[state].text, state === "run" ? `, ${ago(now - workingSince(running.thread))}` : "")));
+    const state = ["ask", "run", "done", "fail"].find((item) => has(entry, item));
+    if (!state) return small(entry.latest ? `${ago(now - entry.latest)} ago` : "\u00a0");
+    const { thread } = entry.threads.find((item) => item.state === state);
+    const { text: word, tone } = STATES[state];
+    return small(state === "run" ? `${word}, ${ago(now - workingSince(thread))}` : word, `t3h-${tone}`);
   }
 
   const shownRows = (rows, opened) => (opened ? rows : rows.slice(0, ROWS));
@@ -324,8 +323,8 @@ function homeView({
     return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 3.5 : 0);
   }
 
-  // Each card goes to the column that is the shortest so far, and stays there.
-  // Agents start and stop all the time, and cards that follow them never rest.
+  // Agents start and stop all the time, and cards that follow them never rest,
+  // so a placed card stays. CSS columns would balance them again.
   function place(before, cards) {
     const byKey = new Map(cards.map((card) => [card.entry.key, card]));
     const columns = before.map((keys) => keys.filter((key) => byKey.has(key)));
@@ -360,10 +359,11 @@ function homeView({
       return after;
     });
     const places = React.useRef([]);
-    const kept = complete && places.current.length === columns;
-    places.current = place(kept ? places.current : Array.from({ length: columns }, () => []), cards);
+    const before = places.current.length === columns ? places.current : Array.from({ length: columns }, () => []);
+    const placed = place(before, cards);
+    if (complete) places.current = placed;
     const cardOf = (key) => cards.find((card) => card.entry.key === key);
-    return h("div", { className: "t3h-wall", ref: wall }, places.current.map((keys, index) =>
+    return h("div", { className: "t3h-wall", ref: wall }, placed.map((keys, index) =>
       h("div", { key: index, className: "t3h-column" }, keys.map((key) =>
         h(Card, { key, ...cardOf(key), now, actions, opened: opened.has(key), toggle })))));
   }
@@ -398,20 +398,21 @@ function homeView({
 
   // Threads keep their order while Home is open, and new ones come first.
   function useSteadyThreads(entries, complete) {
-    const ranks = React.useRef(new Map());
+    const seen = React.useRef(new Map());
     if (!complete) return;
-    const keyOf = ({ thread }) => `${thread.environmentId}:${thread.id}`;
     for (const { threads } of entries) {
       for (const item of [...threads].reverse()) {
-        if (!ranks.current.has(keyOf(item))) ranks.current.set(keyOf(item), -ranks.current.size);
+        const key = `${item.thread.environmentId}:${item.thread.id}`;
+        if (!seen.current.has(key)) seen.current.set(key, { rank: -seen.current.size, old: item.old });
+        Object.assign(item, seen.current.get(key));
       }
-      threads.sort((a, b) => ranks.current.get(keyOf(a)) - ranks.current.get(keyOf(b)));
+      threads.sort((a, b) => a.rank - b.rank);
     }
   }
 
   function Overview({ entries, factsOf, complete, now, actions }) {
     useSteadyThreads(entries, complete);
-    const cards = entries.map((entry) => ({ entry, facts: factsOf(entry), rows: rowsOf(entry, factsOf(entry), now).rows }));
+    const cards = entries.map((entry) => ({ entry, facts: factsOf(entry), rows: rowsOf(entry, factsOf(entry)).rows }));
     const open = cards.filter(({ entry, rows }) => rows.length > 0 || entry.pinned);
     const rest = cards.filter((card) => !open.includes(card));
     const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
@@ -424,7 +425,7 @@ function homeView({
   function Project({ entry, facts, now, actions }) {
     const heading = React.useRef(null);
     React.useEffect(() => heading.current?.focus(), [entry.key]);
-    const { rows, updates } = rowsOf(entry, facts, now);
+    const { rows, updates } = rowsOf(entry, facts);
     return h("div", { className: "t3h-project" },
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
@@ -453,7 +454,7 @@ function homeView({
       // every repository.
       const receive = (event) => {
         const next = JSON.parse(event.detail);
-        if (Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
+        if (!lastGithub && Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
         lastGithub = next;
         setGithub(next);
       };
@@ -470,7 +471,7 @@ function homeView({
         document.removeEventListener("visibilitychange", ask);
       };
     }, [asked]);
-    return github;
+    return repositories.length > 0 ? github : null;
   }
 
   function useNow() {
@@ -592,8 +593,7 @@ const HOME_CSS = `
 .t3h-card-ask { --t3h-edge: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--card)); }
 .t3h-head { display: flex; align-items: center; gap: .7rem; }
 .t3h-names { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: .1rem; line-height: 1.3; }
-.t3h-headline { display: flex; gap: .7rem; overflow: hidden; }
-.t3h-headline > * { flex: none; font-weight: 600; }
+.t3h-names > .t3h-small:is(.t3h-run, .t3h-warn, .t3h-ok, .t3h-bad) { font-weight: 600; }
 .t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
 .t3h .t3h-name:hover { color: var(--primary); }
