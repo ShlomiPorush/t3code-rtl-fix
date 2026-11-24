@@ -58,7 +58,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="rail" class="rail box"></div>
   <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
-  <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
+  <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span><div id="card-rail" class="rail box"></div></div></div>
   <span id="plain-auto" dir="auto">English title</span>
   <div data-citation-comment-editor="true"><textarea id="comment" dir="auto" placeholder="Add an optional comment..."></textarea></div>
 </div>
@@ -108,6 +108,8 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-layout-test-"));
 let child = null;
 const pending = new Map();
 let nextId = 1;
+const traced = [];
+let traceComplete = null;
 let incoming = Buffer.alloc(0);
 
 function send(method, params = {}, sessionId) {
@@ -120,6 +122,22 @@ function send(method, params = {}, sessionId) {
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+// How many elements the browser restyled between the two marks an expression makes.
+async function restyledBy(sessionId, expression) {
+  const complete = new Promise((resolve) => (traceComplete = resolve));
+  await send("Tracing.start", {
+    traceConfig: { includedCategories: ["devtools.timeline", "blink.user_timing"], excludedCategories: ["*"] },
+    transferMode: "ReportEvents",
+  }, sessionId);
+  await send("Runtime.evaluate", { expression }, sessionId);
+  await send("Tracing.end", {}, sessionId);
+  await complete;
+  const at = (name) => traced.find((event) => event.name === name).ts;
+  return traced
+    .filter((event) => event.name === "UpdateLayoutTree" && event.ts >= at("t3-rtl-write") && event.ts <= at("t3-rtl-written"))
+    .reduce((sum, event) => sum + (event.args.elementCount || 0), 0);
 }
 
 async function run(port) {
@@ -139,6 +157,8 @@ async function run(port) {
       incoming = incoming.subarray(separator + 1);
       if (!raw) continue;
       const message = JSON.parse(raw);
+      if (message.method === "Tracing.dataCollected") traced.push(...message.params.value);
+      if (message.method === "Tracing.tracingComplete") traceComplete();
       const request = message.id ? pending.get(message.id) : null;
       if (!request) continue;
       pending.delete(message.id);
@@ -184,6 +204,7 @@ async function run(port) {
       rail: s("rail").translate,
       placed: s("placed").translate,
       placedChild: s("placed-child").translate,
+      cardRail: s("card-rail").translate,
       font: s("var-short").fontFamily,
       cardDir: s("card").direction,
       cardTitleAlign: s("card-title").textAlign,
@@ -239,6 +260,24 @@ async function run(port) {
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
+  check(on.cardRail.startsWith("50%"), `A box in a hover card moved the wrong way: ${on.cardRail}`);
+
+  // T3 Code writes the style of the conversation as it scrolls and streams, so
+  // such a write must not restyle everything inside it.
+  const restyled = await restyledBy(sessionId, `(() => {
+    const box = document.createElement("div");
+    box.style.left = "0px";
+    box.innerHTML = "<p><span>text</span></p>".repeat(500);
+    document.body.append(box);
+    document.body.offsetHeight;
+    performance.mark("t3-rtl-write");
+    box.style.left = "1px";
+    document.body.offsetHeight;
+    performance.mark("t3-rtl-written");
+    box.remove();
+  })()`);
+  check(restyled > 0 && restyled < 20, `A style write restyled ${restyled} elements`);
+
   // The floating preview and the page inside a preview are placed and scaled
   // by T3 Code from their physical sides, so they keep them.
   check(on.pillOffset === 0, `The floating preview's buttons left its corner: ${on.pillOffset}px`);

@@ -307,6 +307,8 @@ const AUTO_DIRECTION_SELECTOR = [
   COMPOSER_PLACEHOLDER_SELECTOR,
   COMPOSER_BANNER_TEXT_SELECTOR,
 ].join(", ");
+// Every element that LTR_DIRECTION_SELECTOR can match.
+const LTR_CANDIDATE_SELECTOR = "pre, code, a.chat-markdown-file-link, .chat-markdown-codeblock, kbd";
 const LTR_DIRECTION_SELECTOR = [
   '[data-message-role] .chat-markdown pre',
   '[data-message-role] .chat-markdown code',
@@ -350,6 +352,7 @@ function buildInjectionSource(css) {
   const letterPattern = new RegExp(${JSON.stringify(LETTER_PATTERN.source)}, "u");
   const autoDirectionSelector = ${JSON.stringify(AUTO_DIRECTION_SELECTOR)};
   const ltrDirectionSelector = ${JSON.stringify(LTR_DIRECTION_SELECTOR)};
+  const ltrCandidateSelector = ${JSON.stringify(LTR_CANDIDATE_SELECTOR)};
   const composerRootSelector = ${JSON.stringify(COMPOSER_ROOT_SELECTOR)};
   const workLogSummarySelector = ${JSON.stringify(WORK_LOG_SUMMARY_SELECTOR)};
   const tooltipSelector = ${JSON.stringify(TOOLTIP_SELECTOR)};
@@ -455,6 +458,11 @@ function buildInjectionSource(css) {
     }
   };
 
+  // The full selector is slow to look for in every ancestor of every text of a
+  // long thread, and almost no text has even a possible match.
+  const closestLtr = (element) =>
+    element?.closest(ltrCandidateSelector) ? element.closest(ltrDirectionSelector) : null;
+
   // Hebrew or Arabic prose makes a block right to left, and other letters let
   // the browser resolve it. A block with no letters at all, such as a lone
   // image or a number, has nothing to resolve from, so it keeps the direction
@@ -463,17 +471,19 @@ function buildInjectionSource(css) {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let hasLetters = false;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const ltrAncestor = node.parentElement?.closest(ltrDirectionSelector);
+      const rightToLeft = rtlTextPattern.test(node.data);
+      if (!rightToLeft && (hasLetters || !letterPattern.test(node.data))) continue;
+      const ltrAncestor = closestLtr(node.parentElement);
       if (ltrAncestor && ltrAncestor !== element && element.contains(ltrAncestor)) continue;
-      if (rtlTextPattern.test(node.data)) return "rtl";
-      if (!hasLetters && letterPattern.test(node.data)) hasLetters = true;
+      if (rightToLeft) return "rtl";
+      hasLetters = true;
     }
     return hasLetters ? "auto" : null;
   };
 
   const setContentDirection = (root) => {
     const apply = (element) => {
-      const ltrAncestor = element.closest(ltrDirectionSelector);
+      const ltrAncestor = closestLtr(element);
       if (ltrAncestor && ltrAncestor !== element && !element.matches("th, td")) return;
       // A text field holds its text in a value property rather than in child
       // nodes, so the browser has to resolve its direction while the user types.
@@ -552,9 +562,12 @@ function buildInjectionSource(css) {
     }
   };
 
-  const applyDirections = (root) => {
+  const markRoots = (root) => {
     markPlanCards(root);
     markTurnPlans(root);
+  };
+
+  const applyDirections = (root) => {
     setContentDirection(root);
     setDirection(root, ltrDirectionSelector, "ltr");
     setDirection(root, workLogSummarySelector, "auto");
@@ -669,13 +682,28 @@ function buildInjectionSource(css) {
     writeComposerStyle();
   };
 
-  const applyDirectionsAround = (node) => {
-    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-    if (!element) return;
-    const directionRoot = element.matches(directionRootSelector)
-      ? element
-      : element.closest(directionRootSelector);
-    applyDirections(directionRoot ?? element);
+  const outermost = (elements) =>
+    [...elements].filter((element) => {
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (elements.has(parent)) return false;
+      }
+      return true;
+    });
+
+  // Opening a thread reports hundreds of changes at once, many of them inside
+  // one message, so each part of the page is directed once for all of them.
+  const applyDirectionsAround = (nodes) => {
+    const changed = new Set();
+    for (const node of nodes) {
+      const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      if (element?.isConnected) changed.add(element);
+    }
+    const elements = outermost(changed);
+    const rootsOf = () => elements.map((element) => element.closest(directionRootSelector) ?? element);
+    const roots = outermost(new Set(rootsOf()));
+    // A mark makes its element a direction root, so every mark comes first.
+    for (const root of roots) markRoots(root);
+    for (const root of outermost(new Set([...roots, ...rootsOf()]))) applyDirections(root);
   };
 
   const start = () => {
@@ -698,10 +726,12 @@ function buildInjectionSource(css) {
       alignTableScrolls(document);
     };
     window.addEventListener("t3-rtl-layout", state.onLayout);
+    markRoots(document);
     applyDirections(document);
     updateComposers(new Set(document.querySelectorAll(composerRootSelector)));
     state.observer = new MutationObserver((records) => {
       const composers = new Set();
+      const changed = new Set();
       for (const record of records) {
         if (record.type === "attributes") {
           // The composer directs its blocks through a stylesheet, so T3 Code's
@@ -709,20 +739,21 @@ function buildInjectionSource(css) {
           const target = record.target;
           if (target.closest(composerRootSelector)) continue;
           if (writtenDirections.get(target) === target.getAttribute("dir")) continue;
-          applyDirectionsAround(target);
+          changed.add(target);
           continue;
         }
         for (const node of record.addedNodes) {
-          applyDirectionsAround(node);
+          changed.add(node);
           collectComposers(node, composers);
         }
         // Removed text, such as the last Hebrew word of a block, can change
         // the direction of what remains.
         if (record.type === "characterData" || record.removedNodes.length > 0) {
-          applyDirectionsAround(record.target);
+          changed.add(record.target);
         }
         collectComposers(record.target, composers);
       }
+      applyDirectionsAround(changed);
       updateComposers(composers);
     });
     state.observer.observe(document.documentElement, {

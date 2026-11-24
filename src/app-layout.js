@@ -76,16 +76,23 @@ const HIGH_CSS = `
   visibility: hidden !important;
 }
 
-/* The mirrored copies move an element sideways by --t3-rtl-x times its
-   distance (see css-mirror.js): the other way in a right-to-left box, and as
-   T3 Code wrote it in a left-to-right island or where a script placed it.
-   Inside a placed element, each box follows its own direction again. */
-:root[data-t3-rtl-app="on"] [dir="rtl"] { --t3-rtl-x: -1; }
-:root[data-t3-rtl-app="on"] [dir="ltr"] { --t3-rtl-x: 1; }
-:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) { --t3-rtl-x: 1; }
-:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :dir(rtl) { --t3-rtl-x: -1; }
-:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :dir(ltr) { --t3-rtl-x: 1; }
-:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}) :is(${SCRIPT_PLACED_SELECTOR}) { --t3-rtl-x: 1; }
+/* The mirrored copies move an element sideways (see css-mirror.js): the other
+   way in a right-to-left box, and as T3 Code wrote it in a left-to-right one
+   or where a script placed it. --t3-rtl-placed does not reach the boxes inside a placed
+   element, which follow their own direction. A rule for those boxes instead,
+   such as ":is(placed) :dir(rtl)", would make the browser restyle everything
+   inside an element on each change of its style attribute, and T3 Code writes
+   that attribute on the conversation all the time. */
+@property --t3-rtl-placed {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: -1;
+}
+:root[data-t3-rtl-app="on"] :is([dir="rtl"], [dir="auto"]:where(:dir(rtl))) { --t3-rtl-x: -1; }
+:root[data-t3-rtl-app="on"] :is([dir="ltr"], [dir="auto"]:where(:dir(ltr))) { --t3-rtl-x: 1; }
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR}),
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR})::before,
+:root[data-t3-rtl-app="on"] :is(${SCRIPT_PLACED_SELECTOR})::after { --t3-rtl-placed: 1; }
 :root[data-t3-rtl-app="on"] { --t3-rtl-x: -1; }
 
 /* T3 Code places the floating preview from the left of the conversation, on
@@ -162,6 +169,7 @@ const HIGH_CSS = `
    sits on the right. */
 :root[data-t3-rtl-app="on"] :is(${LAYOUT_AUTO_SELECTOR}) {
   direction: rtl;
+  --t3-rtl-x: -1;
 }
 :root[data-t3-rtl-app="on"] :where(${LAYOUT_AUTO_SELECTOR}) [dir="ltr"]:not([data-t3-rtl-island], [data-t3-rtl-island] *) {
   text-align: -webkit-match-parent;
