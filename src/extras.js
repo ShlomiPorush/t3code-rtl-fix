@@ -82,6 +82,7 @@ function createExtrasService({
       usageHiddenAccounts: settings.usageHiddenAccounts,
       chatWidth: settings.chatWidth,
       boringWorkingShelf: settings.boringWorkingShelf,
+      boringDoneShelf: settings.boringDoneShelf,
       writable: settings.writable,
       problem: settings.problem,
     };

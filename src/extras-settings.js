@@ -24,8 +24,9 @@ const DEFAULTS = Object.freeze({
   usageHiddenAccounts: Object.freeze([]),
   chatWidth: null,
   boringWorkingShelf: false,
+  boringDoneShelf: false,
 });
-const BOOLEAN_KEYS = new Set(["rtlLayout", "repoStatus", "usageLimits", "boringWorkingShelf"]);
+const BOOLEAN_KEYS = new Set(["rtlLayout", "repoStatus", "usageLimits", "boringWorkingShelf", "boringDoneShelf"]);
 
 // T3 Code reads its home from T3CODE_HOME, trimmed, with a leading ~ expanded
 // and a relative path taken from the home folder. Empty means ~/.t3.
@@ -67,6 +68,7 @@ function pick(raw) {
     chatWidth: isChatWidth(source.chatWidth) ? source.chatWidth : DEFAULTS.chatWidth,
     boringWorkingShelf:
       typeof source.boringWorkingShelf === "boolean" ? source.boringWorkingShelf : DEFAULTS.boringWorkingShelf,
+    boringDoneShelf: typeof source.boringDoneShelf === "boolean" ? source.boringDoneShelf : DEFAULTS.boringDoneShelf,
   };
 }
 

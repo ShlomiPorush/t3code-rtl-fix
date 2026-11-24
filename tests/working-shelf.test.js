@@ -47,6 +47,8 @@ const FIXTURE = [
   "return{Ji,rendered,headers,Gi,look}}",
 ].join("\n");
 
+const WORKING = { working: true, done: false };
+
 function load(source) {
   const loaded = new Function(`${source}\nreturn { setWorking, gK, GK, rowLook };`)();
   const Y = (value) => value || undefined;
@@ -81,7 +83,7 @@ const hookInput = (folderGroups) => ({
 });
 
 test("the patch shows the Working section with project folders and keeps T3 Code's own setting", () => {
-  const result = patchSidebarChunk(FIXTURE);
+  const result = patchSidebarChunk(FIXTURE, WORKING);
   assert.equal(result.applied, true, result.problem);
   const original = load(FIXTURE);
   const patched = load(result.source);
@@ -96,7 +98,7 @@ test("the patch shows the Working section with project folders and keeps T3 Code
 });
 
 test("with project folders, Working comes first in the keyboard order; without, the order is T3 Code's", () => {
-  const { source } = patchSidebarChunk(FIXTURE);
+  const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
   const patched = load(source);
   const folders = [{ threads: ["a1"] }];
@@ -106,7 +108,7 @@ test("with project folders, Working comes first in the keyboard order; without, 
 });
 
 test("with project folders, the Working header and rows move above Pinned; without, nothing moves", () => {
-  const { source } = patchSidebarChunk(FIXTURE);
+  const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
   const patched = load(source);
   assert.deepEqual(patched.rowsOf([], rows).Ji, [
@@ -121,7 +123,7 @@ test("with project folders, the Working header and rows move above Pinned; witho
 });
 
 test("with project folders, the first shelf at the bottom is Snoozed or Settled", () => {
-  const { source } = patchSidebarChunk(FIXTURE);
+  const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
   const patched = load(source);
   const classes = (fn, folders, working, snoozed) => fn(folders, working, snoozed).map((header) => header.className);
@@ -135,7 +137,7 @@ test("with project folders, the first shelf at the bottom is Snoozed or Settled"
 });
 
 test("with project folders, Working rows look like folder rows; without, rows look as T3 Code has them", () => {
-  const { source } = patchSidebarChunk(FIXTURE);
+  const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
   const patched = load(source);
   assert.equal(original.look([], "working", false), "card");
@@ -151,7 +153,7 @@ test("with project folders, Working rows look like folder rows; without, rows lo
 });
 
 test("a Working folder row shows its project icon in the place of the indent; other rows look as T3 Code has them", () => {
-  const { source } = patchSidebarChunk(FIXTURE);
+  const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
   const patched = load(source);
   const props = (navigationParent, isActive) => ({ navigationParent, isActive, project: "P" });
@@ -215,11 +217,11 @@ test("the patch changes nothing unless every site matches exactly once", () => {
   for (const [site, broken, copy] of sites) {
     assert.equal(FIXTURE.split(site).length, 2, `the fixture has ${site} once`);
     const missing = FIXTURE.replace(site, broken);
-    const result = patchSidebarChunk(missing);
+    const result = patchSidebarChunk(missing, WORKING);
     assert.equal(result.applied, false, `missing ${site}`);
     assert.equal(result.source, missing, `missing ${site} leaves the code byte for byte`);
     const doubled = `${FIXTURE}\n${copy}`;
-    const twice = patchSidebarChunk(doubled);
+    const twice = patchSidebarChunk(doubled, WORKING);
     assert.equal(twice.applied, false, `doubled ${site}`);
     assert.equal(twice.source, doubled, `doubled ${site} leaves the code byte for byte`);
   }
@@ -263,7 +265,7 @@ test("the patch changes nothing unless every site matches exactly once", () => {
   ];
   for (const variant of variants) {
     assert.notEqual(variant, FIXTURE);
-    const result = patchSidebarChunk(variant);
+    const result = patchSidebarChunk(variant, WORKING);
     assert.equal(result.applied, false, result.problem);
     assert.equal(result.source, variant);
   }
@@ -283,7 +285,7 @@ test("a site that cannot see the project folders gets T3 Code's layout, not an e
   for (const [name, body] of Object.entries(bodies)) {
     const variant = FIXTURE.replace(`const headers=${headers};`, "const headers=mk(Dn,On,Y);") + `\nconst mk=${body};`;
     assert.notEqual(variant, FIXTURE);
-    const result = patchSidebarChunk(variant);
+    const result = patchSidebarChunk(variant, WORKING);
     assert.equal(result.applied, true, `${name}: ${result.problem}`);
     const original = load(variant);
     const patched = load(result.source);
@@ -309,12 +311,205 @@ test("a site that cannot see the project folders gets T3 Code's layout, not an e
 });
 
 test("patched code is not patched again, and other scripts are left alone", () => {
-  const once = patchSidebarChunk(FIXTURE);
-  const twice = patchSidebarChunk(once.source);
+  const once = patchSidebarChunk(FIXTURE, WORKING);
+  const twice = patchSidebarChunk(once.source, WORKING);
   assert.equal(twice.applied, false);
   assert.equal(twice.source, once.source);
-  assert.equal(patchSidebarChunk("console.log(1)").source, "console.log(1)");
-  assert.equal(patchSidebarChunk(undefined).applied, false);
+  assert.equal(patchSidebarChunk("console.log(1)", WORKING).source, "console.log(1)");
+  assert.equal(patchSidebarChunk(undefined, WORKING).applied, false);
+});
+
+// The same sidebar code with the places the Done section changes, and stand-ins
+// for what it takes from T3 Code: the visit times, the status, the saved state
+// of a shelf, and React's refs and effects, which run when a render commits.
+// The component is far after the hook, as in T3 Code.
+function replaced(text, pairs) {
+  for (const [from, to] of pairs) {
+    assert.equal(text.split(from).length, 2, `the fixture has ${from} once`);
+    text = text.replace(from, () => to);
+  }
+  return text;
+}
+
+const DONE_FIXTURE = [
+  replaced(FIXTURE, [
+    ["f=dp(DK)&&u===null,p=1;", "f=dp(DK)&&u===null,p=(0,Q.useSyncExternalStore)(),[b,x]=Ar(lK,!1,zo);"],
+    ["=e.lists,b=e.expanded,", "=e.lists,"],
+    ["function hK(e,t){return t===null?[]:e.filter(n=>n===t)}", "function hK(e,t){return t===null?[]:e.filter(n=>fK(n)===t)}"],
+    ["U=u===null?null:u.map(g=>(", "U=u===null?null:Wee(u,A,d).map(g=>("],
+    ["W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=0;", "W=[...k,...U===null?A:U.flatMap(wK),...H,...ee,...V],te=new Map;for(let[e,t]of[[k,`pinned`],[A,`active`],[j,`working`],[M,`snoozed`],[N,`settled`]])for(let n of e)te.set(fK(n),t);"],
+    ["orderedThreadKeys:W.map(x=>x)}", "orderedThreadKeys:W.map(fK),sectionByThreadKey:te}"],
+    ["function GK(Un,r,Dn,On,Y){let t=[],", `/*${" ".repeat(8000)}*/`+"function GK(input,r,Dn,On,Y,Vn,Hn){let{workingShelfEnabled:Sn,projectFolders:Un,toggleProjectFolder:Wn,orderedThreadKeys:Jn,sectionByThreadKey:$n}=gK({projectScopeKey:0,...input});let t=[],"],
+    ["const headers=[{marker:`working-header`,className:`mt-auto`},", "const translate=(e,c)=>e+`|`+c.$context,n=[],el={jsx:(c,p)=>c(p)};for(let i of qi)if(i.kind===`thread`)n.push(i.section+`:`+i.key);else bb2248:switch(i.marker){case`working-header`:n.push((0,el.jsx)(eK,{marker:`working-header`,className:`mt-auto`,label:translate(`Working`,{$context:`sidebar section`}),count:Dn.length,toggle:{expanded:Vn,onToggle:Hn}},`working-shelf-header`));break bb2248;default:n.push(i.marker)}const headers=["],
+    ["return{Ji,rendered,headers,Gi,look}}", "return{Ji,rendered,headers,Gi,look,n,Jn,$n}}"],
+  ]),
+  "let STORED={working:true},VISITS={},REF,EFFECTS=[];const lK=`working`;",
+  "function Q(){}Q.useSyncExternalStore=()=>1;Q.useRef=v=>REF??={current:v};Q.useLayoutEffect=run=>{EFFECTS.push(run)};",
+  "function zo(){}function Ar(key,fallback,schema){if(schema!==zo)throw Error(`schema`);return[STORED[key]??fallback,next=>{STORED[key]=next(STORED[key]??fallback)}]}",
+  "function wv(select){return select({threadLastVisitedAtById:VISITS})}",
+  "function zv(server,local){return local??server}",
+  "function fK(e){return e.id??e}",
+  "function Wee(groups,threads){return groups.map(g=>({...g,threads:threads.filter(e=>g.ids.includes(fK(e)))})).filter(g=>g.threads.length>0)}",
+  "function Pee(e){return!!e.latestRun?.completedAt&&Date.parse(e.latestRun.completedAt)>Date.parse(e.lastVisitedAt)}",
+  "function Kee(e){return e.status}",
+  "function rowLabel(S,n,I){let L=wv(I),R=zv(S.lastVisitedAt,L),z;let _e=0,ve=Pee({...S,lastVisitedAt:R}),ye=Kee({...S,lastVisitedAt:R}),be=0,Te=ye===`preparing`||ye===`working`?{label:n(`Working`,{$context:`thread status`})}:ve?{label:n(`Done`,{$context:`thread status`})}:null;return Te}",
+  "function eK(e){let t=(0,$.c)(17),n=e.marker===`working-header`?`working`:e.marker===`snoozed-header`?`snoozed`:`settled`;return{...e,shelf:n}}const $={c:()=>[]};",
+].join("\n");
+const DONE = { working: false, done: true };
+const BOTH = { working: true, done: true };
+
+// Renders the sidebar of threads in one project folder, as T3 Code does.
+function doneSidebar(sections, source = DONE_FIXTURE) {
+  const result = patchSidebarChunk(source, sections);
+  assert.equal(result.applied, true, result.problem);
+  const sidebar = new Function(
+    `${result.source}\nreturn {GK,rowLook,visit(k,v){VISITS[k]=v},commit(){for(const run of EFFECTS.splice(0))run()},abandon(){EFFECTS=[]}};`,
+  )();
+  return {
+    ...sidebar,
+    draw(threads, { open = null, working = [], folders = true } = {}) {
+      const ids = threads.map((item) => item.id);
+      const lists = { pinnedThreads: ["p1"], activeThreads: threads, workingThreads: working, snoozedThreads: [], settledThreads: [] };
+      const input = { threads: [], routeRowThreadKey: open, folderGroups: folders ? [{ ids }] : null, lists };
+      const rowsOf = (list, section) => list.map((item) => ({ kind: "thread", key: item.id ?? item, section }));
+      const list = [
+        { kind: "marker", marker: "pinned-header" },
+        ...rowsOf(["p1"], "pinned"),
+        { kind: "marker", marker: "active-placeholder" },
+        ...rowsOf(threads, "active"),
+        ...(working.length ? [{ kind: "marker", marker: "working-header" }, ...rowsOf(working, "working")] : []),
+      ];
+      const drawn = sidebar.GK(input, list, working, [], (value) => value || undefined, true, () => {});
+      return {
+        keys: drawn.Jn,
+        sections: Object.fromEntries(drawn.$n),
+        rows: drawn.n.map((item) => (typeof item === "string" ? item : item.marker)),
+        header: drawn.n.find((item) => item.marker === "done-header"),
+        look: drawn.look,
+      };
+    },
+    show(threads, options) {
+      const drawn = this.draw(threads, options);
+      sidebar.commit();
+      return drawn;
+    },
+  };
+}
+const ended = (id, minute, more = {}) => ({
+  id,
+  status: "ready",
+  latestRun: { status: "completed", completedAt: `2026-01-01T10:${minute}:00Z` },
+  lastVisitedAt: "2026-01-01T09:00:00Z",
+  ...more,
+});
+const READ = "2026-01-01T11:00:00Z";
+
+test("Done threads leave their folder for the section, latest first, below Working and above Pinned", () => {
+  const threads = [ended("a", "01"), ended("b", "05"), ended("c", "03", { lastVisitedAt: READ })];
+  const done = doneSidebar(DONE).show(threads);
+  assert.deepEqual(done.rows, ["done-header", "done:b", "done:a", "pinned-header", "pinned:p1", "active-placeholder", "active:c", "settled-placeholder"]);
+  assert.deepEqual(done.keys, ["b", "a", "p1", "c"]);
+  assert.deepEqual(done.sections, { p1: "pinned", a: "done", b: "done", c: "active" });
+  assert.deepEqual([done.header.label, done.header.count, done.header.shelf], ["Done|thread status", 2, "done"]);
+
+  const both = doneSidebar(BOTH).show(threads, { working: ["w"] });
+  assert.deepEqual(both.rows.slice(0, 5), ["working-header", "working:w", "done-header", "done:b", "done:a"]);
+  assert.deepEqual(both.keys, ["w", "b", "a", "p1", "c"]);
+});
+
+test("only a thread that T3 Code labels Done is in the section", () => {
+  const sidebar = doneSidebar(BOTH);
+  for (const status of ["working", "preparing", "waiting", "approval", "input", "request", "failed", "limited"]) {
+    assert.equal(sidebar.show([ended("a", "01", { status })]).header, undefined, status);
+  }
+  const failed = ended("a", "01");
+  failed.latestRun.status = "failed";
+  assert.equal(sidebar.show([failed]).header, undefined, "a failed run that T3 Code reports as ready");
+  assert.equal(sidebar.show([ended("a", "01", { lastVisitedAt: READ })]).header, undefined, "already read");
+  assert.equal(sidebar.show([ended("a", "01", { latestRun: null })]).header, undefined, "never ran");
+  sidebar.visit("a", READ);
+  assert.equal(sidebar.show([ended("a", "01")]).header, undefined, "read in this window");
+});
+
+test("a thread opened from Done stays until it is left, and one that finishes while open does not enter", () => {
+  const sidebar = doneSidebar(BOTH);
+  const unread = [ended("a", "01"), ended("b", "02")];
+  const aRead = [ended("a", "01", { lastVisitedAt: READ }), ended("b", "02")];
+  assert.deepEqual(sidebar.show(unread).keys, ["b", "a", "p1"]);
+  assert.deepEqual(sidebar.show(unread, { open: "a" }).keys, ["b", "a", "p1"], "opened");
+  assert.deepEqual(sidebar.show(aRead, { open: "a" }).keys, ["b", "a", "p1"], "read");
+  sidebar.draw(aRead, { open: "b" });
+  sidebar.abandon();
+  assert.deepEqual(sidebar.show(aRead, { open: "a" }).keys, ["b", "a", "p1"], "a render that did not commit changes nothing");
+  const aReverted = [ended("a", "01", { latestRun: null }), ended("b", "02")];
+  assert.equal(sidebar.show(aReverted, { open: "a" }).keys.length, 3, "its run was reverted");
+  assert.deepEqual(sidebar.show(aRead, { open: "b" }).keys, ["b", "p1", "a"], "left");
+  assert.deepEqual(sidebar.show(aRead, { open: "a" }).keys, ["b", "p1", "a"], "opened again from its folder");
+  const aWorks = [ended("a", "01", { status: "working" })];
+  assert.equal(sidebar.show(aWorks, { open: "a" }).header, undefined);
+  assert.equal(sidebar.show([ended("a", "09")], { open: "a" }).header, undefined, "finished while open");
+  assert.notEqual(sidebar.show([ended("a", "09")], { open: null }).header, undefined, "left unread");
+});
+
+test("a collapsed Done section keeps its count and the open thread's row, and is remembered", () => {
+  const sidebar = doneSidebar(DONE);
+  const threads = [ended("a", "01"), ended("b", "02")];
+  const open = sidebar.show(threads);
+  assert.equal(open.header.toggle.expanded, true);
+  open.header.toggle.onToggle();
+  const collapsed = sidebar.show(threads);
+  assert.equal(collapsed.header.toggle.expanded, false);
+  assert.equal(collapsed.header.count, 2);
+  assert.deepEqual(collapsed.keys, ["p1"]);
+  assert.deepEqual(sidebar.show(threads, { open: "a" }).keys, ["a", "p1"]);
+});
+
+test("Done rows look like folder rows, with their project's icon and the Done header as parent", () => {
+  for (const sections of [DONE, BOTH]) {
+    const sidebar = doneSidebar(sections);
+    assert.equal(sidebar.show([ended("a", "01")]).look({}, "done"), "folder");
+    const { icon, row } = sidebar.rowLook([], "folder", { navigationParent: "shelf:done", isActive: false, project: "P" }, "settle");
+    assert.deepEqual(icon.children, { project: "P", className: "size-4" });
+    assert.doesNotMatch(row.className, /ps-9/);
+  }
+  assert.match(patchSidebarChunk(DONE_FIXTURE, DONE).source, /navigationParent:n\?\?\(t===`done`\|\|t===`working`/);
+});
+
+test("without project folders there is no Done section, and a section that is off changes nothing of its own", () => {
+  const threads = [ended("a", "01"), ended("b", "02")];
+  assert.deepEqual(doneSidebar(DONE).show(threads, { folders: false }).keys, ["p1", "a", "b"]);
+  assert.deepEqual(doneSidebar({ working: true, done: false }).show(threads).rows, ["pinned-header", "pinned:p1", "active-placeholder", "active:a", "active:b", "settled-placeholder"]);
+  assert.doesNotMatch(patchSidebarChunk(DONE_FIXTURE, { working: true, done: false }).source, /t3RtlFix\w*Done/);
+  const gate = "f=dp(DK)&&u===null,";
+  assert.ok(patchSidebarChunk(DONE_FIXTURE, DONE).source.includes(gate), "Done alone leaves Working as T3 Code has it");
+  assert.ok(!patchSidebarChunk(DONE_FIXTURE, BOTH).source.includes(gate));
+});
+
+test("Done is refused unless each of its places is recognized, and Working is not", () => {
+  const broken = [
+    ["[b,x]=Ar(lK,!1,zo)", "[b,x]=Ar(lK,!0,zo)"],
+    ["(0,Q.useSyncExternalStore)()", "Q.useSyncExternalStore()"],
+    ["Wee(u,A,d).map(", "Wee(u,j,d).map("],
+    ["Wee(u,A,d).map(", "memo(u,A,d,"],
+    ["[N,`settled`]])for(", "[N,`settled`],[0,0]])for("],
+    ["ye=Kee({...S,lastVisitedAt:R})", "ye=Kee(S)"],
+    [":ve?{label:n(`Done`", ":be?{label:n(`Done`"],
+    ["let L=wv(I),R=zv(S.lastVisitedAt,L)", "let L=wv(I),R=zv(S.visitedAt,L)"],
+    ["L),z;let _e=0", "L),z;function inner(){}let _e=0"],
+    ["function Pee(e)", "const Pee=e=>0;function unrelated(e)"],
+    ["function Pee(e)", "const Pee=e=>0;// export{unrelated as Pee};\nfunction unrelated(e)"],
+    ["projectFolders:Un,", "projectFolderz:Un,"],
+    ["toggle:{expanded:Vn,onToggle:Hn}},`working-shelf-header`", "toggle:{expanded:Vn,onToggle:Hn}},`working-shelf`"],
+    ["n=e.marker===`working-header`?`working`", "n=e.kind===`working-header`?`working`"],
+  ];
+  for (const [site, change] of broken) {
+    const variant = replaced(DONE_FIXTURE, [[site, change]]);
+    const result = patchSidebarChunk(variant, BOTH);
+    assert.equal(result.applied, false, site);
+    assert.equal(result.source, variant, `${site}: the code is left byte for byte`);
+    const working = patchSidebarChunk(variant, { working: true, done: false });
+    assert.equal(working.applied, true, `${site}: ${working.problem}`);
+  }
 });
 
 // The real code of the T3 Code installed on this machine, when there is one.
@@ -365,7 +560,11 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   if (!asarPath) return t.skip("T3 Code is not installed here");
   const chunk = readInstalledMainChunks(asarPath).find((item) => item.source.includes("sidebarWorkingShelfEnabled}"));
   assert.ok(chunk, "the installed T3 Code has a main script with the sidebar");
-  const result = patchSidebarChunk(chunk.source);
+  for (const sections of [WORKING, DONE]) {
+    const alone = patchSidebarChunk(chunk.source, sections);
+    assert.equal(alone.applied, true, `${chunk.name}: ${alone.problem}`);
+  }
+  const result = patchSidebarChunk(chunk.source, BOTH);
   assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
@@ -417,28 +616,28 @@ const paused = (overrides = {}) => ({
 
 test("the browser watches only T3 Code's main script, and a refusal is only logged", async () => {
   const ok = fakeConnection();
-  assert.equal(await createWorkingShelfService({ send: ok.send, isEnabled: () => true }).enable(), true);
+  assert.equal(await createWorkingShelfService({ send: ok.send, sections: () => WORKING }).enable(), true);
   assert.deepEqual(ok.calls[0], {
     method: "Fetch.enable",
     params: { patterns: [{ urlPattern: URL_PATTERN, resourceType: "Script", requestStage: "Response" }] },
   });
   const refused = fakeConnection({ failEnable: true });
   const logs = [];
-  const service = createWorkingShelfService({ send: refused.send, isEnabled: () => true, log: (m) => logs.push(m) });
+  const service = createWorkingShelfService({ send: refused.send, sections: () => WORKING, log: (m) => logs.push(m) });
   assert.equal(await service.enable(), false);
   assert.match(logs.join("\n"), /could not watch/);
 });
 
 test("a recognized script is answered with the patched code and without its length", async () => {
   const connection = fakeConnection();
-  await createWorkingShelfService({ send: connection.send, isEnabled: () => true }).handlePaused(paused());
+  await createWorkingShelfService({ send: connection.send, sections: () => WORKING }).handlePaused(paused());
   const methods = connection.calls.map((call) => call.method);
   assert.deepEqual(methods, ["Fetch.getResponseBody", "Fetch.fulfillRequest"]);
   const fulfill = connection.calls[1].params;
   assert.equal(fulfill.requestId, "r1");
   assert.equal(fulfill.responseCode, 200);
   assert.deepEqual(fulfill.responseHeaders, [{ name: "content-type", value: "text/javascript" }]);
-  assert.equal(Buffer.from(fulfill.body, "base64").toString("utf8"), patchSidebarChunk(FIXTURE).source);
+  assert.equal(Buffer.from(fulfill.body, "base64").toString("utf8"), patchSidebarChunk(FIXTURE, WORKING).source);
 });
 
 test("the script passes unchanged when the switch is off, the answer is not 200, or the code is unknown", async () => {
@@ -452,7 +651,7 @@ test("the script passes unchanged when the switch is off, the answer is not 200,
   for (const item of cases) {
     const connection = fakeConnection({ body: item.body, failBody: item.failBody });
     const logs = [];
-    await createWorkingShelfService({ send: connection.send, isEnabled: () => item.enabled, log: (m) => logs.push(m) }).handlePaused(item.params);
+    await createWorkingShelfService({ send: connection.send, sections: () => ({ working: item.enabled, done: false }), log: (m) => logs.push(m) }).handlePaused(item.params);
     const methods = connection.calls.map((call) => call.method);
     assert.deepEqual(methods, item.reads ? ["Fetch.getResponseBody", "Fetch.continueRequest"] : ["Fetch.continueRequest"], item.name);
     assert.deepEqual(connection.calls.at(-1).params, { requestId: "r1" }, item.name);
@@ -464,7 +663,7 @@ test("turning the switch off while the script is read passes it unchanged", asyn
   const connection = fakeConnection();
   connection.gate.hold = true;
   let enabled = true;
-  const handled = createWorkingShelfService({ send: connection.send, isEnabled: () => enabled }).handlePaused(paused());
+  const handled = createWorkingShelfService({ send: connection.send, sections: () => ({ working: enabled, done: false }) }).handlePaused(paused());
   await new Promise((resolve) => setImmediate(resolve));
   enabled = false;
   connection.release();
@@ -472,9 +671,31 @@ test("turning the switch off while the script is read passes it unchanged", asyn
   assert.deepEqual(connection.calls.map((call) => call.method), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
 });
 
+test("when only Done is not recognized, Working is still shown, and the log says which", async () => {
+  const connection = fakeConnection();
+  const logs = [];
+  await createWorkingShelfService({ send: connection.send, sections: () => BOTH, log: (m) => logs.push(m) }).handlePaused(paused());
+  const answer = connection.calls.at(-1);
+  assert.equal(answer.method, "Fetch.fulfillRequest");
+  assert.equal(Buffer.from(answer.params.body, "base64").toString("utf8"), patchSidebarChunk(FIXTURE, WORKING).source);
+  assert.match(logs.join("\n"), /not recognized for Done/);
+});
+
+test("a switch changed while the script is read decides what it gets", async () => {
+  const connection = fakeConnection({ body: DONE_FIXTURE });
+  connection.gate.hold = true;
+  let sections = WORKING;
+  const handled = createWorkingShelfService({ send: connection.send, sections: () => sections }).handlePaused(paused());
+  await new Promise((resolve) => setImmediate(resolve));
+  sections = DONE;
+  connection.release();
+  await handled;
+  assert.equal(Buffer.from(connection.calls.at(-1).params.body, "base64").toString("utf8"), patchSidebarChunk(DONE_FIXTURE, DONE).source);
+});
+
 test("two windows loading at once each get one answer", async () => {
   const connection = fakeConnection();
-  const service = createWorkingShelfService({ send: connection.send, isEnabled: () => true });
+  const service = createWorkingShelfService({ send: connection.send, sections: () => WORKING });
   await Promise.all([service.handlePaused(paused({ requestId: "a" })), service.handlePaused(paused({ requestId: "b" }))]);
   const answers = connection.calls.filter((call) => call.method !== "Fetch.getResponseBody").map((call) => call.params.requestId).sort();
   assert.deepEqual(answers, ["a", "b"]);
@@ -488,23 +709,23 @@ test("windows reload without the cache, and one that cannot reload is only logge
     if (sessionId === "gone") throw new Error("Page.reload: no session");
     return {};
   };
-  const service = createWorkingShelfService({ send, isEnabled: () => true, log: (m) => logs.push(m) });
+  const service = createWorkingShelfService({ send, sections: () => WORKING, log: (m) => logs.push(m) });
   assert.equal(await service.reloadWindows(["a", "gone", "b"]), 2);
   assert.deepEqual(calls, ["a", "gone", "b"].map((sessionId) => ({ method: "Page.reload", params: { ignoreCache: true }, sessionId })));
   assert.match(logs.join("\n"), /could not be reloaded/);
   assert.equal(await service.reloadWindows([]), 0);
 });
 
-test("a change of the switch reloads only after the browser watches the script", () => {
+test("a change of a switch reloads only after the browser watches the script", () => {
   const core = fs.readFileSync(path.join(__dirname, "..", "src", "launcher-core.js"), "utf8");
-  const start = core.indexOf("async function switchWorkingShelf(");
+  const start = core.indexOf("async function switchSidebarSections(");
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
-  assert.match(body, /if \(next === boringWorkingShelf\) return;/);
+  assert.match(body, /if \(next\.working === sidebarSections\.working && next\.done === sidebarSections\.done\) return;/);
   const watched = body.indexOf("await watchWorkingShelf()");
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
   assert.match(body, /if \(!watching\) return;/);
-  assert.match(core, /void switchWorkingShelf\(settings\.boringWorkingShelf === true\)/);
+  assert.match(core, /void switchSidebarSections\(sectionsOf\(settings\)\)/);
   assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
 });
 

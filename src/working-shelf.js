@@ -1,20 +1,23 @@
 "use strict";
 
-// The Working section in the boring sidebar.
+// The Working and Done sections in the boring sidebar.
 //
 // T3 Code folds working threads into a Working section, but turns it off when
-// the boring sidebar (Labs, group by project) is on. With this option on, the
-// launcher rewrites T3 Code's sidebar code as the page loads it, so that:
-// - the Working section also shows with the boring sidebar, still behind
-//   T3 Code's own "Working section" setting, and
-// - with the boring sidebar only, the section sits at the top of the
+// the boring sidebar (Labs, group by project) is on. Each section has its own
+// switch. With one on, the launcher rewrites T3 Code's sidebar code as the page
+// loads it, so that:
+// - Working: T3 Code's Working section also shows with the boring sidebar,
+//   still behind T3 Code's own "Working section" setting,
+// - Done: the boring sidebar has a Done section of the threads that T3 Code
+//   labels Done, which finished and were not opened since, and
+// - with the boring sidebar only, the sections sit at the top of the
 //   sidebar, above Pinned, in the rows, in their keyboard order, and in the
-//   spacing that keeps the other shelves at the bottom, and its rows look
+//   spacing that keeps the other shelves at the bottom, and their rows look
 //   like the rows in the project folders, with their project's icon.
 //
 // Every site must match exactly once before anything changes. Otherwise the
 // code is passed on byte for byte, so a T3 Code update that changes this code
-// turns the option off instead of breaking the sidebar. Names are read from
+// turns the sections off instead of breaking the sidebar. Names are read from
 // the code around stable strings, never written in here, because the minified
 // names change with every build.
 //
@@ -42,25 +45,193 @@ function single(source, regex, label, from = 0, to = source.length) {
 }
 
 // Moves the Working header and its rows to the front of the sidebar's rows,
-// keeping their order. Returns the same array when there are none, so React
-// memoization keeps working while nothing is working.
+// keeping their order, with the Done header and rows d after them. A Done
+// thread is also an active row in a, which goes, because T3 Code's drag and
+// drop needs each thread once. Returns the same array when there are none, so
+// React memoization keeps working meanwhile.
 const REORDER =
-  '(a=>{const w=a.filter(e=>e.kind==="marker"?e.marker==="working-header":e.section==="working");' +
-  "return w.length===0?a:[...w,...a.filter(e=>!w.includes(e))]})";
+  '((a,d)=>{const w=a.filter(e=>e.kind==="marker"?e.marker==="working-header":e.section==="working");' +
+  'return w.length+d.length===0?a:[...w,...d,...a.filter(e=>!w.includes(e)&&!(e.kind==="thread"&&d.some(o=>o.key===e.key)))]})';
 
 // The patch's own name for "the sidebar shows project folders".
 const FOLDERS_FLAG = "t3RtlFixHasFolders$";
 
+const DONE_HOOK = "t3RtlFixUseDone$";
+const DONE = "t3RtlFixDone$";
+
 // How far after the start of the sidebar hook its row lists are built.
 const HOOK_WINDOW = 8000;
 
+// How far before a row's status label its thread's visits are read.
+const LABEL_WINDOW = 3000;
+
 // Whether another function starts between two places, so that names read at
-// one place may not be in scope at the other.
+// one place may not be in scope at the other. "typeof x==`function`" is not one.
 function hasFunction(source, from, to) {
-  return /\bfunction\b/.test(source.slice(from, to));
+  return /\bfunction[\s*(]/.test(source.slice(from, to));
 }
 
-function patchSidebarChunk(source) {
+// Whether a name is imported or a function, so that code added to the module
+// means the same by it as the place it was read from.
+function isModuleName(source, name) {
+  const id = escapeId(name);
+  return new RegExp(`\\bimport\\{(?:[^}]*[\\s,])?${id}[,}]|\\bfunction ${id}\\(`).test(source);
+}
+
+// A thread is Done when it is ready and unread by the functions of T3 Code's own
+// label, unless its run failed, which that label can also call Done. T3 Code marks
+// a thread read when it opens, so the open thread stays until it is left, but a
+// thread that finishes while it is open does not enter.
+function doneHook({ status, unread, lastVisited, visits }) {
+  return (
+    `function ${DONE_HOOK}(threads,keyOf,openKey,react,useStored,schema){` +
+    `const visited=${visits}(e=>e.threadLastVisitedAtById),[expanded,setExpanded]=useStored("t3-rtl-fix:sidebar:done-expanded",!0,schema),` +
+    "kept=react.useRef(new Set),done=threads.filter(e=>{" +
+    `const key=keyOf(e),thread={...e,lastVisitedAt:${lastVisited}(e.lastVisitedAt,visited[key])};` +
+    `return ${status}(thread)==="ready"&&(key===openKey?kept.current.has(key):${unread}(thread)&&e.latestRun.status!=="failed")` +
+    "}).sort((a,b)=>Date.parse(b.latestRun?.completedAt)-Date.parse(a.latestRun?.completedAt));" +
+    "react.useLayoutEffect(()=>{kept.current=new Set(done.map(keyOf))});" +
+    "const rows=expanded?done:done.filter(e=>keyOf(e)===openKey);" +
+    "return{threads:done,rows,expanded,toggle:()=>setExpanded(e=>!e),items:done.length===0?[]:" +
+    '[{kind:"marker",marker:"done-header"},...rows.map(e=>({kind:"thread",key:keyOf(e),section:"done"}))]}}'
+  );
+}
+
+// The Done section's places in the sidebar hook, and the hook it adds before
+// hookAt, at the top of the module.
+function doneHookSites(source, { inHook, groups, activeThreads, folderList, expanded, openRow, hookAt }) {
+  // T3 Code's hook for a shelf's saved state, and its React.
+  const stored = inHook("done state", new RegExp(`\\[${escapeId(expanded)},${ID}\\]=(${ID})\\(${ID},!1,(${ID})\\)`));
+  if (stored.problem) return stored;
+  const react = inHook("done react", new RegExp(`\\(0,(${ID})\\.useSyncExternalStore\\)`));
+  if (react.problem) return react;
+  // The project folders, built from the active threads in a fresh array on
+  // each render, so T3 Code's cache of the rendered list sees every change.
+  const folders = inHook(
+    "done folders",
+    new RegExp(`[,;]${folderList}=(${groups})===null\\?null:${ID}\\(${groups},(${activeThreads}),${ID}\\)\\.map\\(`),
+  );
+  if (folders.problem) return folders;
+  const keyOf = inHook("done keys", new RegExp(`orderedThreadKeys:${ID}\\.map\\((${ID})\\)`));
+  if (keyOf.problem) return keyOf;
+  // The sections of the rows. A drag on a row's settle button stays in one.
+  const sectionOf = inHook("done sections", new RegExp(`,\\[${ID},\`settled\`\\](?=\\]\\)for\\()`));
+  if (sectionOf.problem) return sectionOf;
+
+  // A row's status label, which is Done when its thread is unread.
+  const label = single(
+    source,
+    new RegExp(
+      `[,;](${ID})=(${ID})\\(\\{\\.\\.\\.(${ID}),lastVisitedAt:(${ID})\\}\\),` +
+        `(${ID})=(${ID})\\(\\{\\.\\.\\.\\3,lastVisitedAt:\\4\\}\\),`,
+    ),
+    "done label",
+  );
+  if (label.problem) return label;
+  const [, isUnread, unread, thread, visited, rowStatus, status] = label.match;
+  const text = single(
+    source,
+    new RegExp(
+      `=${escapeId(rowStatus)}===\`preparing\`\\|\\|[^;]*?:${escapeId(isUnread)}\\?` +
+        `\\{label:${ID}\\(\`Done\`,\\{\\$context:\`thread status\`\\}\\)`,
+    ),
+    "done label text",
+    label.match.index,
+    label.match.index + LABEL_WINDOW,
+  );
+  if (text.problem) return text;
+  const visits = single(
+    source,
+    new RegExp(`let (${ID})=(${ID})\\(${ID}\\),${escapeId(visited)}=(${ID})\\(${escapeId(thread)}\\.lastVisitedAt,\\1\\)`),
+    "done visits",
+    Math.max(0, label.match.index - LABEL_WINDOW),
+    label.match.index,
+  );
+  if (visits.problem) return visits;
+  if (hasFunction(source, visits.match.index, text.match.index)) return { problem: "done label: not in one component" };
+
+  const names = {
+    status,
+    unread,
+    visits: visits.match[2],
+    lastVisited: visits.match[3],
+  };
+  const foreign = Object.keys(names).find((key) => !isModuleName(source, names[key]));
+  if (foreign) return { problem: `done hook: ${foreign} is not a name of the module` };
+
+  const [, groupsName, activeName] = folders.match;
+  const activeAt = folders.match.index + folders.match[0].indexOf(`(${groupsName},${activeName},`) + `(${groupsName},`.length;
+  const sectionsEnd = sectionOf.match.index + sectionOf.match[0].length;
+  return {
+    edits: [
+      { start: hookAt, end: hookAt, text: doneHook(names) },
+      // The Done threads, before the folders, which no longer have them.
+      {
+        start: folders.match.index + 1,
+        end: folders.match.index + 1,
+        text:
+          `${DONE}=${DONE_HOOK}(${groupsName}===null?[]:${activeName},${keyOf.match[1]},${openRow},` +
+          `${react.match[1]},${stored.match[1]},${stored.match[2]}),`,
+      },
+      { start: activeAt + activeName.length, end: activeAt + activeName.length, text: `.filter(e=>!${DONE}.threads.includes(e))` },
+      { start: sectionsEnd, end: sectionsEnd, text: `,[${DONE}.threads,\`done\`]` },
+    ],
+  };
+}
+
+// The Done section's places in the sidebar component, and in its header.
+function doneListSites(source, { folderList, from }) {
+  // Where the component takes the project folders from the hook.
+  const taken = single(
+    source,
+    new RegExp(`,projectFolders:${escapeId(folderList)}(?=,[^;]*?\\}=${ID}\\(\\{projectScopeKey:)`),
+    "done list",
+    0,
+    from,
+  );
+  if (taken.problem) return taken;
+  const takenEnd = taken.match.index + taken.match[0].length;
+
+  const header = single(
+    source,
+    new RegExp(
+      `case\`working-header\`:(${ID})\\.push\\(\\(0,(${ID})\\.jsx\\)\\((${ID}),\\{marker:\`working-header\`,className:\`mt-auto\`,` +
+        `label:(${ID})\\(\`Working\`,\\{\\$context:\`sidebar section\`\\}\\),count:${ID}\\.length,` +
+        `toggle:\\{expanded:${ID},onToggle:${ID}\\}\\},\`working-shelf-header\`\\)\\);break (${ID});`,
+    ),
+    "done header",
+    from,
+  );
+  if (header.problem) return header;
+  if (hasFunction(source, taken.match.index, header.match.index)) return { problem: "done list: not in one component" };
+  const [, list, jsx, component, translate, block] = header.match;
+
+  // The header component's name for its shelf, which its rows have as parent.
+  const shelf = single(
+    source,
+    new RegExp(`function ${escapeId(component)}\\(e\\)\\{let ${ID}=\\(0,${ID}\\.c\\)\\(\\d+\\),${ID}=(?=e\\.marker===\`working-header\`\\?\`working\`:)`),
+    "done shelf",
+  );
+  if (shelf.problem) return shelf;
+  const shelfEnd = shelf.match.index + shelf.match[0].length;
+
+  return {
+    edits: [
+      { start: takenEnd, end: takenEnd, text: `,${DONE}` },
+      {
+        start: header.match.index,
+        end: header.match.index,
+        text:
+          `case\`done-header\`:${list}.push((0,${jsx}.jsx)(${component},{marker:\`done-header\`,` +
+          `label:${translate}(\`Done\`,{$context:\`thread status\`}),count:${DONE}.threads.length,` +
+          `toggle:{expanded:${DONE}.expanded,onToggle:${DONE}.toggle}},\`done-shelf-header\`));break ${block};`,
+      },
+      { start: shelfEnd, end: shelfEnd, text: "e.marker===`done-header`?`done`:" },
+    ],
+  };
+}
+
+function patchSidebarChunk(source, sections) {
   const unchanged = (problem) => ({ source, applied: false, problem });
   if (typeof source !== "string") return unchanged("not text");
 
@@ -96,9 +267,21 @@ function patchSidebarChunk(source) {
   const folders = inHook("folders", new RegExp(`[,;](${ID})=${groups}===null\\?null:`));
   if (folders.problem) return unchanged(folders.problem);
   const folderList = escapeId(folders.match[1]);
-  const shown = inHook("working rows", new RegExp(`[,;](${ID})=${ID}\\?${lists.workingThreads}:${ID}\\(${lists.workingThreads},${ID}\\)[,;]`));
+  const shown = inHook("working rows", new RegExp(`[,;](${ID})=(${ID})\\?${lists.workingThreads}:${ID}\\(${lists.workingThreads},(${ID})\\)[,;]`));
   if (shown.problem) return unchanged(shown.problem);
   const workingRows = shown.match[1];
+  const doneHooked = sections.done
+    ? doneHookSites(source, {
+        inHook,
+        groups,
+        activeThreads: lists.activeThreads,
+        folderList,
+        expanded: shown.match[2],
+        openRow: shown.match[3],
+        hookAt: selector.match.index,
+      })
+    : { edits: [] };
+  if (doneHooked.problem) return unchanged(doneHooked.problem);
   const keys = inHook(
     "keys",
     new RegExp(
@@ -234,30 +417,34 @@ function patchSidebarChunk(source) {
   if (componentSites.some((index) => index < declared.match.index)) return unchanged("rows: sites out of order");
   if (hasFunction(source, declared.match.index, Math.max(...componentSites))) return unchanged("rows: not in one component");
 
+  const doneListed = sections.done ? doneListSites(source, { folderList: F, from: declared.match.index }) : { edits: [] };
+  if (doneListed.problem) return unchanged(doneListed.problem);
+
   // Whether there are project folders is recorded in the statement where
   // T3 Code itself reads them, in a name of the patch's own that no minified
   // name can be. The places that read it do so inside try, so a place that
   // cannot see it keeps T3 Code's own layout instead of failing. Every other
-  // added name is already used at the place it is added to.
+  // name is already used at the place it is added to, or checked by the Done
+  // section's sites.
   const hasFolders = `(()=>{try{return ${FOLDERS_FLAG}===!0}catch{return!1}})()`;
 
   // The rows hand-off: "}let Q=K,J;" becomes "}let Q=hasFolders?reorder(K):K,J;".
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
 
-  // A folder row is a Working row only with this patch, so the row component
-  // needs no flag: a folder row whose parent is `shelf:working` shows its
-  // project icon, at full strength, in the place of the folder indent. The
-  // icon's cache key also records the parent, because a thread that moves
-  // between Working and its folder keeps the same row.
-  const inWorking = `${props}.navigationParent===\`shelf:working\``;
+  // A folder row is a Working or Done row only with this patch, so the row
+  // component needs no flag: a folder row whose parent is `shelf:working` or
+  // `shelf:done` shows its project icon, at full strength, in the place of the
+  // folder indent. The icon's cache key also records the parent, because a
+  // thread that moves between a section and its folder keeps the same row.
+  const inSection = `(${props}.navigationParent===\`shelf:working\`||${props}.navigationParent===\`shelf:done\`)`;
   const [cache, slot] = [icon.match[1], icon.match[2]];
   const a = flags.match[3];
   const iconParts = [
-    [`${cache}[${slot}]!==${a}||`, `${cache}[${slot}]!==""+${a}+(${inWorking})||`],
-    [`=${a}?null:`, `=${a}&&!(${inWorking})?null:`],
+    [`${cache}[${slot}]!==${a}||`, `${cache}[${slot}]!==""+${a}+${inSection}||`],
+    [`=${a}?null:`, `=${a}&&!${inSection}?null:`],
     [`(!${props}.isActive||`, `(!${props}.isActive&&!${a}||`],
-    [`${cache}[${slot}]=${a},`, `${cache}[${slot}]=""+${a}+(${inWorking}),`],
+    [`${cache}[${slot}]=${a},`, `${cache}[${slot}]=""+${a}+${inSection},`],
   ];
   let iconText = icon.match[0];
   for (const [from, to] of iconParts) {
@@ -267,27 +454,9 @@ function patchSidebarChunk(source) {
   const indentFrom = `,${a}&&\`ps-9\`)`;
   const indentAt = indent.match.index + indent.match[0].length - indentFrom.length;
 
-  const edits = [
-    // The project icon in Working rows.
-    { start: icon.match.index, end: icon.match.index + icon.match[0].length, text: iconText },
-    // No folder indent in Working rows: the icon takes its place.
-    { start: indentAt, end: indentEnd, text: `,${a}&&!(${inWorking})&&\`ps-9\`)` },
-    // "let …,G=F!==null&&F.length>0,K;" also declares the flag.
-    { start: declaredEnd, end: declaredEnd, text: `,${FOLDERS_FLAG}=${F}!==null` },
+  const workingEdits = [
     // Show the Working section with the boring sidebar too.
     { start: gateStart, end: gateStart + gate.match[3].length, text: "" },
-    // Working threads first in the keyboard order when there are folders.
-    {
-      start: keysStart,
-      end: keys.match.index + keys.match[0].length,
-      text: `=[...${folders.match[1]}!==null?${workingRows}:[],${keys.match[2]}...${folders.match[1]}!==null?[]:${workingRows},`,
-    },
-    // Working rows first when there are folders.
-    {
-      start: handOff.index,
-      end: handOff.index + `}let ${handOff.Q}=${declared.match[2]},${handOff.J};`.length,
-      text: `}let ${handOff.Q}=${hasFolders}?${REORDER}(${declared.match[2]}):${declared.match[2]},${handOff.J};`,
-    },
     // The first shelf at the bottom is Snoozed or Settled when there are folders.
     {
       start: working.match.index,
@@ -304,12 +473,49 @@ function patchSidebarChunk(source) {
       end: settled.match.index + settled.match[0].length,
       text: `marker:\`settled-header\`,className:${settled.match[1]}(((${hasFolders}?0:${settled.match[2]}.length)+${settled.match[3]}.length===0)&&\`mt-auto\`)`,
     },
-    // Working rows look like the rows in the project folders when there are
-    // folders: "a=n?" becomes "a=n||hasFolders&&t===`working`?".
+  ];
+
+  const returnAt = returned.match.index + returned.match[0].lastIndexOf(",orderedThreadKeys:");
+  const parentAt = parent.match.index + `navigationParent:${parent.match[1]}??(`.length;
+  const doneEdits = [
+    ...doneHooked.edits,
+    ...doneListed.edits,
+    { start: returnAt, end: returnAt, text: `,${DONE}` },
+    // The Done header is a Done row's parent for keyboard navigation.
+    { start: parentAt, end: parentAt, text: `${parent.match[2]}===\`done\`||` },
+  ];
+
+  const edits = [
+    ...(sections.working ? workingEdits : []),
+    ...(sections.done ? doneEdits : []),
+    // The project icon in section rows.
+    { start: icon.match.index, end: icon.match.index + icon.match[0].length, text: iconText },
+    // No folder indent in section rows: the icon takes its place.
+    { start: indentAt, end: indentEnd, text: `,${a}&&!${inSection}&&\`ps-9\`)` },
+    // "let …,G=F!==null&&F.length>0,K;" also declares the flag.
+    { start: declaredEnd, end: declaredEnd, text: `,${FOLDERS_FLAG}=${F}!==null` },
+    // Working threads first in the keyboard order when there are folders, then
+    // Done ones, of which there are none without folders.
+    {
+      start: keysStart,
+      end: keys.match.index + keys.match[0].length,
+      text:
+        `=[...${folders.match[1]}!==null?${workingRows}:[],${sections.done ? `...${DONE}.rows,` : ""}` +
+        `${keys.match[2]}...${folders.match[1]}!==null?[]:${workingRows},`,
+    },
+    {
+      start: handOff.index,
+      end: handOff.index + `}let ${handOff.Q}=${declared.match[2]},${handOff.J};`.length,
+      text:
+        `}let ${handOff.Q}=${hasFolders}?${REORDER}(${declared.match[2]},${sections.done ? `${DONE}.items` : "[]"})` +
+        `:${declared.match[2]},${handOff.J};`,
+    },
+    // Section rows look like the rows in the project folders when there are
+    // folders: "a=n?" becomes "a=n||hasFolders&&(t===`working`||t===`done`)?".
     {
       start: lookStart,
       end: lookStart + `=${look.match[2]}?`.length,
-      text: `=${look.match[2]}||${hasFolders}&&${look.match[3]}===\`working\`?`,
+      text: `=${look.match[2]}||${hasFolders}&&(${look.match[3]}===\`working\`||${look.match[3]}===\`done\`)?`,
     },
   ].sort((a, b) => a.start - b.start);
 
@@ -327,17 +533,19 @@ function patchSidebarChunk(source) {
 }
 
 // Answers the browser's paused requests for T3 Code's main script. Every
-// paused request is answered once: patched when the option is on and the
-// code is recognized, passed on unchanged otherwise.
-function createWorkingShelfService({ send, isEnabled, log = () => {} } = {}) {
+// paused request is answered once: patched when a section is on and the code
+// is recognized, passed on unchanged otherwise.
+function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
   const logged = new Set();
   const logOnce = (message) => {
     if (logged.has(message)) return;
     logged.add(message);
-    log(`Working section: ${message}`);
+    log(`Sidebar sections: ${message}`);
   };
 
-  // Interception stays on once enabled: turning the option off makes every
+  const isOn = ({ working, done }) => working || done;
+
+  // Interception stays on once enabled: turning the sections off makes every
   // paused request pass unchanged, so no request is left waiting by a
   // Fetch.disable while its body is read.
   async function enable() {
@@ -360,16 +568,23 @@ function createWorkingShelfService({ send, isEnabled, log = () => {} } = {}) {
         logOnce(`could not pass T3 Code's script on: ${error.message}`);
       });
     try {
-      if (!isEnabled() || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
+      if (!isOn(sections()) || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
       const body = await send("Fetch.getResponseBody", { requestId });
       const text = body.base64Encoded ? Buffer.from(body.body || "", "base64").toString("utf8") : body.body || "";
-      const result = patchSidebarChunk(text);
+      // The switches may have changed while the body was read.
+      const wanted = sections();
+      if (!isOn(wanted)) return await pass();
+      let result = patchSidebarChunk(text, wanted);
+      // Working goes on when a T3 Code update changes only what Done needs.
+      if (!result.applied && wanted.working && wanted.done) {
+        logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
+        result = patchSidebarChunk(text, { working: true, done: false });
+      }
       if (!result.applied) {
         logOnce(`T3 Code's sidebar code was not recognized (${result.problem})`);
         return await pass();
       }
-      // The option may have been turned off while the body was read.
-      if (!isEnabled()) return await pass();
+
       const responseHeaders = (params.responseHeaders || []).filter(
         (header) => !/^(content-length|content-encoding)$/i.test(header.name || ""),
       );
@@ -379,7 +594,7 @@ function createWorkingShelfService({ send, isEnabled, log = () => {} } = {}) {
         responseHeaders,
         body: Buffer.from(result.source, "utf8").toString("base64"),
       });
-      logOnce("shown in the boring sidebar");
+      logOnce("changed in the boring sidebar");
     } catch (error) {
       logOnce(`T3 Code's script was passed on unchanged: ${error.message}`);
       await pass();
