@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
-const { FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
+const { ALERTS_FRESH_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
 const { createWorkingShelfService, URL_PATTERN } = require("../src/working-shelf");
 const { createExtrasService } = require("../src/extras");
 const { HOME_CSS, homeView } = require("../src/home-view");
@@ -281,11 +281,20 @@ test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read
   const secrets = alertCalls.find((args) => args.join(" ").includes("secret-scanning"));
   assert.ok(secrets.some((arg) => arg.includes("hide_secret=true")));
   assert.equal(secrets.at(-1), '.[] | "secret"');
+  pass(FRESH_MS);
+  assert.equal((await read()).alerts.total, 2, "alerts stay while they are fresh");
+  assert.equal(alertCalls.length, 3);
+  pass(ALERTS_FRESH_MS - FRESH_MS);
+  await read();
+  assert.equal(alertCalls.length, 6);
   broken = true;
   pass(FRESH_MS);
   const stale = await read();
   assert.deepEqual([stale.status, stale.stale, stale.alerts], ["read", true, null]);
-  assert.equal(alertCalls.length, 3);
+  assert.equal(alertCalls.length, 6);
+  broken = false;
+  pass(FRESH_MS);
+  assert.equal((await read()).alerts.total, 2, "and are read again after a failure");
 });
 
 test("a window that asks while alerts are read does not wait for them, and an older read's alerts do not come back", async () => {

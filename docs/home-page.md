@@ -67,12 +67,13 @@ Home does not change anything on GitHub.
 ## Where the data comes from
 
 Projects and threads are T3 Code's own live data. GitHub is read with the `gh`
-command, which must be installed and signed in. The fix reads it only while
-Home is open in a visible window, and reads a repository again after five
-minutes at the earliest. Each read of a repository uses one point of GitHub's
-hourly GraphQL limit, and at least three requests of its hourly REST limit. Both
-limits are 5,000. Secrets that secret scanning found are hidden by GitHub and
-are not read.
+command, which must be installed and signed in. The fix starts to read when you
+open Home, and goes on in the background while T3 Code is open, so that Home is
+up to date when you come back. It reads a repository every five minutes, and its
+security alerts every fifteen. A read of a repository uses one point of GitHub's
+hourly GraphQL limit, and a read of its alerts at least three requests of the
+hourly REST limit. Both limits are 5,000. Secrets that secret scanning found are
+hidden by GitHub and are not read.
 
 ## When T3 Code changes
 

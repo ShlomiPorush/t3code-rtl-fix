@@ -1065,15 +1065,21 @@ function pageMain(config) {
   function homeReady() {
     document.dispatchEvent(new CustomEvent("t3-rtl-home:ready"));
   }
+  // The last list is asked again while T3 Code is open, also behind a thread or
+  // in a hidden window, so that Home is up to date when it opens.
+  var homeRepositories = null;
+  function askHome() {
+    if (homeRepositories) notify({ type: "home", repositories: homeRepositories });
+  }
   document.addEventListener("t3-rtl-home:ask", function (event) {
-    var repositories = null;
     try {
-      repositories = JSON.parse(event.detail);
+      homeRepositories = JSON.parse(event.detail);
     } catch (error) {
       return;
     }
-    notify({ type: "home", repositories: repositories });
+    askHome();
   });
+  timers.push(setInterval(askHome, config.refreshMs));
 
   register(config.receiver);
   claim();

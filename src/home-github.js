@@ -11,6 +11,8 @@ const { runFile } = require("./repo-status");
 const LANES = 4;
 const PULLS = 30;
 const FRESH_MS = 5 * 60 * 1000;
+// Alerts are three of the four requests, and change seldom.
+const ALERTS_FRESH_MS = 15 * 60 * 1000;
 
 const REPOSITORY = /^[A-Za-z0-9_-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
 
@@ -158,21 +160,23 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
       log(`Home: ${name} could not be read: ${(result.stderr || result.error?.message || "no answer").trim().split("\n")[0].slice(0, 200)}`);
     }
     known.set(name, facts
-      ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null }
-      : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null });
-    if (facts) alertQueue.add(name);
-    else alertQueue.delete(name);
+      ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null, alertsAt: before?.alertsAt ?? -Infinity }
+      : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null, alertsAt: -Infinity });
+    if (!facts) alertQueue.delete(name);
+    else if (triedAt - known.get(name).alertsAt >= ALERTS_FRESH_MS) alertQueue.add(name);
   }
 
   // A newer read of the repository has an entry of its own, which keeps the
   // alerts of an older one out.
   async function readAlertsOf(name) {
     const entry = known.get(name);
+    const alertsAt = now();
     const results = [];
     for (const { path, words } of ALERTS) {
       results.push(await run("gh", ["api", "--hostname", "github.com", "--paginate", `repos/${name}/${path}`, "-q", words]));
     }
     entry.alerts = readAlerts(results);
+    entry.alertsAt = alertsAt;
   }
 
   // Alerts come last, so they do not hold up the pull requests.
@@ -211,4 +215,4 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
   return { read };
 }
 
-module.exports = { FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf };
+module.exports = { ALERTS_FRESH_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf };

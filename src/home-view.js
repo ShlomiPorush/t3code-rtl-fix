@@ -12,7 +12,6 @@ function homeView({
   projectReference, Frame, focusProps, Header, electron, main, frameClass, css,
 }) {
   const h = React.createElement;
-  const ASK_EVERY_MS = 60 * 1000;
   const OLD_MS = 14 * 24 * 60 * 60 * 1000;
   const ROWS = 5;
   const COLUMN_REM = 19.25;
@@ -448,7 +447,7 @@ function homeView({
     const asked = JSON.stringify(repositories);
     React.useEffect(() => {
       const ask = () => {
-        if (document.visibilityState === "visible" && asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
+        if (asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
       };
       // All the first answers together, so the page changes once and not with
       // every repository.
@@ -461,14 +460,10 @@ function homeView({
       document.addEventListener("t3-rtl-home:facts", receive);
       // The fix's script can start after this page.
       document.addEventListener("t3-rtl-home:ready", ask);
-      document.addEventListener("visibilitychange", ask);
-      const timer = setInterval(ask, ASK_EVERY_MS);
       ask();
       return () => {
-        clearInterval(timer);
         document.removeEventListener("t3-rtl-home:facts", receive);
         document.removeEventListener("t3-rtl-home:ready", ask);
-        document.removeEventListener("visibilitychange", ask);
       };
     }, [asked]);
     return repositories.length > 0 ? github : null;
