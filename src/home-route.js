@@ -25,7 +25,6 @@ function single(source, regex, label) {
   return found[0];
 }
 
-// Whether a name is imported or declared at the top of the module.
 function isModuleName(source, name) {
   const id = escapeId(name);
   return new RegExp(`\\bimport\\{(?:[^}]*[\\s,])?${id}[,}]|\\bfunction ${id}\\(|[;,]var (?:[^;]*,)?${id}=|;var ${id}=`).test(source);
@@ -90,7 +89,6 @@ function names(source) {
 
 function patchHomeRoute(source) {
   try {
-    if (source.includes("t3RtlHome$")) throw new Error("already changed");
     const found = names(source);
     const foreign = Object.keys(found.module).find((key) => !isModuleName(source, found.module[key]));
     if (foreign) throw new Error(`${foreign} is not a name of the module`);

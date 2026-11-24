@@ -174,7 +174,8 @@ const answer = (node, errors) => JSON.stringify({ data: { repository: node }, ..
 
 test("an answer tells apart what is absent, what is unknown, and what is cut", () => {
   const read = readAnswer(answer(repository()));
-  assert.equal(read.partial, false);
+  assert.equal(read.failedField, false);
+  assert.equal(read.cut, false);
   assert.equal(read.issues, 3);
   assert.deepEqual(read.release, { tag: "v1", at: Date.parse("2026-11-23T00:00:00Z"), ahead: 2 });
   assert.equal(read.pulls[0].number, 7);
@@ -182,9 +183,10 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(readAnswer(answer(repository({ latestRelease: null }))).release, null);
   const failed = readAnswer(answer(repository({ latestRelease: null }), [{ path: ["repository", "latestRelease"] }]));
   assert.equal(failed.release, undefined);
-  assert.equal(failed.partial, true);
+  assert.equal(failed.failedField, true);
+  assert.equal(failed.cut, false);
   assert.equal(readAnswer(answer(repository({ latestRelease: { tagName: "v1", tag: null } }))).release.ahead, null);
-  assert.equal(readAnswer(answer(repository({ pullRequests: { totalCount: 9, nodes: [pull(1)] } }))).partial, true);
+  assert.equal(readAnswer(answer(repository({ pullRequests: { totalCount: 9, nodes: [pull(1)] } }))).cut, true);
   assert.equal(readAnswer(answer(repository({ defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } } }))).mainFails, true);
   assert.equal(readAnswer(answer(null, [{ type: "NOT_FOUND" }])), null);
   assert.equal(readAnswer("<html>"), null);
@@ -388,7 +390,7 @@ const thread = (overrides = {}) => ({
   id: "t1", environmentId: "local", projectId: "app", title: "A thread", updatedAt: "2026-11-24T10:00:00Z", archivedAt: null,
   runtime: { status: "running" }, lineage: { relationshipToParent: null }, hasPendingApprovals: false, hasPendingUserInput: false, ...overrides,
 });
-const facts = (overrides = {}) => ({ status: "read", readAt: 1, stale: false, pulls: [], issues: 0, release: null, mainFails: false, partial: false, ...overrides });
+const facts = (overrides = {}) => ({ status: "read", readAt: 1, stale: false, pulls: [], issues: 0, release: null, mainFails: false, failedField: false, cut: false, ...overrides });
 
 test("T3 Code's own page shows only with no projects after they all loaded, and when Home fails", () => {
   assert.equal(renderHome({ bootstrapped: false }).shown, "");
@@ -421,11 +423,16 @@ test("an agent counts as working only while it runs, in a connected computer, an
 });
 
 test("a project whose release or comparison is unknown is read in part, not nothing open", () => {
-  for (const unknown of [facts({ partial: true, release: undefined }), facts({ release: { tag: "v1", at: 1, ahead: null } })]) {
+  for (const unknown of [facts({ failedField: true, release: undefined }), facts({ release: { tag: "v1", at: 1, ahead: null } })]) {
     const { shown } = renderHome({ projects: [project("app", "o/app")], github: { problem: null, repositories: { "o/app": unknown } } });
     assert.match(shown, /Read in part(AP)?\s*app/);
     assert.doesNotMatch(shown, /Nothing/);
   }
+  const item = { number: 1, title: "Pull 1", at: 1, stage: "open", tone: "", note: "", update: false };
+  const row = facts({ pulls: [item], release: { tag: "v1", at: 1, ahead: null } });
+  const active = renderHome({ projects: [project("app", "o/app")], github: { problem: null, repositories: { "o/app": row } } }).shown;
+  assert.match(active, /v1.*\nRead in part/s);
+  assert.doesNotMatch(active, /\+/, "a field that failed does not cut the list");
   const absent = { problem: null, repositories: { "o/app": facts() } };
   assert.match(renderHome({ projects: [project("app", "o/app")], github: absent }).shown, /Nothing open/);
 });
@@ -450,7 +457,7 @@ test("totals leave dependency updates out, and say when a list is cut", () => {
   assert.match(shown, /0\nWorking\n1\nPull request\n1\nReady to merge\n5\nNot released/);
   assert.ok(buttons.some((button) => button.label === "app: 1 pull request, 1 dependency update"));
   assert.ok(links.some((link) => link.name === "Pull 1" && link.href === "https://github.com/o/app/pull/1"));
-  const cut = { problem: null, repositories: { "o/app": facts({ pulls: pulls.slice(2), partial: true }) } };
+  const cut = { problem: null, repositories: { "o/app": facts({ pulls: pulls.slice(2), cut: true }) } };
   assert.match(renderHome({ projects: [project("app", "o/app")], github: cut }).shown, /1\+\nPull request\n0\+\nReady to merge\n0\nNot released/);
 });
 

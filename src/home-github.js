@@ -30,7 +30,6 @@ const QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-// Returns the repositories of a page's request, or null for anything else.
 function readRequest(value) {
   if (!Array.isArray(value) || !value.every((name) => typeof name === "string" && REPOSITORY.test(name))) return null;
   return [...new Set(value.map((name) => name.toLowerCase()))];
@@ -38,7 +37,6 @@ function readRequest(value) {
 
 const isFailure = (state) => state === "FAILURE" || state === "ERROR";
 
-// Where a pull request stands, in the order in which it is said.
 function stageOf(pull, checks) {
   if (isFailure(checks)) return { stage: "open", tone: "bad", note: "check failed" };
   if (pull.mergeable === "CONFLICTING" || pull.mergeStateStatus === "DIRTY") {
@@ -65,8 +63,8 @@ function readPull(node) {
 }
 
 // The release has three answers: one, none (null), and unknown (undefined).
-function readRelease(release, partial) {
-  if (!release) return partial ? undefined : null;
+function readRelease(release, failedField) {
+  if (!release) return failedField ? undefined : null;
   const ahead = release.tag?.compare?.aheadBy;
   return {
     tag: String(release.tagName || "").slice(0, 100),
@@ -75,7 +73,6 @@ function readRelease(release, partial) {
   };
 }
 
-// partial: a field could not be read, or the pull requests are cut.
 function readRepository(node, failedField) {
   const pulls = (node.pullRequests?.nodes || []).map(readPull).filter(Boolean);
   const total = node.pullRequests?.totalCount;
@@ -84,7 +81,8 @@ function readRepository(node, failedField) {
     issues: Number.isInteger(node.issues?.totalCount) ? node.issues.totalCount : null,
     release: readRelease(node.latestRelease, failedField),
     mainFails: isFailure(node.defaultBranchRef?.target?.statusCheckRollup?.state),
-    partial: failedField || !Number.isInteger(total) || total > pulls.length,
+    failedField,
+    cut: total > pulls.length,
   };
 }
 

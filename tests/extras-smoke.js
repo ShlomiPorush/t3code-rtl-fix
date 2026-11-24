@@ -419,7 +419,6 @@ async function run() {
   await clickOn(sessionId, usageSwitch);
   await waitFor(sessionId, `document.querySelector(${JSON.stringify(usageSwitch)}).getAttribute("aria-checked") === "true"`, "the switch to turn on");
 
-  // The switches of the Home page and the boring sidebar are off by default and are saved when clicked.
   for (const [name, key] of [
     ["Home page", "homePage"],
     ["Working section in the boring sidebar", "boringWorkingShelf"],

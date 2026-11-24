@@ -33,7 +33,7 @@ function homeView({
   }
 
   const directionOf = (text) => (/[\u0590-\u08ff]/.test(text) ? "rtl" : "ltr");
-  const count = (number, one, many) => `${number} ${number === 1 ? one : many || `${one}s`}`;
+  const count = (number, one) => `${number} ${number === 1 ? one : `${one}s`}`;
   function ago(ms) {
     const minutes = Math.max(1, Math.round(ms / 60000));
     if (minutes < 60) return `${minutes}m`;
@@ -123,7 +123,7 @@ function homeView({
       }),
     };
     if (facts?.status !== "read") return [working, ...STATIONS.slice(1).map(() => ({ marks: [], items: [] }))];
-    const plus = facts.partial && facts.pulls.length > 0 ? "+" : "";
+    const plus = facts.cut ? "+" : "";
     const release = facts.release;
     const ahead = release?.ahead || 0;
     const notReleased = { marks: [], items: [] };
@@ -156,6 +156,9 @@ function homeView({
     if (Icon) return h(Icon, { project, className });
     return h("span", { className: `${className} t3h-letters`, "aria-hidden": true }, project.title.slice(0, 2).toUpperCase());
   }
+
+  const isUnknown = (facts) => facts.failedField || facts.release?.ahead === null;
+  const isComplete = (entry, facts) => !entry.repository || (facts?.status === "read" && !facts.cut && !isUnknown(facts));
 
   const text = (value, className) => h("span", { className, dir: directionOf(value) }, value);
 
@@ -191,7 +194,8 @@ function homeView({
     if (!facts || facts.status === "waiting") return h("span", { className: "t3h-release t3h-small", dir: "ltr" }, "Reading…");
     if (facts.status === "unavailable") return h("span", { className: "t3h-release t3h-small", dir: "ltr" }, "Not available");
     return h("span", { className: "t3h-release", dir: "ltr" },
-      facts.release ? [facts.release.tag, facts.release.at ? h("small", { key: "at" }, `${ago(now - facts.release.at)} ago`) : null] : null);
+      facts.release ? [facts.release.tag, facts.release.at ? h("small", { key: "at" }, `${ago(now - facts.release.at)} ago`) : null] : null,
+      isUnknown(facts) ? h("small", null, "Read in part") : null);
   }
 
   function Names({ label, entries, actions }) {
@@ -202,24 +206,20 @@ function homeView({
         h(Picture, { project: entry.project, className: "t3h-icon-small" }), text(entry.project.title))));
   }
 
-  // Whether nothing about the project is missing.
-  const isComplete = (entry, facts) =>
-    !entry.repository || (facts?.status === "read" && !facts.partial && facts.release?.ahead !== null);
-
   function Overview({ entries, factsOf, now, actions }) {
     const rows = entries.map((entry) => ({ entry, facts: factsOf(entry), stations: stationsOf(entry, factsOf(entry), now) }));
     const open = rows.filter((row) => row.stations.some((station) => station.marks.length > 0));
     const idle = (test) => rows.filter((row) => !open.includes(row) && test(row)).map((row) => row.entry);
     const total = (index) => open.reduce((sum, row) => sum + row.stations[index].marks.reduce((all, mark) => all + (mark.update ? 0 : mark.number), 0), 0);
     // A list that was cut can hold more of both kinds of pull request.
-    const more = (index) => (index === 1 || index === 2) && rows.some((row) => row.facts?.partial);
+    const more = (index) => (index === 1 || index === 2) && rows.some((row) => row.facts?.cut);
     const has = (test) => open.some((row) => row.stations.some((station) => station.marks.some(test)));
     const keys = [
       has((mark) => mark.tone === "warn") && ["warn", "Conflicts"],
       has((mark) => mark.tone === "bad") && ["bad", "Failed check"],
       has((mark) => mark.update) && ["muted t3h-update", "Dependency updates, not counted above"],
     ].filter(Boolean);
-    return h("div", { className: "t3h-map" },
+    return h("div", null,
       h("div", { className: "t3h-head" },
         h("div"),
         STATIONS.slice(0, 4).map((name, index) => h("div", { key: name, dir: "ltr" },
@@ -246,12 +246,12 @@ function homeView({
 
   function Project({ entry, facts, now, actions }) {
     const heading = React.useRef(null);
-    React.useEffect(() => heading.current?.focus({ preventScroll: true }), [entry.key]);
+    React.useEffect(() => heading.current?.focus(), [entry.key]);
     const stations = stationsOf(entry, facts, now);
     const url = entry.repository ? `https://github.com/${entry.repository}` : null;
     const link = (path, name) => h("a", { className: "t3h-button", href: url + path, target: "_blank", rel: "noreferrer", dir: "ltr" }, h(Glyph, { d: OUT, size: 15 }), name);
     const read = facts?.status === "read";
-    return h("div", { className: "t3h-project" },
+    return h("div", null,
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { d: BACK, size: 15 }), "Home"),
       h("div", { className: "t3h-title" },
         h(Picture, { project: entry.project, className: "t3h-icon-large" }),
@@ -356,7 +356,7 @@ function homeView({
     return h(Frame, { ...focusProps("home", 1, "Home"), role: "main", className: frameClass },
       h("style", null, css),
       h(Header, { electron }, text(entry ? entry.project.title : "Home", "t3h-header")),
-      h("div", { className: "t3h" },
+      h("div", { className: "t3h", key: entry ? entry.key : "map" },
         h("div", { className: "t3h-page" },
           notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
           entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, now, actions }))));
@@ -432,7 +432,8 @@ const HOME_CSS = `
 .t3h-rail { grid-column: 2 / -1; display: grid; grid-template-columns: subgrid; align-items: center; align-self: stretch; position: relative; }
 .t3h-rail::before { content: ""; position: absolute; top: calc(50% - 1px); height: 2px; inset-inline: .95rem 6.9rem; border-radius: 2px; background: color-mix(in srgb, var(--muted-foreground) 32%, var(--background)); }
 .t3h-sp { position: relative; display: flex; align-items: center; align-self: stretch; }
-.t3h-sp:is(:hover, :has(:focus-visible)) { z-index: 30; }
+.t3h-sp:hover { z-index: 30; }
+.t3h-sp:has(:focus-visible) { z-index: 31; }
 .t3h-marks { position: relative; display: flex; gap: .3rem; border-radius: 99px; }
 .t3h-release { font-size: .95rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .t3h-release.t3h-small { font-size: .78rem; font-weight: 400; }
@@ -441,6 +442,7 @@ const HOME_CSS = `
 .t3h-pop { display: none; position: absolute; z-index: 20; top: calc(50% + .95rem); inset-inline-start: -.9rem; padding-top: .55rem; width: max-content; max-width: 22rem; }
 .t3h-low .t3h-pop { top: auto; bottom: calc(50% + .95rem); padding: 0 0 .55rem; }
 .t3h-sp:is(:hover, :has(:focus-visible)) > .t3h-pop { display: block; }
+.t3h-sp:has(:focus-visible) > .t3h-pop { z-index: 21; }
 .t3h-card { display: grid; gap: .6rem; max-height: 20rem; overflow: auto; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 14px 34px -12px rgb(0 0 0 / .38); font-size: .95rem; line-height: 1.4; }
 .t3h-text { display: block; width: 100%; overflow-wrap: anywhere; }
 :is(a, button).t3h-text:hover { color: var(--primary) !important; }
