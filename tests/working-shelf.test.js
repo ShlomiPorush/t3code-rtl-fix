@@ -418,9 +418,9 @@ test("Done threads leave their folder for the section, latest first, below Worki
   assert.deepEqual(both.keys, ["w", "b", "a", "p1", "c"]);
 });
 
-test("only a thread that T3 Code labels Done is in the section", () => {
+test("only a thread that T3 Code labels Done or Input is in the section", () => {
   const sidebar = doneSidebar(BOTH);
-  for (const status of ["working", "preparing", "waiting", "approval", "input", "request", "failed", "limited"]) {
+  for (const status of ["working", "preparing", "waiting", "approval", "request", "failed", "limited"]) {
     assert.equal(sidebar.show([ended("a", "01", { status })]).header, undefined, status);
   }
   const failed = ended("a", "01");
@@ -430,6 +430,20 @@ test("only a thread that T3 Code labels Done is in the section", () => {
   assert.equal(sidebar.show([ended("a", "01", { latestRun: null })]).header, undefined, "never ran");
   sidebar.visit("a", READ);
   assert.equal(sidebar.show([ended("a", "01")]).header, undefined, "read in this window");
+});
+
+test("a thread that waits for input is in the section until it is answered, above the Done ones", () => {
+  const sidebar = doneSidebar(BOTH);
+  const input = (id, more) => ended(id, "01", { status: "input", latestRun: { status: "waiting", completedAt: null }, ...more });
+  const threads = [ended("a", "05"), input("i"), ended("b", "09"), input("j", { lastVisitedAt: READ }), ended("c", "03", { status: "approval" })];
+  const shown = sidebar.show(threads);
+  assert.deepEqual(shown.keys, ["i", "j", "b", "a", "p1", "c"], "also when it was read");
+  assert.equal(shown.header.count, 4);
+  assert.equal(shown.sections.i, "done");
+  assert.deepEqual(sidebar.show(threads, { open: "i" }).keys, shown.keys, "opened");
+  assert.deepEqual(sidebar.show(threads, { open: "a" }).keys, shown.keys, "left unanswered");
+  assert.deepEqual(sidebar.show([input("k")], { open: "k" }).keys, ["k", "p1"], "asked while open");
+  assert.equal(sidebar.show([input("k", { status: "working" })], { open: "k" }).header, undefined, "answered");
 });
 
 test("a thread opened from Done stays until it is left, and one that finishes while open does not enter", () => {
