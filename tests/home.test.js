@@ -425,13 +425,15 @@ test("a list of many repositories fits, and other messages keep their small limi
 function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [] } = {}) {
   const calls = [];
   let nextRef = 0;
+  let receive = null;
+  globalThis.document = { addEventListener: (type, listener) => (receive = listener) };
   const React = {
     Component: class { constructor(props) { this.props = props; } },
     Fragment: ({ children }) => children,
     createElement: (type, props, ...children) => ({ type, props: { ...props, ...(children.length ? { children: children.length > 1 ? children : children[0] } : {}) } }),
     useState: (first) => {
       const value = typeof first === "function" ? first() : first;
-      return [value instanceof Set ? new Set(opened) : value ?? github, () => {}];
+      return [value instanceof Set ? new Set(opened) : value, () => {}];
     },
     useEffect() {},
     useLayoutEffect() {},
@@ -456,6 +458,8 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     projectReference: (environmentId, projectId) => ({ environmentId, projectId }),
     Frame: ({ children }) => children, focusProps: () => ({}), Header: ({ children }) => children, electron: true, main: {}, frameClass: "", css: "",
   });
+  // The first answers wait for each other, and later ones do not.
+  for (const next of github ? [{ problem: null, repositories: {} }, github] : []) receive({ detail: JSON.stringify(next) });
   const buttons = [];
   const links = [];
   const classes = [];

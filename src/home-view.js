@@ -440,33 +440,36 @@ function homeView({
       h(Foot, { entry, facts, now }));
   }
 
-  // Facts come from the launcher, through the fix's own script in this page.
-  let lastGithub = null;
+  // Facts come from the launcher, through the fix's own script in this page,
+  // also while Home is closed.
+  let github = null;
+  const subscribers = new Set();
+  document.addEventListener("t3-rtl-home:facts", (event) => {
+    const next = JSON.parse(event.detail);
+    // All the first answers together, so the page changes once and not with
+    // every repository.
+    if (!github && Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
+    github = next;
+    for (const changed of subscribers) changed();
+  });
+  function subscribeToGithub(changed) {
+    subscribers.add(changed);
+    return () => subscribers.delete(changed);
+  }
+
   function useGithub(repositories) {
-    const [github, setGithub] = React.useState(() => lastGithub);
+    const current = React.useSyncExternalStore(subscribeToGithub, () => github);
     const asked = JSON.stringify(repositories);
     React.useEffect(() => {
       const ask = () => {
         if (asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
       };
-      // All the first answers together, so the page changes once and not with
-      // every repository.
-      const receive = (event) => {
-        const next = JSON.parse(event.detail);
-        if (!lastGithub && Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
-        lastGithub = next;
-        setGithub(next);
-      };
-      document.addEventListener("t3-rtl-home:facts", receive);
       // The fix's script can start after this page.
       document.addEventListener("t3-rtl-home:ready", ask);
       ask();
-      return () => {
-        document.removeEventListener("t3-rtl-home:facts", receive);
-        document.removeEventListener("t3-rtl-home:ready", ask);
-      };
+      return () => document.removeEventListener("t3-rtl-home:ready", ask);
     }, [asked]);
-    return repositories.length > 0 ? github : null;
+    return repositories.length > 0 ? current : null;
   }
 
   function useNow() {

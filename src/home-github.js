@@ -161,7 +161,7 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
     }
     known.set(name, facts
       ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null, alertsAt: before?.alertsAt ?? -Infinity }
-      : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null, alertsAt: -Infinity });
+      : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null });
     if (!facts) alertQueue.delete(name);
     else if (triedAt - known.get(name).alertsAt >= ALERTS_FRESH_MS) alertQueue.add(name);
   }
@@ -170,13 +170,12 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
   // alerts of an older one out.
   async function readAlertsOf(name) {
     const entry = known.get(name);
-    const alertsAt = now();
     const results = [];
     for (const { path, words } of ALERTS) {
       results.push(await run("gh", ["api", "--hostname", "github.com", "--paginate", `repos/${name}/${path}`, "-q", words]));
     }
     entry.alerts = readAlerts(results);
-    entry.alertsAt = alertsAt;
+    if (entry.alerts) entry.alertsAt = entry.triedAt;
   }
 
   // Alerts come last, so they do not hold up the pull requests.
