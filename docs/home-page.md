@@ -1,43 +1,69 @@
 # Home page
 
-The Home page shows where every project stands, in place of the new thread that
-T3 Code opens with. Turn on **Home page** in the Extras section of T3 Code's
-Labs settings. The option is off by default. When you change it, T3 Code's
-windows reload, and running sessions keep running.
+The Home page shows what is in the middle in every project, in place of the new
+thread that T3 Code opens with. Turn on **Home page** in the Extras section of
+T3 Code's Labs settings. The option is off by default. When you change it, T3
+Code's windows reload, and running sessions keep running.
 
 Home opens when T3 Code starts, when you click the T3 Code logo, and wherever
 T3 Code goes back to its start page, such as after you delete the open thread.
 
-## The map
+## In the middle
 
-Each project with something open has a row. A mark shows how many items stand at
-a station. Rest the pointer on a mark, or focus it, to see the items and open
-them. Click a project's name to open its page.
+Each project with open work has a card. Open work is:
 
-| Station | What it counts |
+- Threads that you did not settle in T3 Code. A snoozed thread is hidden until
+  T3 Code itself brings it back.
+- Open pull requests that are not dependency updates by Dependabot or Renovate.
+
+Projects that are pinned in T3 Code come first and always have a card. Next are
+projects with a working agent, and then the projects you used last. Projects of
+the same repository, such as one on each computer, are one card.
+
+| Mark | What it says |
 |---|---|
-| Working | Agents that run now in a connected computer. An agent that waits for your answer is not counted. |
-| Pull request | Open pull requests that are not ready: drafts, running or failed checks, conflicts, or a merge that the branch rules block. |
-| Ready to merge | Pull requests that GitHub can merge now. In a repository without checks, the item says "no checks". |
-| Not released | Commits on the default branch since the last release. "!" means that the default branch fails its checks. |
-| Last release | The newest release and its age. |
+| Dot that pulses | An agent works, in a connected computer. The card is lit. |
+| Amber dot | The thread waits for your answer or approval. |
+| Green dot | The agent finished, and you did not open the thread since. |
+| Red dot | The last run stopped on an error. |
+| Ring | An open thread that nobody works on. |
 
-- Hollow marks are dependency updates by Dependabot or Renovate. The totals do
-  not count them.
-- A "+" means that there are more pull requests than the 20 that were read last.
-- Projects of the same repository, such as one on each computer, are one row.
-- Projects without open items are listed below the map. Projects that GitHub did
-  not answer for, or answered for in part, have lists of their own.
+A pull request is on the row of the thread it is linked to, or has a row of its
+own. "Ready to merge" means that GitHub can merge it now. In a repository
+without checks, the row says "no checks". Threads that had no activity for two
+weeks come last, in a weaker color. A card shows five rows, and its button shows
+the others.
+
+Click a project's name to open its own page, which also lists its dependency
+updates.
+
+## Counts
+
+| Count | What it counts |
+|---|---|
+| Issues | Open issues. |
+| Pull requests | Open pull requests, and how many of them are dependency updates. When there are more than 30, only the total. |
+| Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together, and how many are critical, or else high. |
+
+The security count is red when it has critical or high alerts. It covers only
+the sources that are on in the repository and that your account may read. Rest
+the pointer on it to see which. A count that GitHub does not give is left out,
+so 0 always means that GitHub answered 0.
+
+Projects without open work are listed below the cards. Projects whose pull
+requests GitHub did not give, or gave in part, have a list of their own.
 
 Home does not change anything on GitHub.
 
 ## Where the data comes from
 
-Projects and agents are T3 Code's own live data. GitHub is read with the `gh`
+Projects and threads are T3 Code's own live data. GitHub is read with the `gh`
 command, which must be installed and signed in. The fix reads it only while
 Home is open in a visible window, and reads a repository again after five
 minutes at the earliest. Each read of a repository uses one point of GitHub's
-hourly limit of 5,000.
+hourly GraphQL limit, and at least three requests of its hourly REST limit. Both
+limits are 5,000. Secrets that secret scanning found are hidden by GitHub and
+are not read.
 
 ## When T3 Code changes
 

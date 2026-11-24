@@ -1,7 +1,7 @@
 "use strict";
 
-// The Home page: where every project stands, from running agents to the last
-// release.
+// The Home page: a card for every project with open work, and what is in the
+// middle there.
 //
 // homeView is not called here. It is turned into source text and added to T3
 // Code's script for the start route (see home-route.js), so it may use only
@@ -12,8 +12,10 @@ function homeView({
   projectReference, Frame, focusProps, Header, electron, main, frameClass, css,
 }) {
   const h = React.createElement;
-  const STATIONS = ["Working", "Pull request", "Ready to merge", "Not released", "Last release"];
   const ASK_EVERY_MS = 60 * 1000;
+  const OLD_MS = 14 * 24 * 60 * 60 * 1000;
+  const ROWS = 5;
+  const COLUMN_REM = 19.25;
 
   // T3 Code's project icon and its click handler for pull request links. Its
   // main script exports both under names that change with every build.
@@ -40,22 +42,54 @@ function homeView({
     if (minutes < 2880) return `${Math.round(minutes / 60)}h`;
     return minutes < 86400 ? `${Math.round(minutes / 1440)}d` : `${Math.round(minutes / 43200)}mo`;
   }
+  const timeOf = (text) => Date.parse(text || "") || 0;
 
   const repositoryOf = (project) =>
     /^github\.com\/([a-z0-9_-]+\/[\w.-]+)$/i.exec(project.repositoryIdentity?.canonicalKey || "")?.[1].toLowerCase() ?? null;
 
+  const isWaiting = (thread) => thread.hasPendingApprovals || thread.hasPendingUserInput || thread.pendingSubagentRequest != null;
+
+  // An idle runtime with background work is an agent whose turn ended while its
+  // delegates or commands still run. T3 Code lists it under Working too.
   function isWorking(thread, connected) {
-    return (
-      ["preparing", "starting", "running"].includes(thread.runtime?.status) &&
-      !thread.hasPendingApprovals && !thread.hasPendingUserInput && !thread.pendingSubagentRequest &&
-      thread.archivedAt == null && thread.lineage?.relationshipToParent !== "subagent" &&
-      thread.lineage?.sideChat !== true && connected.has(thread.environmentId)
+    const status = thread.runtime?.status;
+    const active = ["preparing", "queued", "starting", "running", "waiting"].includes(status);
+    return (active || (status === "idle" && thread.pendingBackgroundTasks?.length > 0)) && connected.has(thread.environmentId);
+  }
+
+  function stateOf(thread, connected) {
+    if (isWaiting(thread)) return "ask";
+    if (isWorking(thread, connected)) return "run";
+    const run = thread.latestRun;
+    if (run?.status === "failed") return "fail";
+    const unread = thread.lastVisitedAt && timeOf(run?.completedAt) > timeOf(thread.lastVisitedAt);
+    return unread && run.status !== "interrupted" && run.status !== "cancelled" ? "done" : "idle";
+  }
+
+  // T3 Code's own rule: a snoozed thread comes back early when something new
+  // needs its owner.
+  function isSnoozed(thread, now) {
+    if (timeOf(thread.snoozedUntil) <= now) return false;
+    const isNew = (at) => !thread.snoozedAt || timeOf(at) > timeOf(thread.snoozedAt);
+    const request = thread.source?.pendingRuntimeRequest;
+    const asked = thread.hasPendingUserInput && (!thread.pendingUserInputAt || isNew(thread.pendingUserInputAt));
+    const failed = ["error", "failed"].includes(thread.runtime?.status) &&
+      isNew(thread.latestRun?.status === "failed" ? thread.latestRun.completedAt : thread.runtime.updatedAt);
+    return !(
+      thread.hasPendingApprovals || (request && request.kind !== "user_input") || asked || failed ||
+      thread.pendingSubagentRequest != null || thread.pendingGuestMessageCount > 0
     );
   }
 
+  const isOwn = (thread) =>
+    thread.archivedAt == null && thread.lineage?.relationshipToParent !== "subagent" && thread.lineage?.sideChat !== true;
+
+  const activityOf = (thread) =>
+    Math.max(timeOf(thread.latestUserMessageAt), timeOf(thread.latestRun?.requestedAt), timeOf(thread.latestRun?.completedAt)) || timeOf(thread.createdAt);
+
   // One entry per repository: T3 Code can hold a repository as several
   // projects, such as one on each computer.
-  function entriesOf(projects, threads, environments) {
+  function entriesOf(projects, threads, environments, now) {
     const connected = new Set(environments.filter((item) => item.connection?.phase === "connected").map((item) => item.environmentId));
     const byProject = new Map();
     const byKey = new Map();
@@ -63,93 +97,104 @@ function homeView({
       const repository = repositoryOf(project);
       const id = `${project.environmentId}:${project.id}`;
       const key = repository || id;
-      const entry = byKey.get(key) || { key, repository, copies: [], working: [] };
-      const copy = { project, connected: connected.has(project.environmentId), latest: "" };
+      const entry = byKey.get(key) || { key, repository, copies: [], threads: [] };
+      const copy = { project, connected: connected.has(project.environmentId), latest: 0 };
       entry.copies.push(copy);
       byKey.set(key, entry);
       byProject.set(id, { entry, copy });
     }
     for (const thread of threads) {
       const found = byProject.get(`${thread.environmentId}:${thread.projectId}`);
-      if (!found) continue;
-      if (thread.updatedAt > found.copy.latest) found.copy.latest = thread.updatedAt;
-      if (isWorking(thread, connected)) found.entry.working.push(thread);
+      if (!found || !isOwn(thread)) continue;
+      const at = activityOf(thread);
+      found.copy.latest = Math.max(found.copy.latest, at);
+      if (thread.settledOverride === "settled" || isSnoozed(thread, now)) continue;
+      found.entry.threads.push({ thread, at, state: stateOf(thread, connected) });
     }
-    const newest = (a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0);
     const entries = [...byKey.values()].map(({ copies, ...entry }) => {
-      const [{ latest }] = [...copies].sort(newest);
+      const latest = Math.max(...copies.map((copy) => copy.latest));
+      const pinned = copies.some((copy) => copy.project.pinnedAt != null);
       // A new thread starts here, so a connected computer comes first.
-      const [{ project }] = copies.sort((a, b) => b.connected - a.connected || newest(a, b));
-      return { ...entry, project, latest };
+      const [{ project }] = copies.sort((a, b) => b.connected - a.connected || b.latest - a.latest);
+      const first = (item) => (item.state === "ask" ? 2 : item.state === "run" ? 1 : 0);
+      entry.threads.sort((a, b) => first(b) - first(a) || b.at - a.at);
+      return { ...entry, project, latest, pinned, lead: entry.threads.find((item) => item.state === "ask" || item.state === "run") };
     });
-    return entries.sort(newest);
+    const runs = (entry) => entry.threads.some((item) => item.state === "run");
+    return entries.sort((a, b) => b.pinned - a.pinned || runs(b) - runs(a) || b.latest - a.latest);
   }
 
-  function pullItem(entry, pull, now) {
-    const age = pull.at ? `${ago(now - pull.at)} ago` : "";
-    const url = `https://github.com/${entry.repository}/pull/${pull.number}`;
-    return { key: `pull${pull.number}`, text: pull.title, note: [`#${pull.number}`, pull.note || age].filter(Boolean).join(", "), tone: pull.tone, pull: url };
-  }
+  const isRead = (facts) => facts?.status === "read";
+  const pullsOf = (facts) => (isRead(facts) ? facts.pulls : []);
+  const pullUrl = (entry, number) => `https://github.com/${entry.repository}/pull/${number}`;
+  const pullWord = (pull) => (pull.stage === "ready" ? `ready to merge${pull.note ? `, ${pull.note}` : ""}` : pull.note);
 
-  // Dependency updates are one item, with the ones that need a look in its note.
-  function pullStation(entry, pulls, tone, plus, now) {
-    const own = pulls.filter((pull) => !pull.update);
-    const updates = pulls.filter((pull) => pull.update);
-    const worst = (list) => ["bad", "warn"].find((item) => list.some((pull) => pull.tone === item)) || "";
-    const mark = (list, update, name) =>
-      list.length ? [{ number: list.length, label: `${list.length}${plus}`, tone: tone || worst(list), update, name: count(list.length, name) }] : [];
-    const troubled = updates.filter((pull) => pull.tone !== "ok");
-    const updatesItem = updates.length
-      ? [{
-        key: "updates",
-        text: count(updates.length, "dependency update"),
-        note: troubled.length ? troubled.map((pull) => `#${pull.number}, ${pull.note}`).join(". ") : "ready to merge",
-        tone: worst(updates),
-        link: `https://github.com/${entry.repository}/pulls`,
-      }]
-      : [];
+  function pullRow(entry, pull) {
     return {
-      marks: [...mark(own, false, "pull request"), ...mark(updates, true, "dependency update")],
-      items: [...own.map((pull) => pullItem(entry, pull, now)), ...updatesItem],
+      key: `pull${pull.number}`, kind: "pull", tone: pull.tone, text: pull.title, at: pull.at, link: pullUrl(entry, pull.number),
+      notes: [{ key: "stage", text: `#${pull.number} ${pullWord(pull)}`, tone: pull.tone }],
     };
   }
 
-  function stationsOf(entry, facts, now) {
-    const working = {
-      marks: entry.working.length ? [{ number: entry.working.length, label: String(entry.working.length), tone: "run", name: `${count(entry.working.length, "agent")} working` }] : [],
-      items: entry.working.map((thread) => {
-        const since = Date.parse(thread.runtime?.activityStartedAt || thread.latestRun?.startedAt || thread.latestRun?.requestedAt || "");
-        return { key: `${thread.environmentId}:${thread.id}`, text: thread.title, note: since ? ago(now - since) : "", thread };
-      }),
+  const STATE_NOTES = {
+    ask: { text: "Waiting for you", tone: "warn" },
+    fail: { text: "Stopped on an error", tone: "bad" },
+    done: { text: "Finished, not read yet", tone: "ok" },
+  };
+
+  function threadRow(entry, item, pulls, now) {
+    const { thread, at, state } = item;
+    const linked = (thread.pullRequests || []).filter((link) =>
+      link.host === "github.com" && link.repository?.toLowerCase() === entry.repository && link.snapshot?.state === "open");
+    const stateNote = state === "run" ? { text: `Working, ${ago(now - workingSince(thread))}`, tone: "run" } : STATE_NOTES[state];
+    const notes = linked.map(({ number }) => {
+      const pull = pulls.find((other) => other.number === number);
+      return { key: number, text: `#${number} ${pull ? pullWord(pull) : "open"}`, tone: pull?.tone, pull: pullUrl(entry, number) };
+    });
+    return {
+      key: `${thread.environmentId}:${thread.id}`, kind: "thread", state, text: thread.title, at, thread,
+      linked: linked.map((link) => link.number),
+      // The head of the card says the state of its first thread.
+      notes: stateNote && item !== entry.lead ? [{ key: "state", ...stateNote }, ...notes] : notes,
+      old: state === "idle" && linked.length === 0 && thread.pinnedAt == null && now - at > OLD_MS,
     };
-    if (facts?.status !== "read") return [working, ...STATIONS.slice(1).map(() => ({ marks: [], items: [] }))];
-    const plus = facts.cut ? "+" : "";
-    const release = facts.release;
-    const ahead = release?.ahead || 0;
-    const notReleased = { marks: [], items: [] };
-    if (facts.mainFails) {
-      notReleased.marks.push({ number: 0, label: "!", tone: "bad", name: "The default branch fails its checks" });
-      notReleased.items.push({ key: "fails", text: "The default branch fails its checks", tone: "bad", link: `https://github.com/${entry.repository}/commits` });
-    }
-    if (ahead > 0) {
-      notReleased.marks.push({ number: ahead, label: String(ahead), tone: "plain", name: `${count(ahead, "commit")} not released` });
-      notReleased.items.push({ key: "ahead", text: count(ahead, "commit"), note: `since ${release.tag}`, link: `https://github.com/${entry.repository}/compare/${encodeURIComponent(release.tag)}...HEAD` });
-    }
-    return [
-      working,
-      pullStation(entry, facts.pulls.filter((pull) => pull.stage === "open"), "", plus, now),
-      pullStation(entry, facts.pulls.filter((pull) => pull.stage === "ready"), "ok", plus, now),
-      notReleased,
-      { marks: [], items: release ? [{ key: "release", text: release.tag, note: release.at ? `${ago(now - release.at)} ago` : "", link: `https://github.com/${entry.repository}/releases` }] : [] },
-    ];
+  }
+  const workingSince = (thread) =>
+    timeOf(thread.runtime?.activityStartedAt || thread.latestRun?.startedAt || thread.latestRun?.requestedAt) || activityOf(thread);
+
+  function rowsOf(entry, facts, now) {
+    const pulls = pullsOf(facts);
+    const threads = entry.threads.map((item) => threadRow(entry, item, pulls, now));
+    const linked = new Set(threads.flatMap((row) => row.linked));
+    const others = pulls.filter((pull) => !linked.has(pull.number));
+    const rowsFor = (update) => others.filter((pull) => pull.update === update).map((pull) => pullRow(entry, pull));
+    return {
+      rows: [...threads.filter((row) => !row.old), ...rowsFor(false), ...threads.filter((row) => row.old)],
+      updates: rowsFor(true),
+    };
   }
 
-  function Glyph({ d, size = 16 }) {
-    return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, h("path", { d }));
+  function unreadReason(entry, facts) {
+    if (!entry.repository) return null;
+    if (!facts || facts.status === "waiting") return "Reading GitHub…";
+    if (facts.status === "unavailable") return "GitHub is not available";
+    return facts.failedField || facts.release?.ahead === null ? "Read in part" : null;
   }
-  const PLUS = "M12 5v14M5 12h14";
-  const BACK = "m15 18-6-6 6-6";
-  const OUT = "M14 5h5v5M19 5l-8 8M11 7H6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-5";
+
+  function Glyph({ children, size = 16 }) {
+    return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, children);
+  }
+  const path = (d) => h("path", { key: d, d });
+  const dot = (cx, cy, r) => h("circle", { key: `${cx} ${cy}`, cx, cy, r });
+  const GLYPHS = {
+    plus: path("M12 5v14M5 12h14"),
+    back: path("m15 18-6-6 6-6"),
+    out: path("M14 5h5v5M19 5l-8 8M11 7H6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-5"),
+    pin: path("M12 17v5M8 3h8l-1 7 3 3.5V16H6v-2.5L9 10z"),
+    issue: [dot(12, 12, 8.5), dot(12, 12, 1)],
+    pull: [dot(6, 6, 2.6), dot(6, 18, 2.6), dot(18, 18, 2.6), path("M6 8.6v6.8M18 15.4V10a3 3 0 0 0-3-3h-3.5M14 4l-3 3 3 3")],
+    shield: path("M12 3l7.5 2.8v5.4c0 4.6-3.1 8-7.5 9.8-4.4-1.8-7.5-5.2-7.5-9.8V5.8z"),
+  };
 
   function Picture({ project, className }) {
     const { Icon } = mainParts();
@@ -157,120 +202,212 @@ function homeView({
     return h("span", { className: `${className} t3h-letters`, "aria-hidden": true }, project.title.slice(0, 2).toUpperCase());
   }
 
-  const isUnknown = (facts) => facts.failedField || facts.release?.ahead === null;
-  const isComplete = (entry, facts) => !entry.repository || (facts?.status === "read" && !facts.cut && !isUnknown(facts));
-
   const text = (value, className) => h("span", { className, dir: directionOf(value) }, value);
+  const small = (value, className = "") => h("span", { className: `t3h-small ${className}`, dir: "ltr" }, value);
+  const toneOf = (tone) => (tone ? `t3h-${tone}` : "");
+  const outward = { target: "_blank", rel: "noreferrer" };
 
-  function Mark({ mark }) {
-    return h("i", { className: `t3h-m t3h-${mark.tone || "muted"}${mark.update ? " t3h-update" : ""}`, title: mark.name, dir: "ltr", "aria-hidden": true }, mark.label);
-  }
-  const Stop = () => h("i", { className: "t3h-stop", "aria-hidden": true });
-
-  function Item({ item, actions }) {
-    const note = item.note ? h("small", { className: item.tone === "bad" || item.tone === "warn" ? `t3h-${item.tone}` : undefined, dir: "ltr" }, item.note) : null;
-    const props = { className: "t3h-text", dir: directionOf(item.text) };
-    let body = null;
-    if (item.thread) body = h("button", { ...props, type: "button", onClick: () => actions.openThread(item.thread) }, item.text);
-    else if (item.pull) body = h("a", { ...props, href: item.pull, target: "_blank", rel: "noreferrer", onClick: (event) => actions.openPull?.(event, item.pull) }, item.text);
-    else if (item.link) body = h("a", { ...props, href: item.link, target: "_blank", rel: "noreferrer" }, item.text);
-    else body = h("span", props, item.text);
-    return h("div", { className: "t3h-item" }, body, note);
-  }
-
-  function Station({ entry, station, index, actions }) {
-    if (station.marks.length === 0) return h("span", { className: "t3h-sp" }, h(Stop));
-    const label = `${entry.project.title}: ${station.marks.map((mark) => mark.name).join(", ")}`;
-    return h("span", { className: "t3h-sp" },
-      h("button", { type: "button", className: "t3h-marks", "aria-label": label }, station.marks.map((mark, at) => h(Mark, { key: at, mark }))),
-      h("div", { className: "t3h-pop", role: "group", "aria-label": label },
-        h("div", { className: "t3h-card" },
-          h("div", { className: "t3h-small", dir: "ltr" }, `${entry.project.title}, ${STATIONS[index].toLowerCase()}`),
-          station.items.map((item) => h(Item, { key: item.key, item, actions })))));
+  function Row({ row, now, actions }) {
+    const title = { className: "t3h-text", dir: directionOf(row.text) };
+    const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
+    return h("li", { className: `t3h-row${row.old ? " t3h-old" : ""}` },
+      h("span", { className: `t3h-mark ${toneOf(row.tone)}`, "aria-hidden": true },
+        row.kind === "pull" ? h(Glyph, { size: 14 }, GLYPHS.pull) : h("i", { className: `t3h-state t3h-is-${row.state}` })),
+      row.thread
+        ? h("button", { ...title, type: "button", onClick: () => actions.openThread(row.thread) }, row.text)
+        : h("a", { ...title, ...openPull(row.link) }, row.text),
+      row.at ? small(ago(now - row.at), "t3h-age") : null,
+      row.notes.length
+        ? h("div", { className: "t3h-row-notes" }, row.notes.map((note) =>
+          note.pull
+            ? h("a", { key: note.key, className: `t3h-small ${toneOf(note.tone)}`, dir: "ltr", ...openPull(note.pull) }, note.text)
+            : h("span", { key: note.key, className: `t3h-small ${toneOf(note.tone)}`, dir: "ltr" }, note.text)))
+        : null);
   }
 
-  function Release({ entry, facts, now }) {
-    if (!entry.repository) return h("span", { className: "t3h-release" });
-    if (!facts || facts.status === "waiting") return h("span", { className: "t3h-release t3h-small", dir: "ltr" }, "Reading…");
-    if (facts.status === "unavailable") return h("span", { className: "t3h-release t3h-small", dir: "ltr" }, "Not available");
-    return h("span", { className: "t3h-release", dir: "ltr" },
-      facts.release ? [facts.release.tag, facts.release.at ? h("small", { key: "at" }, `${ago(now - facts.release.at)} ago`) : null] : null,
-      isUnknown(facts) ? h("small", null, "Read in part") : null);
+  const rowList = (rows, now, actions) => (rows.length ? h("ul", { className: "t3h-rows" }, rows.map((row) => h(Row, { key: row.key, row, now, actions }))) : null);
+
+  // How many of all have a word: "", " high" when all have it, or ", 4 high".
+  const share = (all, number, word) => (number === 0 ? "" : number === all ? ` ${word}` : `, ${number} ${word}`);
+
+  // A count that GitHub does not give is left out, so 0 always means 0.
+  function countsOf(entry, facts) {
+    if (!isRead(facts)) return [];
+    const updates = facts.pulls.filter((pull) => pull.update).length;
+    const alerts = facts.alerts;
+    const graded = !alerts ? "" : alerts.critical ? share(alerts.total, alerts.critical, "critical") : share(alerts.total, alerts.high, "high");
+    const url = `https://github.com/${entry.repository}`;
+    return [
+      facts.issues === null ? null : { key: "issue", number: facts.issues, name: count(facts.issues, "issue"), href: `${url}/issues` },
+      facts.openPulls === null ? null : {
+        key: "pull", number: facts.openPulls, name: count(facts.openPulls, "pull request"), href: `${url}/pulls`,
+        extra: facts.cut ? "" : share(facts.openPulls, updates, updates === 1 ? "update" : "updates"),
+      },
+      !alerts ? null : {
+        key: "shield", number: alerts.total, name: `${count(alerts.total, "security alert")} in ${alerts.sources.join(", ")}`, href: `${url}/security`,
+        extra: graded, tone: alerts.critical || alerts.high ? "bad" : alerts.total ? "warn" : "",
+      },
+    ].filter(Boolean);
   }
 
-  function Names({ label, entries, actions }) {
-    if (entries.length === 0) return null;
-    return h("div", { className: "t3h-names" },
-      h("span", { className: "t3h-small", dir: "ltr" }, label),
-      entries.map((entry) => h("button", { key: entry.key, type: "button", className: "t3h-name-small", onClick: () => actions.openProject(entry) },
-        h(Picture, { project: entry.project, className: "t3h-icon-small" }), text(entry.project.title))));
+  const nameOf = ({ name, extra }) => (extra ? `${name}, ${extra.replace(/^,? /, "")}` : name);
+
+  function Counts({ entry, facts }) {
+    const counts = countsOf(entry, facts);
+    const reason = unreadReason(entry, facts);
+    if (counts.length === 0 && !reason) return null;
+    return h("div", { className: "t3h-counts" },
+      counts.map((item) => h("a", {
+        key: item.key, ...outward, href: item.href, title: item.name, "aria-label": nameOf(item),
+        className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
+      }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra))),
+      reason ? small(reason) : null);
+  }
+
+  function releaseText(release, now) {
+    if (release.ahead > 0) return `, ${count(release.ahead, "commit")} since`;
+    return release.at ? `, ${ago(now - release.at)} ago` : "";
+  }
+
+  function Foot({ entry, facts, now }) {
+    const url = `https://github.com/${entry.repository}`;
+    const release = isRead(facts) ? facts.release : null;
+    return h(React.Fragment, null,
+      isRead(facts) && facts.mainFails ? h("div", { className: "t3h-foot" }, h("a", { ...outward, href: `${url}/commits`, className: "t3h-small t3h-bad", dir: "ltr" }, "The default branch fails its checks")) : null,
+      release
+        ? h("div", { className: "t3h-foot" }, h("a", {
+          ...outward, className: "t3h-small", dir: "ltr",
+          href: release.ahead > 0 ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : `${url}/releases`,
+        }, h("b", null, release.tag), releaseText(release, now)))
+        : null,
+      h(Counts, { entry, facts }));
+  }
+
+  function headline(entry, now) {
+    if (entry.lead?.state === "ask") return ["Waiting for you", "t3h-warn"];
+    if (entry.lead) return [`Working, ${ago(now - workingSince(entry.lead.thread))}`, "t3h-run"];
+    return [entry.latest ? `${ago(now - entry.latest)} ago` : "", ""];
+  }
+
+  function shownRows(rows, opened) {
+    // One hidden row would take the place of the button that shows it.
+    return opened || rows.length <= ROWS + 1 ? rows : rows.slice(0, ROWS);
+  }
+
+  function Card({ entry, facts, rows, now, actions, opened, toggle }) {
+    const [state, tone] = headline(entry, now);
+    const shown = shownRows(rows, opened);
+    const more = rows.length - shownRows(rows, false).length;
+    const { title } = entry.project;
+    return h("article", { className: `t3h-card${entry.lead ? ` t3h-card-${entry.lead.state}` : ""}` },
+      h("div", { className: "t3h-head" },
+        h(Picture, { project: entry.project, className: "t3h-icon" }),
+        h("div", { className: "t3h-names" },
+          h("h3", null,
+            entry.pinned ? h("span", { className: "t3h-pin", title: "Pinned", role: "img", "aria-label": "Pinned" }, h(Glyph, { size: 15 }, GLYPHS.pin)) : null,
+            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title)),
+          state ? small(state, tone) : null),
+        h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
+      rowList(shown, now, actions),
+      more ? h("button", { type: "button", className: "t3h-more t3h-small", "aria-expanded": opened, "aria-label": opened ? `Show less of ${title}` : `${more} more in ${title}`, onClick: () => toggle(entry.key) }, text(opened ? "Show less" : `${more} more`)) : null,
+      h(Foot, { entry, facts, now }));
+  }
+
+  // About how many lines a card takes.
+  function heightOf({ facts, rows }, opened) {
+    const shown = shownRows(rows, opened);
+    const notes = shown.filter((row) => row.notes.length > 0).length;
+    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (isRead(facts) ? (facts.release ? 1.6 : 0) + 1.9 : 0);
+  }
+
+  // Cards keep their own height, and each goes to the column that is the
+  // shortest so far. CSS columns would fill the first column first.
+  function Wall({ cards, now, actions }) {
+    const [columns, setColumns] = React.useState(1);
+    const [opened, setOpened] = React.useState(() => new Set());
+    const wall = React.useRef(null);
+    React.useLayoutEffect(() => {
+      const measure = () => {
+        const column = COLUMN_REM * parseFloat(getComputedStyle(document.documentElement).fontSize);
+        setColumns(Math.max(1, Math.floor(wall.current.clientWidth / column)));
+      };
+      const observer = new ResizeObserver(measure);
+      observer.observe(wall.current);
+      measure();
+      return () => observer.disconnect();
+    }, []);
+    const toggle = (key) => setOpened((before) => {
+      const after = new Set(before);
+      if (!after.delete(key)) after.add(key);
+      return after;
+    });
+    const filled = Array.from({ length: columns }, () => ({ height: 0, cards: [] }));
+    for (const card of cards) {
+      const shortest = filled.reduce((best, column) => (column.height < best.height ? column : best));
+      shortest.cards.push(card);
+      shortest.height += heightOf(card, opened.has(card.entry.key));
+    }
+    return h("div", { className: "t3h-wall", ref: wall }, filled.map((column, index) =>
+      h("div", { key: index, className: "t3h-column" }, column.cards.map((card) =>
+        h(Card, { key: card.entry.key, ...card, now, actions, opened: opened.has(card.entry.key), toggle })))));
+  }
+
+  function Tile({ entry, facts, actions }) {
+    const release = isRead(facts) ? facts.release : null;
+    const reason = unreadReason(entry, facts);
+    const details = [
+      release ? small(`${release.tag}${release.ahead > 0 ? `, ${count(release.ahead, "commit")} since` : ""}`) : null,
+      ...countsOf(entry, facts).filter((item) => item.number > 0).map((item) =>
+        h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
+          h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number, item.extra))),
+      reason ? small(reason) : null,
+    ];
+    return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
+      h(Picture, { project: entry.project, className: "t3h-icon-small" }),
+      h("span", { className: "t3h-tile-text" },
+        text(entry.project.title, "t3h-cut t3h-tile-name"),
+        h("span", { className: "t3h-tile-details" }, ...details)));
+  }
+
+  function Tiles({ title, cards, actions }) {
+    if (cards.length === 0) return null;
+    return h("section", null,
+      h(SectionTitle, { title, cards }),
+      h("div", { className: "t3h-tiles" }, cards.map(({ entry, facts }) => h(Tile, { key: entry.key, entry, facts, actions }))));
+  }
+
+  function SectionTitle({ title, cards }) {
+    return h("h2", { className: "t3h-section" }, text(title), h("small", { dir: "ltr" }, count(cards.length, "project")));
   }
 
   function Overview({ entries, factsOf, now, actions }) {
-    const rows = entries.map((entry) => ({ entry, facts: factsOf(entry), stations: stationsOf(entry, factsOf(entry), now) }));
-    const open = rows.filter((row) => row.stations.some((station) => station.marks.length > 0));
-    const idle = (test) => rows.filter((row) => !open.includes(row) && test(row)).map((row) => row.entry);
-    const total = (index) => open.reduce((sum, row) => sum + row.stations[index].marks.reduce((all, mark) => all + (mark.update ? 0 : mark.number), 0), 0);
-    // A list that was cut can hold more of both kinds of pull request.
-    const more = (index) => (index === 1 || index === 2) && rows.some((row) => row.facts?.cut);
-    const has = (test) => open.some((row) => row.stations.some((station) => station.marks.some(test)));
-    const keys = [
-      has((mark) => mark.tone === "warn") && ["warn", "Conflicts"],
-      has((mark) => mark.tone === "bad") && ["bad", "Failed check"],
-      has((mark) => mark.update) && ["muted t3h-update", "Dependency updates, not counted above"],
-    ].filter(Boolean);
+    const cards = entries.map((entry) => ({ entry, facts: factsOf(entry), rows: rowsOf(entry, factsOf(entry), now).rows }));
+    const open = cards.filter(({ entry, rows }) => rows.length > 0 || entry.pinned);
+    const rest = cards.filter((card) => !open.includes(card));
+    const isKnown = ({ entry, facts }) => !entry.repository || (isRead(facts) && !facts.cut);
     return h("div", null,
-      h("div", { className: "t3h-head" },
-        h("div"),
-        STATIONS.slice(0, 4).map((name, index) => h("div", { key: name, dir: "ltr" },
-          h("b", { className: total(index) ? undefined : "t3h-zero" }, total(index), more(index) ? "+" : ""), name)),
-        h("div", { dir: "ltr" }, STATIONS[4])),
-      rows.every(({ entry, facts, stations }) => isComplete(entry, facts) && stations.every((station) => station.marks.length === 0))
-        ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is open.")
-        : null,
-      open.map(({ entry, facts, stations }, index) => h("section", { key: entry.key, className: `t3h-row${index > 3 && index > open.length - 4 ? " t3h-low" : ""}` },
-        h("button", { type: "button", className: "t3h-name", onClick: () => actions.openProject(entry) },
-          h(Picture, { project: entry.project, className: "t3h-icon" }), text(entry.project.title, "t3h-cut")),
-        h("div", { className: "t3h-rail" },
-          stations.slice(0, 4).map((station, at) => h(Station, { key: at, entry, station, index: at, actions })),
-          h(Release, { entry, facts, now })))),
-      h("div", { className: "t3h-foot" },
-        h("div", { className: "t3h-groups" },
-          h(Names, { label: "Nothing open", actions, entries: idle(({ entry, facts }) => entry.repository && isComplete(entry, facts)) }),
-          h(Names, { label: "Read in part", actions, entries: idle(({ entry, facts }) => facts?.status === "read" && !isComplete(entry, facts)) }),
-          h(Names, { label: "Reading GitHub", actions, entries: idle(({ entry, facts }) => entry.repository && (!facts || facts.status === "waiting")) }),
-          h(Names, { label: "GitHub is not available", actions, entries: idle(({ facts }) => facts?.status === "unavailable") }),
-          h(Names, { label: "Not on GitHub", actions, entries: idle(({ entry }) => !entry.repository) })),
-        h("div", { className: "t3h-keys" }, keys.map(([tone, name]) => h("span", { key: name }, h("i", { className: `t3h-m t3h-${tone}` }), h("span", { dir: "ltr" }, name))))));
+      open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, now, actions })) : null,
+      open.length === 0 && rest.every(isKnown) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
+      h(Tiles, { title: "No open work", cards: rest.filter(isKnown), actions }),
+      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !isKnown(card)), actions }));
   }
 
   function Project({ entry, facts, now, actions }) {
     const heading = React.useRef(null);
     React.useEffect(() => heading.current?.focus(), [entry.key]);
-    const stations = stationsOf(entry, facts, now);
-    const url = entry.repository ? `https://github.com/${entry.repository}` : null;
-    const link = (path, name) => h("a", { className: "t3h-button", href: url + path, target: "_blank", rel: "noreferrer", dir: "ltr" }, h(Glyph, { d: OUT, size: 15 }), name);
-    const read = facts?.status === "read";
-    return h("div", null,
-      h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { d: BACK, size: 15 }), "Home"),
+    const { rows, updates } = rowsOf({ ...entry, lead: null }, facts, now);
+    return h("div", { className: "t3h-project" },
+      h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
         h(Picture, { project: entry.project, className: "t3h-icon-large" }),
         h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title)),
       h("div", { className: "t3h-actions" },
-        h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, { d: PLUS }), "New thread"),
-        url ? link("", "GitHub") : null,
-        url ? link("/pulls", "Pull requests") : null,
-        url ? link("/issues", read && facts.issues ? count(facts.issues, "issue") : "Issues") : null),
-      h("div", { className: "t3h-track" },
-        STATIONS.slice(0, url ? 5 : 1).map((name, index) => {
-          const station = stations[index];
-          const shown = station.marks.find((mark) => !mark.update) || station.marks[0];
-          return h("section", { key: name, className: `t3h-stage${station.items.length ? "" : " t3h-empty"}` },
-            h("div", { className: "t3h-dot" }, shown ? h(Mark, { mark: station.marks.length > 1 && shown.number ? { ...shown, label: shown.label.replace(/^\d+/, String(station.marks.reduce((sum, mark) => sum + mark.number, 0))) } : shown }) : h(Stop)),
-            h("div", null, h("h2", { dir: "ltr" }, name), station.items.map((item) => h(Item, { key: item.key, item, actions }))));
-        })),
-      url && !read ? h("p", { className: "t3h-small", dir: "ltr" }, facts?.status === "unavailable" ? "GitHub could not be read for this project." : "Reading GitHub…") : null,
-      read && !isComplete(entry, facts) ? h("p", { className: "t3h-small", dir: "ltr" }, "GitHub gave only a part of this project.") : null);
+        h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, null, GLYPHS.plus), "New thread"),
+        entry.repository ? h("a", { ...outward, className: "t3h-button", href: `https://github.com/${entry.repository}`, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.out), "GitHub") : null),
+      rows.length ? rowList(rows, now, actions) : h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle."),
+      updates.length ? h("h2", { className: "t3h-section", dir: "ltr" }, "Dependency updates") : null,
+      rowList(updates, now, actions),
+      h(Foot, { entry, facts, now }));
   }
 
   // Facts come from the launcher, through the fix's own script in this page.
@@ -329,7 +466,7 @@ function homeView({
     const now = useNow();
     const chosen = useChosen(router);
     const [failed, setFailed] = React.useState(false);
-    const entries = entriesOf(projects, threads, environments);
+    const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
     const factsOf = (entry) => (entry.repository && github ? github.repositories[entry.repository] ?? null : null);
     const actions = {
@@ -394,109 +531,91 @@ const HOME_CSS = `
 .t3h [dir] { text-align: -webkit-match-parent; text-align: match-parent; }
 .t3h button, .t3h a { font: inherit; color: inherit; text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; }
 .t3h button { text-align: start; }
-.t3h :is(button, a, h1):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: .4rem; }
-.t3h :is(h1, h2, p) { margin: 0; font: inherit; }
+.t3h :is(button, a, h1):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: .4rem; }
+.t3h :is(h1, h2, h3, p, ul) { margin: 0; padding: 0; font: inherit; list-style: none; }
 .t3h h1:focus { outline: 0; }
+.t3h svg { display: block; flex: none; }
 .t3h-header { font-size: .875rem; font-weight: 500; color: var(--foreground); }
-.t3h-page { max-width: 66rem; margin: 0 auto; padding: 1.5rem 2.75rem 4rem; }
-.t3h-small { font-size: .78rem; color: var(--muted-foreground); }
-.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--destructive); } .t3h-warn { --t3h-k: var(--warning); }
-.t3h-run { --t3h-k: var(--info); } .t3h-plain { --t3h-k: var(--foreground); } .t3h-muted { --t3h-k: var(--muted-foreground); }
-.t3h small { display: block; font-size: .78rem; font-weight: 400; color: var(--muted-foreground); }
-.t3h small:is(.t3h-bad, .t3h-warn) { color: var(--t3h-k); }
-.t3h-notes { margin-bottom: 1.5rem; padding: .7rem .9rem; border-radius: .7rem; border: 1px solid var(--border); color: var(--muted-foreground); }
-
-.t3h-m {
-  --t3h-bg: var(--background); position: relative; display: inline-grid; place-items: center; box-sizing: border-box; min-width: 1.9rem; height: 1.9rem;
-  padding: 0 .45rem; border-radius: 99px; background: var(--t3h-k); color: var(--t3h-bg); font-size: .88rem; font-style: normal;
-  font-weight: 680; font-variant-numeric: tabular-nums; line-height: 1;
-}
-.t3h-m.t3h-update { background: var(--t3h-bg); color: var(--t3h-k); box-shadow: inset 0 0 0 2px var(--t3h-k); }
-.t3h-m.t3h-run::after { content: ""; position: absolute; inset: 0; border-radius: 99px; box-shadow: 0 0 0 2px var(--t3h-k); animation: t3h-breathe 2.6s ease-out infinite; }
-@keyframes t3h-breathe { from { scale: 1; opacity: .6; } 70%, to { scale: 1.55; opacity: 0; } }
-.t3h-stop { display: block; width: .5rem; height: .5rem; margin-inline: .7rem; border-radius: 50%; background: color-mix(in srgb, var(--muted-foreground) 45%, var(--background)); }
-
-.t3h-head, .t3h-row { display: grid; grid-template-columns: 13.5rem 1fr 1.05fr 1.2fr .8fr 6.2rem; column-gap: 1rem; }
-.t3h-head { align-items: end; padding: .6rem 0 1rem; font-size: .88rem; color: var(--muted-foreground); }
-.t3h-head b { display: block; margin-bottom: .3rem; font-size: 2.5rem; line-height: 1; font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--foreground); }
-.t3h-head b.t3h-zero { color: color-mix(in srgb, var(--muted-foreground) 55%, transparent); }
-.t3h-row { align-items: center; min-height: 3.55rem; }
-.t3h-none { padding: 1rem 0; font-size: 1.15rem; color: var(--muted-foreground); }
-.t3h-name { display: flex; align-items: center; gap: .65rem; min-width: 0; font-size: 1.18rem !important; font-weight: 620 !important; letter-spacing: -.015em; }
-:is(.t3h-name, .t3h-name-small):hover { color: var(--primary) !important; }
+.t3h-page { padding: .6rem 2.75rem 4rem; }
+.t3h .t3h-small { font-size: .8rem; color: var(--t3h-k, var(--muted-foreground)); }
+.t3h a.t3h-small:hover { text-decoration: underline; text-underline-offset: 3px; }
+.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--destructive); } .t3h-warn { --t3h-k: var(--warning); } .t3h-run { --t3h-k: var(--primary); }
+.t3h-notes { margin-bottom: 1rem; padding: .7rem .9rem; border-radius: .7rem; border: 1px solid var(--border); color: var(--muted-foreground); }
 .t3h-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t3h-icon { width: 1.45rem; height: 1.45rem; flex: none; }
-.t3h-icon-small { width: 1rem; height: 1rem; flex: none; }
+.t3h-none { padding: 1rem 0; font-size: 1.15rem; color: var(--muted-foreground); }
+.t3h .t3h-section { display: flex; align-items: baseline; gap: .55rem; margin: 2rem 0 .9rem; font-size: 1.35rem; font-weight: 700; letter-spacing: -.015em; }
+.t3h section:first-child > .t3h-section { margin-top: .4rem; }
+.t3h-section small { font-size: .85rem; font-weight: 500; letter-spacing: 0; color: var(--muted-foreground); }
+
+.t3h-wall { display: flex; gap: .9rem; align-items: flex-start; }
+.t3h-column { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; }
+.t3h-card { --t3h-edge: color-mix(in srgb, var(--foreground) 9%, transparent); min-width: 0; padding: 1rem 1.05rem .9rem; border-radius: 1rem; background: var(--card); box-shadow: inset 0 0 0 1px var(--t3h-edge); }
+.t3h-card-run { --t3h-edge: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
+.t3h-card-ask { --t3h-edge: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--card)); }
+.t3h-head { display: flex; align-items: center; gap: .7rem; }
+.t3h-names { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: .1rem; line-height: 1.3; }
+.t3h-names > .t3h-small:is(.t3h-run, .t3h-warn) { font-weight: 600; }
+.t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
+.t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
+.t3h .t3h-name:hover { color: var(--primary); }
+.t3h-pin { color: var(--primary); }
+.t3h-icon { width: 2.1rem; height: 2.1rem; flex: none; }
+.t3h-icon-small { width: 1.5rem; height: 1.5rem; flex: none; }
 .t3h-icon-large { width: 3rem; height: 3rem; flex: none; }
-.t3h-letters { display: inline-grid; place-items: center; border-radius: .3rem; font-size: .55rem; font-weight: 700; background: color-mix(in srgb, var(--primary) 22%, transparent); }
-.t3h-rail { grid-column: 2 / -1; display: grid; grid-template-columns: subgrid; align-items: center; align-self: stretch; position: relative; }
-.t3h-rail::before { content: ""; position: absolute; top: calc(50% - 1px); height: 2px; inset-inline: .95rem 6.9rem; border-radius: 2px; background: color-mix(in srgb, var(--muted-foreground) 32%, var(--background)); }
-.t3h-sp { position: relative; display: flex; align-items: center; align-self: stretch; }
-.t3h-sp:hover { z-index: 30; }
-.t3h-sp:has(:focus-visible) { z-index: 31; }
-.t3h-marks { position: relative; display: flex; gap: .3rem; border-radius: 99px; }
-.t3h-release { font-size: .95rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.t3h-release.t3h-small { font-size: .78rem; font-weight: 400; }
+.t3h-letters { display: inline-grid; place-items: center; border-radius: .4rem; font-size: .65rem; font-weight: 700; background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.t3h .t3h-add { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: .55rem; color: var(--muted-foreground); }
+.t3h .t3h-add:hover { background: color-mix(in srgb, var(--foreground) 9%, transparent); color: var(--foreground); }
 
-/* The padding keeps the pointer inside on its way to the card. */
-.t3h-pop { display: none; position: absolute; z-index: 20; top: calc(50% + .95rem); inset-inline-start: -.9rem; padding-top: .55rem; width: max-content; max-width: 22rem; }
-.t3h-low .t3h-pop { top: auto; bottom: calc(50% + .95rem); padding: 0 0 .55rem; }
-.t3h-sp:is(:hover, :has(:focus-visible)) > .t3h-pop { display: block; }
-.t3h-sp:has(:focus-visible) > .t3h-pop { z-index: 21; }
-.t3h-card { display: grid; gap: .6rem; max-height: 20rem; overflow: auto; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 14px 34px -12px rgb(0 0 0 / .38); font-size: .95rem; line-height: 1.4; }
-.t3h-text { display: block; width: 100%; overflow-wrap: anywhere; }
-:is(a, button).t3h-text:hover { color: var(--primary) !important; }
+.t3h .t3h-rows { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: .7rem; }
+.t3h-row { display: grid; grid-template-columns: 1.05rem minmax(0, 1fr) auto; column-gap: .6rem; align-items: baseline; padding: .34rem 0; }
+.t3h-mark { display: grid; place-items: center; align-self: start; height: 1.35em; font-size: .92rem; color: var(--t3h-k, var(--muted-foreground)); }
+.t3h .t3h-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: .92rem; line-height: 1.35; }
+.t3h .t3h-text:hover { color: var(--primary); }
+.t3h-old .t3h-text { color: var(--muted-foreground); }
+.t3h-age { white-space: nowrap; }
+.t3h-row-notes { grid-column: 2 / -1; display: flex; flex-wrap: wrap; column-gap: .7rem; line-height: 1.4; }
+.t3h-state { position: relative; width: .52rem; height: .52rem; border-radius: 50%; background: var(--t3h-k); }
+.t3h-is-idle { background: none; box-shadow: inset 0 0 0 1.6px var(--muted-foreground); }
+.t3h-is-run { --t3h-k: var(--primary); } .t3h-is-ask { --t3h-k: var(--warning); } .t3h-is-fail { --t3h-k: var(--destructive); } .t3h-is-done { --t3h-k: var(--success); }
+.t3h-is-run::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--t3h-k); animation: t3h-breathe 2.8s ease-out infinite; }
+@keyframes t3h-breathe { from { scale: 1; opacity: .55; } 70%, to { scale: 3.2; opacity: 0; } }
+.t3h .t3h-more { margin: .3rem 0 0; margin-inline-start: 1.65rem; }
+.t3h .t3h-more:hover { color: var(--foreground); }
 
-.t3h-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: .8rem 2rem; margin-top: 1.4rem; }
-.t3h-groups { display: grid; gap: .7rem; flex: 1 1 24rem; }
-.t3h-names { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.3rem; }
-.t3h-name-small { display: inline-flex; align-items: center; gap: .4rem; font-size: .95rem !important; color: var(--muted-foreground) !important; }
-.t3h-keys { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--muted-foreground); }
-.t3h-keys > span { display: inline-flex; align-items: center; gap: .4rem; }
-.t3h-keys .t3h-m { min-width: .8rem; width: .8rem; height: .8rem; padding: 0; }
+.t3h-foot { margin-top: .6rem; line-height: 1.3; }
+.t3h-foot + .t3h-foot { margin-top: .2rem; }
+.t3h-foot b { font-weight: 600; color: color-mix(in srgb, var(--foreground) 80%, transparent); }
+.t3h-counts { display: flex; flex-wrap: wrap; gap: .1rem 1rem; margin-top: .75rem; padding-top: .65rem; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent); }
+.t3h .t3h-count { display: inline-flex; align-items: center; gap: .32rem; font-size: .82rem; font-weight: 550; color: var(--t3h-k, color-mix(in srgb, var(--foreground) 82%, transparent)); }
+.t3h a.t3h-count:hover { text-decoration: underline; text-underline-offset: 3px; }
+.t3h .t3h-zero { font-weight: 400; color: color-mix(in srgb, var(--muted-foreground) 70%, transparent); }
 
-.t3h-back { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem !important; color: var(--muted-foreground) !important; }
+.t3h-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: .1rem .9rem; }
+.t3h .t3h-tile { display: flex; align-items: center; gap: .65rem; min-width: 0; padding: .5rem .4rem; border-radius: .6rem; }
+.t3h .t3h-tile:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.t3h-tile-text { display: grid; min-width: 0; }
+.t3h-tile-name { font-size: .95rem; font-weight: 600; }
+.t3h-tile-details { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .9rem; }
+
+.t3h-project { max-width: 44rem; margin: 0 auto; padding-top: .9rem; }
+.t3h .t3h-back { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; color: var(--muted-foreground); }
 :root[data-t3-rtl-app="on"] .t3h-back { flex-direction: row-reverse; }
 :root[data-t3-rtl-app="on"] .t3h-back svg { scale: -1 1; }
 .t3h-title { display: flex; align-items: center; gap: 1rem; margin-top: 1.2rem; }
-.t3h-title h1 { font-size: 3.2rem; line-height: 1.05; font-weight: 680; letter-spacing: -.035em; overflow-wrap: anywhere; }
-.t3h-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.4rem; }
-.t3h-button { display: inline-flex; align-items: center; gap: .45rem; height: 2.5rem; padding: 0 1.05rem !important; border: 1px solid var(--border) !important; border-radius: var(--radius, .625rem); background: var(--card) !important; font-size: .95rem !important; font-weight: 550 !important; white-space: nowrap; }
-.t3h-button:hover { border-color: color-mix(in srgb, var(--foreground) 35%, var(--border)) !important; }
-.t3h-button.t3h-primary { background: var(--primary) !important; border-color: var(--primary) !important; color: var(--primary-foreground) !important; }
-.t3h-track { max-width: 44rem; margin: 2.2rem 0 .6rem; }
-.t3h-stage { position: relative; display: grid; grid-template-columns: 1.9rem minmax(0, 1fr); column-gap: 1.1rem; padding-bottom: 1.25rem; }
-.t3h-stage:not(:last-child)::before { content: ""; position: absolute; inset-inline-start: calc(.95rem - 1px); top: .9rem; bottom: -.9rem; width: 2px; background: color-mix(in srgb, var(--muted-foreground) 32%, var(--background)); }
-.t3h-empty { padding-bottom: .55rem; }
-.t3h-empty h2 { opacity: .7; }
-.t3h-dot { position: relative; display: grid; justify-items: center; align-content: start; }
-.t3h-dot .t3h-stop { margin: .7rem 0 0; }
-.t3h-stage h2 { font-size: .85rem; line-height: 1.9rem; color: var(--muted-foreground); }
-.t3h-stage .t3h-item + .t3h-item { margin-top: .75rem; }
-.t3h-stage .t3h-text { font-size: 1.08rem !important; line-height: 1.4; }
+.t3h .t3h-title h1 { font-size: 3rem; line-height: 1.05; font-weight: 680; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.t3h-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.4rem 0 1.6rem; }
+.t3h .t3h-button { display: inline-flex; align-items: center; gap: .45rem; height: 2.5rem; padding: 0 1.05rem; border: 1px solid var(--border); border-radius: var(--radius, .625rem); background: var(--card); font-size: .95rem; font-weight: 550; white-space: nowrap; }
+.t3h .t3h-button:hover { border-color: color-mix(in srgb, var(--foreground) 35%, var(--border)); }
+.t3h .t3h-button.t3h-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.t3h .t3h-project .t3h-text { -webkit-line-clamp: none; font-size: 1.05rem; line-height: 1.4; }
+.t3h-project .t3h-mark { height: 1.4em; font-size: 1.05rem; }
 
 @container (max-width: 56rem) {
   .t3h-page { padding-inline: 1.15rem; }
-  .t3h-head, .t3h-row { grid-template-columns: 9.6rem 1fr 1fr 1fr 1fr 4.6rem; column-gap: .5rem; }
-  .t3h-head { font-size: .78rem; }
-  .t3h-head b { font-size: 1.8rem; }
-  .t3h-name { font-size: 1rem !important; gap: .45rem; }
-  .t3h-icon { width: 1.2rem; height: 1.2rem; }
-  .t3h-rail::before { inset-inline-end: 4.9rem; }
-  .t3h-release { font-size: .85rem; }
-  .t3h-sp { position: static; }
-  .t3h-pop { inset-inline: 0; width: auto; max-width: none; }
-  .t3h-title h1 { font-size: 2.3rem; }
+  .t3h .t3h-title h1 { font-size: 2.3rem; }
   .t3h-icon-large { width: 2.3rem; height: 2.3rem; }
 }
-@container (max-width: 36rem) {
-  .t3h-head, .t3h-row { grid-template-columns: 1fr 1fr 1fr 1fr 4.2rem; }
-  .t3h-head > :first-child { display: none; }
-  .t3h-row { row-gap: .3rem; padding: .5rem 0; }
-  .t3h-name, .t3h-rail { grid-column: 1 / -1; }
-  .t3h-rail { min-height: 2.4rem; }
-}
-@media (prefers-reduced-motion: reduce) { .t3h-m.t3h-run::after { display: none; } }
+@media (prefers-reduced-motion: reduce) { .t3h-is-run::after { display: none; } }
 `;
 
-module.exports = { HOME_CSS, homeView };
+module.exports = { homeView, HOME_CSS };

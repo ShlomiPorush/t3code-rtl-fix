@@ -89,9 +89,9 @@ need to open DevTools and paste CSS manually.
 - A thread opens at the start of the agent's last reply, so a long reply
   reads from its first line. See
   [Opening at the last reply](#opening-at-the-last-reply).
-- An optional Home page shows where every project stands, from running agents
-  to the last release, in place of the new thread that T3 Code opens with. See
-  [Home page](docs/home-page.md).
+- An optional Home page shows what is in the middle in every project, with
+  its issues, pull requests, and security alerts, in place of the new thread
+  that T3 Code opens with. See [Home page](docs/home-page.md).
 - T3 Code itself is not patched or repackaged.
 
 ## Right-to-left layout

@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
-const { FRESH_MS, LANES, createHomeGithub, readAnswer, readRequest, stageOf } = require("../src/home-github");
+const { FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
 const { createWorkingShelfService, URL_PATTERN } = require("../src/working-shelf");
 const { createExtrasService } = require("../src/extras");
 const { HOME_CSS, homeView } = require("../src/home-view");
@@ -165,7 +165,7 @@ const pull = (number, login = "someone") => ({
 });
 const repository = (overrides = {}) => ({
   issues: { totalCount: 3 },
-  pullRequests: { pageInfo: { hasNextPage: false }, nodes: [pull(7)] },
+  pullRequests: { totalCount: 1, pageInfo: { hasNextPage: false }, nodes: [pull(7)] },
   latestRelease: { tagName: "v1", publishedAt: "2026-11-23T00:00:00Z", tag: { compare: { aheadBy: 2 } } },
   defaultBranchRef: { target: { statusCheckRollup: { state: "SUCCESS" } } },
   ...overrides,
@@ -177,6 +177,7 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(read.failedField, false);
   assert.equal(read.cut, false);
   assert.equal(read.issues, 3);
+  assert.equal(read.openPulls, 1);
   assert.deepEqual(read.release, { tag: "v1", at: Date.parse("2026-11-23T00:00:00Z"), ahead: 2 });
   assert.equal(read.pulls[0].number, 7);
 
@@ -188,10 +189,26 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(readAnswer(answer(repository({ latestRelease: { tagName: "v1", tag: null } }))).release.ahead, null);
   assert.equal(readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: true }, nodes: [pull(1)] } }))).cut, true);
   const lost = readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: false }, nodes: [pull(1), null] } }), [{ path: ["repository", "pullRequests", "nodes", 1] }]));
-  assert.deepEqual([lost.cut, lost.failedField], [false, true]);
+  assert.deepEqual([lost.cut, lost.failedField], [true, true], "a lost pull request is missing from the list");
+  const none = readAnswer(answer(repository({ pullRequests: null }), [{ path: ["repository", "pullRequests"] }]));
+  assert.deepEqual([none.cut, none.openPulls, none.pulls.length], [true, null, 0]);
   assert.equal(readAnswer(answer(repository({ defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } } }))).mainFails, true);
   assert.equal(readAnswer(answer(null, [{ type: "NOT_FOUND" }])), null);
   assert.equal(readAnswer("<html>"), null);
+});
+
+test("alerts are counted from the sources that answer, and unknown when one failed", () => {
+  const words = (...list) => ({ error: null, stdout: list.map((word) => `${word}\n`).join(""), stderr: "" });
+  const failed = (stderr) => ({ error: new Error("exit 1"), stdout: '{"message":"critical"}', stderr });
+  const off = failed("gh: Dependabot alerts are disabled for this repository. (HTTP 403)");
+  const absent = failed("gh: no analysis found (HTTP 404)");
+  assert.deepEqual(readAlerts([words("critical", "high", "medium", "high"), words("high", "other"), words("secret")]), {
+    total: 7, critical: 1, high: 3, sources: ["Dependabot", "code scanning", "secret scanning"],
+  });
+  assert.deepEqual(readAlerts([words(), absent, off]), { total: 0, critical: 0, high: 0, sources: ["Dependabot"] });
+  assert.equal(readAlerts([off, absent, off]), null);
+  assert.equal(readAlerts([words("high"), failed("gh: API rate limit exceeded for user ID 1. (HTTP 403)"), off]), null);
+  assert.equal(readAlerts([words("high"), off, failed("error connecting to api.github.com")]), null);
 });
 
 test("dependency updates are known by their author alone", () => {
@@ -201,12 +218,18 @@ test("dependency updates are known by their author alone", () => {
   assert.deepEqual(read.pulls.map((item) => item.update), [true, true, true, true, false, false]);
 });
 
-function github({ answers = () => answer(repository()) } = {}) {
+function github({ answers = () => answer(repository()), alerts = () => "" } = {}) {
   const calls = [];
+  const alertCalls = [];
   let time = 1e6;
   let active = 0;
   let most = 0;
   const run = async (file, args) => {
+    if (args.includes("--paginate")) {
+      alertCalls.push(args);
+      await new Promise((resolve) => setImmediate(resolve));
+      return { stdout: alerts(args), stderr: "", error: null };
+    }
     const owner = args.find((arg) => arg.startsWith("owner=")).slice(6);
     const name = args.find((arg) => arg.startsWith("name=")).slice(5);
     calls.push({ file, args, name: `${owner}/${name}` });
@@ -217,10 +240,10 @@ function github({ answers = () => answer(repository()) } = {}) {
     return typeof result === "string" ? { stdout: result, stderr: "", error: null } : result;
   };
   const service = createHomeGithub({ run, now: () => time });
-  return { calls, service, most: () => most, pass: (ms) => (time += ms) };
+  return { calls, alertCalls, service, most: () => most, pass: (ms) => (time += ms) };
 }
 const settle = async () => {
-  for (let i = 0; i < 60; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  for (let i = 0; i < 120; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
 test("a request is answered at once, and again as each repository is read", async () => {
@@ -232,10 +255,36 @@ test("a request is answered at once, and again as each repository is read", asyn
   await settle();
   assert.equal(calls.length, 10);
   assert.equal(most(), LANES);
-  assert.equal(got.length, 11);
+  assert.equal(got.length, 21);
+  assert.ok(got.slice(0, 11).every((facts) => !Object.values(facts.repositories).some((item) => item.alerts)), "pull requests come before alerts");
   assert.equal(got.at(-1).problem, null);
   assert.ok(names.every((name) => got.at(-1).repositories[name].status === "read"));
   assert.ok(calls.every((call) => call.file === "gh" && call.args.join(" ").includes("--hostname github.com")));
+});
+
+test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read do not stay", async () => {
+  let broken = false;
+  const { alertCalls, service, pass } = github({
+    answers: () => (broken ? answer(null) : answer(repository())),
+    alerts: (args) => (args.join(" ").includes("dependabot") ? "critical\nlow\n" : ""),
+  });
+  const read = async () => {
+    const got = [];
+    service.read("a", ["o/one"], (facts) => got.push(facts));
+    await settle();
+    return got.at(-1).repositories["o/one"];
+  };
+  assert.deepEqual((await read()).alerts, { total: 2, critical: 1, high: 0, sources: ["Dependabot", "code scanning", "secret scanning"] });
+  assert.equal(alertCalls.length, 3);
+  assert.ok(alertCalls.every((args) => args.includes("github.com") && args.includes("-q") && args.some((arg) => arg.startsWith("repos/o/one/"))));
+  const secrets = alertCalls.find((args) => args.join(" ").includes("secret-scanning"));
+  assert.ok(secrets.some((arg) => arg.includes("hide_secret=true")));
+  assert.equal(secrets.at(-1), '.[] | "secret"');
+  broken = true;
+  pass(FRESH_MS);
+  const stale = await read();
+  assert.deepEqual([stale.status, stale.stale, stale.alerts], ["read", true, null]);
+  assert.equal(alertCalls.length, 3);
 });
 
 test("facts are read again only when they are old, for every window together, failures included", async () => {
@@ -331,13 +380,18 @@ test("a list of many repositories fits, and other messages keep their small limi
 
 // Just enough of React to render the component to text: state keeps its first
 // value, and effects do not run.
-function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false } = {}) {
+function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [] } = {}) {
   const calls = [];
   const React = {
     Component: class { constructor(props) { this.props = props; } },
+    Fragment: ({ children }) => children,
     createElement: (type, props, ...children) => ({ type, props: { ...props, ...(children.length ? { children: children.length > 1 ? children : children[0] } : {}) } }),
-    useState: (first) => [typeof first === "function" ? first() : first ?? github, () => {}],
+    useState: (first) => {
+      const value = typeof first === "function" ? first() : first ?? github;
+      return [value instanceof Set ? new Set(opened) : value, () => {}];
+    },
     useEffect() {},
+    useLayoutEffect() {},
     useRef: (current) => ({ current }),
     useCallback: (fn) => fn,
     useSyncExternalStore: (subscribe, read) => read(),
@@ -361,6 +415,7 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
   });
   const buttons = [];
   const links = [];
+  const classes = [];
   const text = (node) => {
     if (node == null || node === false || node === true) return "";
     if (Array.isArray(node)) return node.map(text).join("");
@@ -377,28 +432,38 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
       }
     }
     const inner = text(props.children);
+    if (props.className) classes.push([props.className, inner]);
     if (type === "button") buttons.push({ name: inner || props["aria-label"], label: props["aria-label"], click: props.onClick });
-    if (type === "a") links.push({ name: inner, href: props.href });
-    return inner + (type === "span" ? "" : "\n");
+    if (type === "a") links.push({ name: inner, label: props["aria-label"], href: props.href });
+    return inner + (type === "i" ? "" : "\n");
   };
-  const shown = text(React.createElement(Home, { native: () => "T3 Code's own page" }));
-  return { shown, buttons, links, calls };
+  const shown = text(React.createElement(Home, { native: () => "T3 Code's own page" })).replace(/\n+/g, "\n");
+  const having = (name) => classes.filter(([className]) => className.split(" ").includes(name)).map(([, inner]) => inner.replace(/\n+/g, "\n").trim());
+  return { shown, buttons, links, calls, having, cards: having("t3h-card"), tiles: having("t3h-tile") };
 }
 
-const project = (id, repository, environmentId = "local") => ({
-  id, environmentId, title: id, archivedAt: null, ...(repository ? { repositoryIdentity: { canonicalKey: `github.com/${repository}` } } : {}),
+const HOUR = 60 * 60 * 1000;
+const before = (hours) => new Date(Date.now() - hours * HOUR).toISOString();
+const project = (id, repository, overrides = {}) => ({
+  id, environmentId: "local", title: id, archivedAt: null, pinnedAt: null,
+  ...(repository ? { repositoryIdentity: { canonicalKey: `github.com/${repository}` } } : {}), ...overrides,
 });
 const thread = (overrides = {}) => ({
-  id: "t1", environmentId: "local", projectId: "app", title: "A thread", updatedAt: "2026-11-24T10:00:00Z", archivedAt: null,
-  runtime: { status: "running" }, lineage: { relationshipToParent: null }, hasPendingApprovals: false, hasPendingUserInput: false, ...overrides,
+  id: "t1", environmentId: "local", projectId: "app", title: "A thread", createdAt: before(2), archivedAt: null, settledOverride: null,
+  runtime: null, latestRun: null, lineage: { relationshipToParent: null }, hasPendingApprovals: false, hasPendingUserInput: false, pullRequests: [], ...overrides,
 });
-const facts = (overrides = {}) => ({ status: "read", readAt: 1, stale: false, pulls: [], issues: 0, release: null, mainFails: false, failedField: false, cut: false, ...overrides });
+const running = { runtime: { status: "running", activityStartedAt: before(1) } };
+const facts = (overrides = {}) => ({
+  status: "read", readAt: 1, stale: false, pulls: [], issues: 0, openPulls: 0, alerts: null, release: null, mainFails: false, failedField: false, cut: false, ...overrides,
+});
+const pullFact = (number, overrides = {}) => ({ number, title: `Pull ${number}`, at: Date.now(), stage: "ready", tone: "ok", note: "", update: false, ...overrides });
+const answered = (repositories) => ({ problem: null, repositories });
 
 test("T3 Code's own page shows only with no projects after they all loaded, and when Home fails", () => {
   assert.equal(renderHome({ bootstrapped: false }).shown, "");
   assert.equal(renderHome({ bootstrapped: true }).shown, "T3 Code's own page");
-  assert.equal(renderHome({ projects: [{ ...project("old"), archivedAt: "2026-01-01" }] }).shown, "T3 Code's own page");
-  assert.match(renderHome({ projects: [project("app")], bootstrapped: false }).shown, /Not on GitHub/);
+  assert.equal(renderHome({ projects: [project("old", null, { archivedAt: "2026-01-01" })] }).shown, "T3 Code's own page");
+  assert.match(renderHome({ projects: [project("app")], bootstrapped: false }).shown, /No open work\n1 project\nAP\napp/);
   const silenced = console.error;
   console.error = () => {};
   try {
@@ -408,78 +473,154 @@ test("T3 Code's own page shows only with no projects after they all loaded, and 
   }
 });
 
-test("an agent counts as working only while it runs, in a connected computer, and not as a part of another thread", () => {
-  const working = (overrides, connected) =>
-    renderHome({ projects: [project("app")], threads: [thread(overrides)], connected }).buttons.some((button) => button.label === "app: 1 agent working");
-  for (const status of ["preparing", "starting", "running"]) assert.equal(working({ runtime: { status } }), true, status);
-  for (const status of ["waiting", "idle", "completed", "failed"]) assert.equal(working({ runtime: { status } }), false, status);
-  assert.equal(working({ runtime: null }), false);
-  assert.equal(working({ hasPendingUserInput: true }), false);
-  assert.equal(working({ hasPendingApprovals: true }), false);
-  assert.equal(working({ pendingSubagentRequest: "approval" }), false);
-  assert.equal(working({ archivedAt: "2026-01-01" }), false);
-  assert.equal(working({ lineage: { relationshipToParent: "subagent" } }), false);
-  assert.equal(working({ lineage: { relationshipToParent: null, sideChat: true } }), false);
-  assert.equal(working({ lineage: { relationshipToParent: "fork" } }), true);
-  assert.equal(working({}, []), false);
+test("a thread is open work until it is settled, archived, or snoozed, and never as a part of another thread", () => {
+  const open = (overrides) => renderHome({ projects: [project("app")], threads: [thread(overrides)] }).cards.length === 1;
+  assert.equal(open({}), true);
+  assert.equal(open({ settledOverride: "active" }), true);
+  assert.equal(open({ lineage: { relationshipToParent: "fork" } }), true);
+  assert.equal(open({ settledOverride: "settled" }), false);
+  assert.equal(open({ archivedAt: before(1) }), false);
+  assert.equal(open({ lineage: { relationshipToParent: "subagent" } }), false);
+  assert.equal(open({ lineage: { relationshipToParent: null, sideChat: true } }), false);
 });
 
-test("a project whose release or comparison is unknown is read in part, not nothing open", () => {
-  for (const unknown of [facts({ failedField: true, release: undefined }), facts({ release: { tag: "v1", at: 1, ahead: null } })]) {
-    const { shown } = renderHome({ projects: [project("app", "o/app")], github: { problem: null, repositories: { "o/app": unknown } } });
-    assert.match(shown, /Read in part(AP)?\s*app/);
-    assert.doesNotMatch(shown, /Nothing/);
+test("a snoozed thread comes back at its time, or when something new needs its owner", () => {
+  const open = (overrides) =>
+    renderHome({ projects: [project("app")], threads: [thread({ snoozedUntil: before(-5), snoozedAt: before(5), ...overrides })] }).cards.length === 1;
+  assert.equal(open({}), false);
+  assert.equal(open({ snoozedUntil: before(1) }), true);
+  assert.equal(open(running), false);
+  assert.equal(open({ hasPendingUserInput: true, pendingUserInputAt: before(6) }), false);
+  assert.equal(open({ hasPendingUserInput: true, pendingUserInputAt: before(1) }), true);
+  assert.equal(open({ hasPendingUserInput: true, pendingUserInputAt: before(6), snoozedAt: null }), true);
+  assert.equal(open({ hasPendingApprovals: true }), true);
+  assert.equal(open({ pendingSubagentRequest: "approval" }), true);
+  assert.equal(open({ pendingGuestMessageCount: 1 }), true);
+  assert.equal(open({ source: { pendingRuntimeRequest: { kind: "auth_refresh" } } }), true);
+  assert.equal(open({ runtime: { status: "failed", updatedAt: before(9) }, latestRun: { status: "failed", completedAt: before(9) } }), false);
+  assert.equal(open({ runtime: { status: "failed", updatedAt: before(1) }, latestRun: { status: "failed", completedAt: before(1) } }), true);
+});
+
+test("a card says what its agent does, and a computer that is not connected has no working agent", () => {
+  const card = (overrides, connected) => renderHome({ projects: [project("app")], threads: [thread(overrides)], connected }).cards[0];
+  for (const status of ["preparing", "queued", "starting", "running", "waiting"]) {
+    assert.match(card({ runtime: { status, activityStartedAt: before(1) } }), /Working, 60m|Working, 1h/, status);
   }
-  const item = { number: 1, title: "Pull 1", at: 1, stage: "open", tone: "", note: "", update: false };
-  const row = facts({ pulls: [item], release: { tag: "v1", at: 1, ahead: null } });
-  const active = renderHome({ projects: [project("app", "o/app")], github: { problem: null, repositories: { "o/app": row } } }).shown;
-  assert.match(active, /v1.*\nRead in part/s);
-  assert.doesNotMatch(active, /\+/, "a field that failed does not cut the list");
-  const absent = { problem: null, repositories: { "o/app": facts() } };
-  assert.match(renderHome({ projects: [project("app", "o/app")], github: absent }).shown, /Nothing open/);
+  for (const status of ["completed", "failed", "interrupted", "idle"]) assert.doesNotMatch(card({ runtime: { status } }), /Working/, status);
+  assert.match(card({ runtime: { status: "idle" }, pendingBackgroundTasks: [{}] }), /Working/);
+  assert.doesNotMatch(card(running, []), /Working/);
+  for (const waits of [{ hasPendingUserInput: true }, { hasPendingApprovals: true }, { pendingSubagentRequest: "approval" }]) {
+    assert.match(card({ ...running, ...waits }), /Waiting for you/);
+    assert.doesNotMatch(card({ ...running, ...waits }), /Working/);
+  }
+  assert.match(card({ latestRun: { status: "failed", completedAt: before(1) } }), /Stopped on an error/);
+  const done = { latestRun: { status: "completed", completedAt: before(1) } };
+  assert.match(card({ ...done, lastVisitedAt: before(2) }), /Finished, not read yet/);
+  assert.doesNotMatch(card({ ...done, lastVisitedAt: before(0.5) }), /Finished/);
+  assert.doesNotMatch(card(done), /Finished/);
+  assert.doesNotMatch(card({ latestRun: { status: "interrupted", completedAt: before(1) }, lastVisitedAt: before(2) }), /Finished/);
 });
 
-test("a project is nothing open only when GitHub was read, and otherwise says what is known", () => {
-  const projects = [project("read", "o/read"), project("waiting", "o/waiting"), project("failed", "o/failed"), project("local")];
-  const github = { problem: null, repositories: { "o/read": facts(), "o/waiting": { status: "waiting" }, "o/failed": { status: "unavailable" } } };
+test("pinned projects come first, then working ones, then the latest, and a pinned one always has a card", () => {
+  const projects = [project("quiet"), project("new"), project("works"), project("pinned", null, { pinnedAt: before(1) }), project("old")];
+  const threads = [
+    thread({ id: "1", projectId: "old", createdAt: before(90) }),
+    thread({ id: "2", projectId: "new", createdAt: before(1) }),
+    thread({ id: "3", projectId: "works", createdAt: before(50), ...running }),
+  ];
+  const { cards, tiles } = renderHome({ projects, threads });
+  assert.deepEqual(cards.map((card) => /(quiet|new|works|pinned|old)/.exec(card)[1]), ["pinned", "works", "new", "old"]);
+  assert.equal(tiles.length, 1);
+});
+
+test("a pull request is on the row of the thread it is linked to, and otherwise has its own row", () => {
+  const link = (number, overrides = {}) => ({ host: "github.com", repository: "O/App", number, snapshot: { state: "open" }, ...overrides });
+  const pulls = [pullFact(1), pullFact(2, { stage: "open", tone: "warn", note: "conflicts" }), pullFact(3, { update: true })];
+  const threads = [thread({ pullRequests: [link(1), link(8), link(9, { snapshot: { state: "merged" } }), link(2, { repository: "o/other" })] })];
+  const projects = [project("app", "o/app")];
+  const page = renderHome({ projects, threads, github: answered({ "o/app": facts({ pulls, openPulls: 3 }) }) });
+  const rows = page.having("t3h-row");
+  assert.match(rows[0], /^A thread\n2h\n#1 ready to merge\n#8 open$/);
+  assert.match(rows[1], /^Pull 2\n1m\n#2 conflicts$/);
+  assert.equal(rows.length, 2, "dependency updates have no row");
+  assert.ok(page.links.some((item) => item.name.trim() === "#1 ready to merge" && item.href === "https://github.com/o/app/pull/1"));
+  assert.match(renderHome({ projects, threads }).having("t3h-row")[0], /#1 open/);
+});
+
+test("rows past the fifth are behind a button, and threads left long ago come last", () => {
+  const threads = Array.from({ length: 8 }, (_, index) => thread({ id: `t${index}`, title: `Thread ${index}`, createdAt: before(index === 0 ? 24 * 20 : index) }));
+  const closed = renderHome({ projects: [project("app")], threads });
+  assert.deepEqual(closed.having("t3h-row").map((row) => row.split("\n")[0]), [1, 2, 3, 4, 5].map((number) => `Thread ${number}`));
+  assert.ok(closed.buttons.some((button) => button.label === "3 more in app"));
+  const open = renderHome({ projects: [project("app")], threads, opened: ["local:app"] });
+  assert.equal(open.having("t3h-row").length, 8);
+  assert.deepEqual(open.having("t3h-old").map((row) => row.split("\n")[0]), ["Thread 0"]);
+  assert.equal(renderHome({ projects: [project("app")], threads: threads.slice(0, 6) }).having("t3h-row").length, 6);
+});
+
+test("a card counts issues, pull requests, and alerts, and leaves out what GitHub did not give", () => {
+  const counts = (overrides) => renderHome({
+    projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }),
+  }).links.filter((item) => item.label).map((item) => [item.label, item.name.trim(), item.href.slice(24)]);
+  const alerts = (total, critical, high) => ({ total, critical, high, sources: ["Dependabot"] });
+  assert.deepEqual(counts({ issues: 2, openPulls: 3, pulls: [pullFact(1), pullFact(2, { update: true })], alerts: alerts(45, 4, 11) }), [
+    ["2 issues", "2", "/issues"],
+    ["3 pull requests, 1 update", "3, 1 update", "/pulls"],
+    ["45 security alerts in Dependabot, 4 critical", "45, 4 critical", "/security"],
+  ]);
+  assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[1]), ["0", "2 updates", "1 high"]);
+  assert.deepEqual(counts({ alerts: alerts(0, 0, 0) }).map((item) => item[0]), ["0 issues", "0 pull requests", "0 security alerts in Dependabot"]);
+  assert.deepEqual(counts({ issues: null, openPulls: null }), []);
+  assert.deepEqual(counts({ openPulls: 40, cut: true, pulls: [pullFact(1, { update: true })] })[1][1], "40", "a part of the list does not count the updates");
+});
+
+test("a project has no open work only when its pull requests were read, and otherwise says why not", () => {
+  const projects = ["read", "cut", "waiting", "failed"].map((id) => project(id, `o/${id}`)).concat(project("local"));
+  const github = answered({ "o/read": facts(), "o/cut": facts({ cut: true }), "o/waiting": { status: "waiting" }, "o/failed": { status: "unavailable" } });
   const { shown } = renderHome({ projects, github });
-  assert.match(shown, /Nothing open(RE)?\s*read/);
-  assert.match(shown, /Reading GitHub(WA)?\s*waiting/);
-  assert.match(shown, /GitHub is not available(FA)?\s*failed/);
-  assert.match(shown, /Not on GitHub(LO)?\s*local/);
-  assert.doesNotMatch(shown, /Nothing is open\./);
-  assert.match(renderHome({ projects: [project("read", "o/read")], github }).shown, /Nothing is open\./);
+  const [known, unknown] = shown.split("GitHub is not read");
+  assert.match(known, /No open work\n2 projects/);
+  assert.match(known, /read[\s\S]*local/);
+  assert.match(unknown, /cut[\s\S]*waiting\nReading GitHub…[\s\S]*failed\nGitHub is not available/);
+  assert.doesNotMatch(shown, /Nothing is in the middle/);
+  assert.match(renderHome({ projects: [project("read", "o/read")], github }).shown, /Nothing is in the middle/);
+  const update = answered({ "o/read": facts({ pulls: [pullFact(1, { update: true })], openPulls: 1 }) });
+  assert.equal(renderHome({ projects: [project("read", "o/read")], github: update }).tiles.length, 1, "updates alone are not open work");
 });
 
-test("totals leave dependency updates out, and say when a list is cut", () => {
-  const item = (number, stage, tone, update = false) => ({ number, title: `Pull ${number}`, at: 1, stage, tone, note: "", update });
-  const pulls = [item(1, "ready", "ok"), item(2, "ready", "ok", true), item(3, "open", "bad"), item(4, "open", "warn", true)];
-  const github = { problem: null, repositories: { "o/app": facts({ pulls, release: { tag: "v1", at: 1, ahead: 5 } }) } };
-  const { shown, buttons, links } = renderHome({ projects: [project("app", "o/app")], github });
-  assert.match(shown, /0\nWorking\n1\nPull request\n1\nReady to merge\n5\nNot released/);
-  assert.ok(buttons.some((button) => button.label === "app: 1 pull request, 1 dependency update"));
-  assert.ok(links.some((link) => link.name === "Pull 1" && link.href === "https://github.com/o/app/pull/1"));
-  const cut = { problem: null, repositories: { "o/app": facts({ pulls: pulls.slice(2), cut: true }) } };
-  assert.match(renderHome({ projects: [project("app", "o/app")], github: cut }).shown, /1\+\nPull request\n0\+\nReady to merge\n0\nNot released/);
+test("a card tells a release without new commits, with new commits, and one that could not be compared", () => {
+  const card = (overrides) => renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }) }).cards[0];
+  const at = Date.now() - 3 * HOUR;
+  assert.match(card({ release: { tag: "v1", at, ahead: 0 } }), /v1\n, 3h ago/);
+  assert.match(card({ release: { tag: "v1", at, ahead: 1 } }), /v1\n, 1 commit since/);
+  assert.match(card({ release: { tag: "v1", at, ahead: null } }), /Read in part/);
+  assert.match(card({ failedField: true }), /Read in part/);
+  assert.match(card({ mainFails: true }), /The default branch fails its checks/);
 });
 
-test("projects of one repository are one row, whose new thread starts in the project used last", () => {
-  const projects = [project("here", "o/app"), project("there", "O/App", "remote")];
-  const threads = [thread({ projectId: "here" }), thread({ id: "t2", environmentId: "remote", projectId: "there", updatedAt: "2026-11-24T11:00:00Z" })];
-  const map = renderHome({ projects, threads, connected: ["local", "remote"] });
-  assert.ok(map.buttons.some((button) => button.label === "there: 2 agents working"));
-  const page = renderHome({ projects, threads, connected: ["local", "remote"], search: { project: "o/app" } });
-  page.buttons.find((button) => /New thread/.test(button.name)).click();
-  assert.deepEqual(page.calls.at(-1), ["new", { environmentId: "remote", projectId: "there" }]);
-  const offline = renderHome({ projects, threads, connected: ["local"], search: { project: "o/app" } });
-  offline.buttons.find((button) => /New thread/.test(button.name)).click();
-  assert.deepEqual(offline.calls.at(-1), ["new", { environmentId: "local", projectId: "here" }], "a connected computer comes first");
+test("projects of one repository are one card, whose new thread starts in the project used last", () => {
+  const projects = [project("here", "o/app"), project("there", "O/App", { environmentId: "remote" })];
+  const threads = [thread({ projectId: "here", createdAt: before(5) }), thread({ id: "t2", environmentId: "remote", projectId: "there", createdAt: before(1) })];
+  const start = (connected) => {
+    const page = renderHome({ projects, threads, connected });
+    assert.equal(page.cards.length, 1);
+    assert.equal(page.having("t3h-row").length, 2);
+    page.buttons.find((button) => /^New thread in/.test(button.label)).click();
+    return page.calls.at(-1);
+  };
+  assert.deepEqual(start(["local", "remote"]), ["new", { environmentId: "remote", projectId: "there" }]);
+  assert.deepEqual(start(["local"]), ["new", { environmentId: "local", projectId: "here" }], "a connected computer comes first");
+});
+
+test("a project's page shows every row with the dependency updates, and Home leaves it", () => {
+  const threads = Array.from({ length: 8 }, (_, index) => thread({ id: `t${index}`, title: `Thread ${index}` }));
+  const github = answered({ "o/app": facts({ pulls: [pullFact(3, { update: true })], openPulls: 1 }) });
+  const page = renderHome({ projects: [project("app", "o/app")], threads, github, search: { project: "o/app" } });
+  assert.equal(page.having("t3h-row").length, 9);
+  assert.match(page.shown, /Dependency updates\nPull 3/);
   page.buttons.find((button) => /Home/.test(button.name)).click();
   assert.deepEqual(page.calls.at(-1), ["go", { to: "/" }]);
-});
-
-test("a chosen project that is gone shows the map", () => {
-  assert.match(renderHome({ projects: [project("app")], search: { project: "o/gone" } }).shown, /Not on GitHub/);
+  assert.match(renderHome({ projects: [project("app")], search: { project: "o/gone" } }).shown, /No open work/);
 });
 
 test("the page's styles stay inside the page", () => {
