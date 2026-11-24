@@ -58,7 +58,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="rail" class="rail box"></div>
   <div id="placed" class="rail box" style="left: 10px;"><div id="placed-child" class="rail box"></div><div id="placed-handle" style="left: 0; position: relative; cursor: ew-resize; width: 20px; height: 20px;"><span id="placed-grip">|</span></div><div id="inner-handle" style="cursor: ew-resize; width: 20px; height: 20px;"></div></div>
   <div id="handle" style="cursor: col-resize; width: 20px; height: 20px;"></div>
-  <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span></div></div>
+  <div id="card" dir="auto"><div id="card-title" dir="ltr">English title</div><div style="display: flex;"><svg width="10" height="10"></svg><span id="card-text">proj</span><div id="card-rail" class="rail box"></div></div></div>
   <span id="plain-auto" dir="auto">English title</span>
   <div data-citation-comment-editor="true"><textarea id="comment" dir="auto" placeholder="Add an optional comment..."></textarea></div>
 </div>
@@ -205,6 +205,7 @@ async function run(port) {
       rail: s("rail").translate,
       placed: s("placed").translate,
       placedChild: s("placed-child").translate,
+      cardRail: s("card-rail").translate,
       font: s("var-short").fontFamily,
       cardDir: s("card").direction,
       cardTitleAlign: s("card-title").textAlign,
@@ -260,6 +261,8 @@ async function run(port) {
   check(on.placed.startsWith("-50%"), `An element placed by script moved the other way: ${on.placed}`);
   check(on.placedChild.startsWith("50%"), `A box inside a placed element did not follow its direction: ${on.placedChild}`);
   check(on.copies === 2 && on.disabled === 2, `Expected two copies and two sheets off: ${JSON.stringify(on)}`);
+  check(on.cardRail.startsWith("50%"), `A box in a hover card moved the wrong way: ${on.cardRail}`);
+
   // T3 Code writes the style of the conversation as it scrolls and streams, so
   // such a write must not restyle everything inside it.
   const restyled = await restyledBy(sessionId, `(() => {

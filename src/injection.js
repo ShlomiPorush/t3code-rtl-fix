@@ -699,10 +699,11 @@ function buildInjectionSource(css) {
       if (element?.isConnected) changed.add(element);
     }
     const elements = outermost(changed);
+    const rootsOf = () => elements.map((element) => element.closest(directionRootSelector) ?? element);
+    const roots = outermost(new Set(rootsOf()));
     // A mark makes its element a direction root, so every mark comes first.
-    for (const element of elements) markRoots(element);
-    const roots = new Set(elements.map((element) => element.closest(directionRootSelector) ?? element));
-    for (const root of outermost(roots)) applyDirections(root);
+    for (const root of roots) markRoots(root);
+    for (const root of outermost(new Set([...roots, ...rootsOf()]))) applyDirections(root);
   };
 
   const start = () => {
