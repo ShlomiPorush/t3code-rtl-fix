@@ -165,7 +165,7 @@ const pull = (number, login = "someone") => ({
 });
 const repository = (overrides = {}) => ({
   issues: { totalCount: 3 },
-  pullRequests: { totalCount: 1, nodes: [pull(7)] },
+  pullRequests: { pageInfo: { hasNextPage: false }, nodes: [pull(7)] },
   latestRelease: { tagName: "v1", publishedAt: "2026-11-23T00:00:00Z", tag: { compare: { aheadBy: 2 } } },
   defaultBranchRef: { target: { statusCheckRollup: { state: "SUCCESS" } } },
   ...overrides,
@@ -186,7 +186,9 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(failed.failedField, true);
   assert.equal(failed.cut, false);
   assert.equal(readAnswer(answer(repository({ latestRelease: { tagName: "v1", tag: null } }))).release.ahead, null);
-  assert.equal(readAnswer(answer(repository({ pullRequests: { totalCount: 9, nodes: [pull(1)] } }))).cut, true);
+  assert.equal(readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: true }, nodes: [pull(1)] } }))).cut, true);
+  const lost = readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: false }, nodes: [pull(1), null] } }), [{ path: ["repository", "pullRequests", "nodes", 1] }]));
+  assert.deepEqual([lost.cut, lost.failedField], [false, true]);
   assert.equal(readAnswer(answer(repository({ defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } } }))).mainFails, true);
   assert.equal(readAnswer(answer(null, [{ type: "NOT_FOUND" }])), null);
   assert.equal(readAnswer("<html>"), null);
@@ -195,7 +197,7 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
 test("dependency updates are known by their author alone", () => {
   const logins = ["dependabot", "dependabot[bot]", "renovate", "renovate[bot]", "t3-code-bot", "github-actions"];
   const nodes = logins.map((login, index) => pull(index + 1, login));
-  const read = readAnswer(answer(repository({ pullRequests: { totalCount: nodes.length, nodes } })));
+  const read = readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: false }, nodes } })));
   assert.deepEqual(read.pulls.map((item) => item.update), [true, true, true, true, false, false]);
 });
 

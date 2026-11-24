@@ -18,7 +18,7 @@ const QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN) { totalCount }
     pullRequests(states: OPEN, first: ${PULLS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
-      totalCount
+      pageInfo { hasNextPage }
       nodes {
         number title isDraft updatedAt mergeable mergeStateStatus
         author { login }
@@ -75,14 +75,13 @@ function readRelease(release, failedField) {
 
 function readRepository(node, failedField) {
   const pulls = (node.pullRequests?.nodes || []).map(readPull).filter(Boolean);
-  const total = node.pullRequests?.totalCount;
   return {
     pulls,
     issues: Number.isInteger(node.issues?.totalCount) ? node.issues.totalCount : null,
     release: readRelease(node.latestRelease, failedField),
     mainFails: isFailure(node.defaultBranchRef?.target?.statusCheckRollup?.state),
     failedField,
-    cut: total > pulls.length,
+    cut: node.pullRequests?.pageInfo?.hasNextPage === true,
   };
 }
 
