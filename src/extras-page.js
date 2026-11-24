@@ -876,6 +876,20 @@ function pageMain(config) {
         change({ type: "set", key: "boringWorkingShelf", value: value });
       }),
     ));
+    card.appendChild(settingRow(
+      "Done section in the boring sidebar",
+      "Show threads that finished and that you have not opened since in a Done section, below Working and above Pinned. A change reloads the window. Running sessions keep running.",
+      sw(settings.boringDoneShelf === true, locked, "Done section in the boring sidebar", function (value) {
+        change({ type: "set", key: "boringDoneShelf", value: value });
+      }),
+    ));
+    card.appendChild(settingRow(
+      "Plain pinned threads in the boring sidebar",
+      "Show pinned threads as rows, like the threads in the project folders, instead of cards. A change reloads the window. Running sessions keep running.",
+      sw(settings.boringPlainPinned === true, locked, "Plain pinned threads in the boring sidebar", function (value) {
+        change({ type: "set", key: "boringPlainPinned", value: value });
+      }),
+    ));
     if (state.update) card.appendChild(updateRow());
     var message = errorText();
     if (message) {

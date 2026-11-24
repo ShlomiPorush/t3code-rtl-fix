@@ -75,23 +75,28 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`Opening threads at the start of the last reply is off: ${error.message}`);
   }
 
-  let boringWorkingShelf = initialSettings.boringWorkingShelf === true;
+  const sectionsOf = (settings) => ({
+    working: settings.boringWorkingShelf === true,
+    done: settings.boringDoneShelf === true,
+    pinned: settings.boringPlainPinned === true,
+  });
+  let sidebarSections = sectionsOf(initialSettings);
   let workingShelf = null;
   let workingShelfWatch = null;
   try {
     const { createWorkingShelfService } = require("./working-shelf");
     workingShelf = createWorkingShelfService({
       send: (...args) => send(...args),
-      isEnabled: () => boringWorkingShelf,
+      sections: () => sidebarSections,
       log,
     });
   } catch (error) {
-    log(`The Working section in the boring sidebar is off: ${error.message}`);
+    log(`The changes to the boring sidebar are off: ${error.message}`);
   }
 
-  // Never turned off, so a request paused while the switch turns off is still answered.
+  // Never turned off, so a request paused while a switch turns off is still answered.
   function watchWorkingShelf() {
-    if (!workingShelf || !boringWorkingShelf) return Promise.resolve(false);
+    if (!workingShelf || !Object.values(sidebarSections).includes(true)) return Promise.resolve(false);
     if (!workingShelfWatch) {
       workingShelfWatch = workingShelf.enable().then((watching) => {
         if (!watching) workingShelfWatch = null;
@@ -101,13 +106,14 @@ function prepareCore({ send, log, rootDirectory }) {
     return workingShelfWatch;
   }
 
-  async function switchWorkingShelf(next) {
-    if (next === boringWorkingShelf) return;
-    boringWorkingShelf = next;
-    const watching = next ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
+  async function switchSidebarSections(next) {
+    if (Object.keys(next).every((name) => next[name] === sidebarSections[name])) return;
+    sidebarSections = next;
+    const watching = Object.values(next).includes(true) ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
     if (!watching) return;
     const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
-    log(`Working section in the boring sidebar turned ${next ? "on" : "off"}, ${reloaded} windows reloaded`);
+    const state = (on) => (on ? "on" : "off");
+    log(`Boring sidebar: Working ${state(next.working)}, Done ${state(next.done)}, plain pinned ${state(next.pinned)}, ${reloaded} windows reloaded`);
   }
 
   let repoStatus = null;
@@ -158,7 +164,7 @@ function prepareCore({ send, log, rootDirectory }) {
         rtlLayout = nextLayout;
         for (const sessionId of layoutSessions) void switchLayout(sessionId);
       }
-      void switchWorkingShelf(settings.boringWorkingShelf === true);
+      void switchSidebarSections(sectionsOf(settings));
       const nextWidth = settings.chatWidth ?? null;
       if (nextWidth !== chatWidth) {
         chatWidth = nextWidth;
@@ -285,7 +291,7 @@ function prepareCore({ send, log, rootDirectory }) {
       });
       const sessionId = attached.sessionId;
       sessionsByTarget.set(targetId, sessionId);
-      // Before the later awaits, so a Working switch change from here on reloads this window too.
+      // Before the later awaits, so a change of the sidebar sections from here on reloads this window too.
       if (isPage && isRegularT3Page(targetInfo)) appPages.set(targetId, sessionId);
 
       if (!isPage) {

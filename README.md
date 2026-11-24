@@ -287,8 +287,8 @@ when the boring sidebar (Labs > Boring sidebar, group by project) is on. Turn
 on **Working section in the boring sidebar** in the Extras section to have it
 there too:
 
-- A thread that is working leaves its project folder for the Working section,
-  and returns to its folder when it is done or needs you.
+- A thread that is working leaves its project folder for the Working section
+  until it is done or needs you.
 - The Working section sits at the top of the sidebar, above Pinned. New thread
   drafts stay above it. Snoozed and Settled stay at the bottom.
 - Threads in the Working section are plain rows, like the rows in the project
@@ -335,8 +335,8 @@ the fix:
 - **RTL Fix** shows the installed version, checks for a newer one, and installs
   it. See [Updates from T3 Code](#updates-from-t3-code).
 
-Changes apply at once, without a restart. A change of the Working section in
-the boring sidebar reloads T3 Code's windows. They are saved in `settings.json`
+Changes apply at once, without a restart. A change of a boring sidebar
+switch reloads T3 Code's windows. They are saved in `settings.json`
 in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
@@ -538,7 +538,7 @@ repairs the shortcuts and shows the message once. It only touches shortcuts
 that the installer of the fix changed, so the uninstaller still restores all
 of them.
 
-When the Working section in the boring sidebar is on, the launcher asks
+When a boring sidebar switch is on, the launcher asks
 Chromium to pause the response for T3 Code's main script,
 `t3code://app/assets/main-*.js`, before the first window loads. It changes the
 sidebar code in that response only when every place it changes is found
@@ -606,8 +606,9 @@ assets/    The project icon
   then stop showing until the fix is updated.
 - The usage chips and the Extras section are not added to T3 Code's
   development build.
-- The Working section in the boring sidebar depends on how T3 Code's sidebar
-  code is written. A T3 Code update can turn it off until the fix is updated.
+- The changes to the boring sidebar depend on how T3 Code's sidebar code is
+  written. A T3 Code update can turn them off until the fix is
+  updated.
 - In the right-to-left layout, a new window can show T3 Code's own layout for
   a moment when T3 Code first opens, before the fix reaches it.
 - The first installation, and the first update to a version with updates
@@ -632,8 +633,8 @@ separate regression test performs a complete installation and removal under
 Windows PowerShell 5.1. The unit tests also verify that no TCP debugging port is
 enabled and that shipped user-facing text contains no Hebrew.
 
-To check that the Working section in the boring sidebar still recognizes the
-T3 Code installed on this machine, run:
+To check that the changes to the boring sidebar still recognize the T3 Code
+installed on this machine, run:
 
 ```powershell
 $env:T3_CHECK_INSTALLED = "1"; node --test tests/working-shelf.test.js
