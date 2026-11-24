@@ -357,6 +357,7 @@ const DONE_FIXTURE = [
 ].join("\n");
 const DONE = { working: false, done: true };
 const BOTH = { working: true, done: true };
+const PINNED = { working: false, done: false, pinned: true };
 
 // Renders the sidebar of threads in one project folder, as T3 Code does.
 function doneSidebar(sections, source = DONE_FIXTURE) {
@@ -472,7 +473,25 @@ test("Done rows look like folder rows, with their project's icon and the Done he
     assert.deepEqual(icon.children, { project: "P", className: "size-4" });
     assert.doesNotMatch(row.className, /ps-9/);
   }
-  assert.match(patchSidebarChunk(DONE_FIXTURE, DONE).source, /navigationParent:n\?\?\(t===`done`\|\|t===`working`/);
+  assert.equal(doneSidebar(DONE, DONE_FIXTURE.replace("jsx:(c,p)=>p.variant", "jsx:(c,p)=>p.navigationParent")).show([ended("a", "01")]).look({}, "done"), "shelf:done");
+});
+
+test("with project folders, pinned rows look like folder rows with their icon when their switch is on; otherwise as T3 Code has them", () => {
+  const original = load(FIXTURE);
+  const parents = (source) => load(source.replace("jsx:(c,p)=>p.variant", "jsx:(c,p)=>p.navigationParent"));
+  const { source } = patchSidebarChunk(FIXTURE, PINNED);
+  assert.equal(load(source).look([], "pinned"), "folder");
+  assert.equal(parents(source).look([], "pinned"), "shelf:pinned");
+  assert.equal(load(source).look(null, "pinned"), "card");
+  assert.equal(parents(source).look(null, "pinned"), undefined);
+  assert.equal(load(patchSidebarChunk(FIXTURE, WORKING).source).look([], "pinned"), "card");
+  for (const section of ["active", "snoozed", "settled"]) {
+    assert.equal(load(source).look([], section, section === "active"), original.look([], section, section === "active"), section);
+  }
+  const { icon, row } = load(source).rowLook([], "folder", { navigationParent: "shelf:pinned", isActive: false, project: "P" }, "settle");
+  assert.deepEqual(icon.children, { project: "P", className: "size-4" });
+  assert.doesNotMatch(row.className, /ps-9/);
+  assert.ok(source.includes("f=dp(DK)&&u===null,"), "Working stays as T3 Code has it");
 });
 
 test("without project folders there is no Done section, and a section that is off changes nothing of its own", () => {
@@ -560,7 +579,7 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   if (!asarPath) return t.skip("T3 Code is not installed here");
   const chunk = readInstalledMainChunks(asarPath).find((item) => item.source.includes("sidebarWorkingShelfEnabled}"));
   assert.ok(chunk, "the installed T3 Code has a main script with the sidebar");
-  for (const sections of [WORKING, DONE]) {
+  for (const sections of [WORKING, DONE, PINNED, { ...BOTH, pinned: true }]) {
     const alone = patchSidebarChunk(chunk.source, sections);
     assert.equal(alone.applied, true, `${chunk.name}: ${alone.problem}`);
   }
@@ -569,11 +588,11 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
-  assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 6, "the flag is set once and read at the five added places");
+  assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 7, "the flag is set once and read at the six added places");
   assert.equal(
-    (result.source.match(/[\w$]+\.navigationParent===`shelf:working`/g) || []).length,
+    (result.source.match(/`shelf:pinned`\]\.includes\([\w$]+\.navigationParent\)/g) || []).length,
     4,
-    "the row component reads the Working parent in the icon's cache key, the icon, its cache, and the indent",
+    "the row component reads the section in the icon's cache key, the icon, its cache, and the indent",
   );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
@@ -721,7 +740,7 @@ test("a change of a switch reloads only after the browser watches the script", (
   const start = core.indexOf("async function switchSidebarSections(");
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
-  assert.match(body, /if \(next\.working === sidebarSections\.working && next\.done === sidebarSections\.done\) return;/);
+  assert.match(body, /if \(Object\.keys\(next\)\.every\(\(name\) => next\[name\] === sidebarSections\[name\]\)\) return;/);
   const watched = body.indexOf("await watchWorkingShelf()");
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
   assert.match(body, /if \(!watching\) return;/);

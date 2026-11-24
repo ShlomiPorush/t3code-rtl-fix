@@ -75,7 +75,11 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`Opening threads at the start of the last reply is off: ${error.message}`);
   }
 
-  const sectionsOf = (settings) => ({ working: settings.boringWorkingShelf === true, done: settings.boringDoneShelf === true });
+  const sectionsOf = (settings) => ({
+    working: settings.boringWorkingShelf === true,
+    done: settings.boringDoneShelf === true,
+    pinned: settings.boringPlainPinned === true,
+  });
   let sidebarSections = sectionsOf(initialSettings);
   let workingShelf = null;
   let workingShelfWatch = null;
@@ -87,12 +91,12 @@ function prepareCore({ send, log, rootDirectory }) {
       log,
     });
   } catch (error) {
-    log(`The Working and Done sections in the boring sidebar are off: ${error.message}`);
+    log(`The changes to the boring sidebar are off: ${error.message}`);
   }
 
   // Never turned off, so a request paused while a switch turns off is still answered.
   function watchWorkingShelf() {
-    if (!workingShelf || !(sidebarSections.working || sidebarSections.done)) return Promise.resolve(false);
+    if (!workingShelf || !Object.values(sidebarSections).includes(true)) return Promise.resolve(false);
     if (!workingShelfWatch) {
       workingShelfWatch = workingShelf.enable().then((watching) => {
         if (!watching) workingShelfWatch = null;
@@ -103,13 +107,13 @@ function prepareCore({ send, log, rootDirectory }) {
   }
 
   async function switchSidebarSections(next) {
-    if (next.working === sidebarSections.working && next.done === sidebarSections.done) return;
+    if (Object.keys(next).every((name) => next[name] === sidebarSections[name])) return;
     sidebarSections = next;
-    const watching = next.working || next.done ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
+    const watching = Object.values(next).includes(true) ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
     if (!watching) return;
     const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
     const state = (on) => (on ? "on" : "off");
-    log(`Boring sidebar sections: Working ${state(next.working)}, Done ${state(next.done)}, ${reloaded} windows reloaded`);
+    log(`Boring sidebar: Working ${state(next.working)}, Done ${state(next.done)}, plain pinned ${state(next.pinned)}, ${reloaded} windows reloaded`);
   }
 
   let repoStatus = null;

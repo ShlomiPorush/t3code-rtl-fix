@@ -83,6 +83,7 @@ function createExtrasService({
       chatWidth: settings.chatWidth,
       boringWorkingShelf: settings.boringWorkingShelf,
       boringDoneShelf: settings.boringDoneShelf,
+      boringPlainPinned: settings.boringPlainPinned,
       writable: settings.writable,
       problem: settings.problem,
     };

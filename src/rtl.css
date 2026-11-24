@@ -355,3 +355,10 @@ div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
 :root[data-t3-rtl-app="on"] :is([data-t3-rtl-repo-status], .t3-rtl-repo-status-tip) {
   direction: rtl;
 }
+
+/* Plain pinned rows need a gap after the Working and Done sections, like the
+   project folders have, or they look like the last rows of the section. */
+:is([data-thread-item], [data-testid="sidebar-working-header"], [data-testid="sidebar-done-header"])
+  + [data-testid="sidebar-pinned-header"]:has(+ [data-thread-item] [data-sidebar-parent="shelf:pinned"]) {
+  margin-top: 0.5rem;
+}

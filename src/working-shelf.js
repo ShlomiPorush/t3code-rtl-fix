@@ -1,15 +1,16 @@
 "use strict";
 
-// The Working and Done sections in the boring sidebar.
+// The Working and Done sections and the pinned rows in the boring sidebar.
 //
 // T3 Code folds working threads into a Working section, but turns it off when
-// the boring sidebar (Labs, group by project) is on. Each section has its own
+// the boring sidebar (Labs, group by project) is on. Each part has its own
 // switch. With one on, the launcher rewrites T3 Code's sidebar code as the page
 // loads it, so that:
 // - Working: T3 Code's Working section also shows with the boring sidebar,
 //   still behind T3 Code's own "Working section" setting,
 // - Done: the boring sidebar has a Done section of the threads that T3 Code
-//   labels Done, which finished and were not opened since, and
+//   labels Done, which finished and were not opened since,
+// - Pinned: the pinned threads of the boring sidebar are plain rows, not cards, and
 // - with the boring sidebar only, the sections sit at the top of the
 //   sidebar, above Pinned, in the rows, in their keyboard order, and in the
 //   spacing that keeps the other shelves at the bottom, and their rows look
@@ -432,12 +433,12 @@ function patchSidebarChunk(source, sections) {
   const handOffStart = rows.match.index + rows.match[0].indexOf("}let ");
   const handOff = { index: handOffStart, Q: rows.match[1], J: rows.match[2] };
 
-  // A folder row is a Working or Done row only with this patch, so the row
-  // component needs no flag: a folder row whose parent is `shelf:working` or
-  // `shelf:done` shows its project icon, at full strength, in the place of the
-  // folder indent. The icon's cache key also records the parent, because a
-  // thread that moves between a section and its folder keeps the same row.
-  const inSection = `(${props}.navigationParent===\`shelf:working\`||${props}.navigationParent===\`shelf:done\`)`;
+  // A folder row is a Working, Done, or pinned row only with this patch, so the
+  // row component needs no flag: a folder row with one of their parents shows
+  // its project icon, at full strength, in the place of the folder indent. The
+  // icon's cache key also records the parent, because a thread that moves
+  // between a section and its folder keeps the same row.
+  const inSection = `([\`shelf:working\`,\`shelf:done\`,\`shelf:pinned\`].includes(${props}.navigationParent))`;
   const [cache, slot] = [icon.match[1], icon.match[2]];
   const a = flags.match[3];
   const iconParts = [
@@ -481,9 +482,11 @@ function patchSidebarChunk(source, sections) {
     ...doneHooked.edits,
     ...doneListed.edits,
     { start: returnAt, end: returnAt, text: `,${DONE}` },
-    // The Done header is a Done row's parent for keyboard navigation.
-    { start: parentAt, end: parentAt, text: `${parent.match[2]}===\`done\`||` },
   ];
+
+  // The sections whose rows look like the rows in the project folders.
+  const plain = ["working", ...(sections.done ? ["done"] : []), ...(sections.pinned ? ["pinned"] : [])];
+  const isPlain = plain.map((name) => `${look.match[3]}===\`${name}\``).join("||");
 
   const edits = [
     ...(sections.working ? workingEdits : []),
@@ -511,12 +514,14 @@ function patchSidebarChunk(source, sections) {
         `:${declared.match[2]},${handOff.J};`,
     },
     // Section rows look like the rows in the project folders when there are
-    // folders: "a=n?" becomes "a=n||hasFolders&&(t===`working`||t===`done`)?".
+    // folders: "a=n?" becomes "a=n||hasFolders&&(t===`working`||…)?",
     {
       start: lookStart,
       end: lookStart + `=${look.match[2]}?`.length,
-      text: `=${look.match[2]}||${hasFolders}&&(${look.match[3]}===\`working\`||${look.match[3]}===\`done\`)?`,
+      text: `=${look.match[2]}||${hasFolders}&&(${isPlain})?`,
     },
+    // and have their section as parent, for keyboard navigation and the icon.
+    { start: parentAt, end: parentAt, text: `${hasFolders}&&(${isPlain})||` },
   ].sort((a, b) => a.start - b.start);
 
   for (let i = 1; i < edits.length; i += 1) {
@@ -543,7 +548,7 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
     log(`Sidebar sections: ${message}`);
   };
 
-  const isOn = ({ working, done }) => working || done;
+  const isOn = (wanted) => wanted.working || wanted.done || wanted.pinned;
 
   // Interception stays on once enabled: turning the sections off makes every
   // paused request pass unchanged, so no request is left waiting by a
@@ -575,10 +580,10 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
       const wanted = sections();
       if (!isOn(wanted)) return await pass();
       let result = patchSidebarChunk(text, wanted);
-      // Working goes on when a T3 Code update changes only what Done needs.
-      if (!result.applied && wanted.working && wanted.done) {
+      // The rest goes on when a T3 Code update changes only what Done needs.
+      if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
         logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
-        result = patchSidebarChunk(text, { working: true, done: false });
+        result = patchSidebarChunk(text, { ...wanted, done: false });
       }
       if (!result.applied) {
         logOnce(`T3 Code's sidebar code was not recognized (${result.problem})`);

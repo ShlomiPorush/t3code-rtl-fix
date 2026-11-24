@@ -18,5 +18,5 @@ change it, T3 Code's windows reload, and running sessions keep running.
 - Pinned, snoozed, and settled threads stay where they are.
 
 The option does not depend on the Working section. When a T3 Code update changes
-the code that only the Done section needs, the Working section still shows, and
+the code that only the Done section needs, the other sidebar changes still apply, and
 the launcher writes one line to `launcher.log`.

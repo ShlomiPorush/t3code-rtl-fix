@@ -418,17 +418,17 @@ async function run() {
   await clickOn(sessionId, usageSwitch);
   await waitFor(sessionId, `document.querySelector(${JSON.stringify(usageSwitch)}).getAttribute("aria-checked") === "true"`, "the switch to turn on");
 
-  // The section switches are off by default and are saved when clicked.
-  for (const [name, key] of [["Working", "boringWorkingShelf"], ["Done", "boringDoneShelf"]]) {
-    const shelfSwitch = `[data-t3-extras-settings] [role=switch][aria-label="${name} section in the boring sidebar"]`;
+  // The boring sidebar's switches are off by default and are saved when clicked.
+  for (const [name, key] of [["Working section", "boringWorkingShelf"], ["Done section", "boringDoneShelf"], ["Plain pinned threads", "boringPlainPinned"]]) {
+    const shelfSwitch = `[data-t3-extras-settings] [role=switch][aria-label="${name} in the boring sidebar"]`;
     if (await evaluate(sessionId, `document.querySelector(${JSON.stringify(shelfSwitch)}).getAttribute("aria-checked")`) !== "false") {
-      throw new Error(`The ${name} section switch is not off by default`);
+      throw new Error(`The ${name} switch is not off by default`);
     }
     for (const on of [true, false]) {
       await clickOn(sessionId, shelfSwitch);
-      await waitFor(sessionId, `document.querySelector(${JSON.stringify(shelfSwitch)}).getAttribute("aria-checked") === "${on}"`, `the ${name} section switch to turn ${on ? "on" : "off"}`);
+      await waitFor(sessionId, `document.querySelector(${JSON.stringify(shelfSwitch)}).getAttribute("aria-checked") === "${on}"`, `the ${name} switch to turn ${on ? "on" : "off"}`);
       await Promise.all(handled);
-      if (disk()[key] !== on) throw new Error(`The ${name} section switch was not saved as ${on}: ${JSON.stringify(disk())}`);
+      if (disk()[key] !== on) throw new Error(`The ${name} switch was not saved as ${on}: ${JSON.stringify(disk())}`);
     }
   }
 
