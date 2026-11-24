@@ -140,8 +140,8 @@ function homeView({
   const STATES = {
     ask: { text: "Waiting for you", tone: "warn" },
     run: { text: "Working", tone: "run" },
-    fail: { text: "Stopped on an error", tone: "bad" },
-    done: { text: "Finished, not read yet", tone: "ok" },
+    fail: { text: "Error", tone: "bad" },
+    done: { text: "Finished", tone: "ok" },
     idle: { text: "Open" },
   };
 

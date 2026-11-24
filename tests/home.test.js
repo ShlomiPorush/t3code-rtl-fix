@@ -547,9 +547,9 @@ test("a card says what its agent does, and a computer that is not connected has 
     assert.match(card({ ...running, ...waits }), /Waiting for you/);
     assert.doesNotMatch(card({ ...running, ...waits }), /Working/);
   }
-  assert.match(card({ latestRun: { status: "failed", completedAt: before(1) } }), /Stopped on an error/);
+  assert.match(card({ latestRun: { status: "failed", completedAt: before(1) } }), /Error/);
   const done = { latestRun: { status: "completed", completedAt: before(1) } };
-  assert.match(card({ ...done, lastVisitedAt: before(2) }), /Finished, not read yet/);
+  assert.match(card({ ...done, lastVisitedAt: before(2) }), /Finished/);
   assert.doesNotMatch(card({ ...done, lastVisitedAt: before(0.5) }), /Finished/);
   assert.doesNotMatch(card(done), /Finished/);
   assert.doesNotMatch(card({ latestRun: { status: "interrupted", completedAt: before(1) }, lastVisitedAt: before(2) }), /Finished/);
