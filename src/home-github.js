@@ -19,7 +19,6 @@ const QUERY = `query($owner: String!, $name: String!) {
     issues(states: OPEN) { totalCount }
     pullRequests(states: OPEN, first: ${PULLS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      pageInfo { hasNextPage }
       nodes {
         number title isDraft updatedAt mergeable mergeStateStatus
         author { login }
@@ -82,16 +81,16 @@ function readRelease(release, failedField) {
 }
 
 function readRepository(node, failedField) {
-  const nodes = node.pullRequests?.nodes || [];
-  const pulls = nodes.map(readPull).filter(Boolean);
+  const pulls = (node.pullRequests?.nodes || []).map(readPull).filter(Boolean);
+  const openPulls = Number.isInteger(node.pullRequests?.totalCount) ? node.pullRequests.totalCount : null;
   return {
     pulls,
-    openPulls: Number.isInteger(node.pullRequests?.totalCount) ? node.pullRequests.totalCount : null,
+    openPulls,
     issues: Number.isInteger(node.issues?.totalCount) ? node.issues.totalCount : null,
     release: readRelease(node.latestRelease, failedField),
     mainFails: isFailure(node.defaultBranchRef?.target?.statusCheckRollup?.state),
     failedField,
-    cut: node.pullRequests?.pageInfo?.hasNextPage !== false || pulls.length < nodes.length,
+    cut: pulls.length !== openPulls,
   };
 }
 
@@ -129,7 +128,7 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
   const queue = new Set();
   const alertQueue = new Set();
   const waiting = new Map();
-  let work = null;
+  let lanes = 0;
   let ghMissing = false;
 
   function snapshot(repositories) {
@@ -146,9 +145,11 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
 
   async function readOne(name) {
     const [owner, repo] = name.split("/");
+    reading.add(name);
     const result = await run("gh", [
       "api", "--hostname", "github.com", "graphql", "-f", `query=${QUERY}`, "-f", `owner=${owner}`, "-f", `name=${repo}`,
     ]);
+    reading.delete(name);
     const triedAt = now();
     const facts = readAnswer(result.stdout);
     ghMissing = result.error?.code === "ENOENT";
@@ -160,14 +161,18 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
       ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null }
       : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null });
     if (facts) alertQueue.add(name);
+    else alertQueue.delete(name);
   }
 
+  // A newer read of the repository has an entry of its own, which keeps the
+  // alerts of an older one out.
   async function readAlertsOf(name) {
+    const entry = known.get(name);
     const results = [];
     for (const { path, words } of ALERTS) {
       results.push(await run("gh", ["api", "--hostname", "github.com", "--paginate", `repos/${name}/${path}`, "-q", words]));
     }
-    known.get(name).alerts = readAlerts(results);
+    entry.alerts = readAlerts(results);
   }
 
   // Alerts come last, so they do not hold up the pull requests.
@@ -175,19 +180,20 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
     for (const [names, job] of [[queue, readOne], [alertQueue, readAlertsOf]]) {
       for (const name of names) {
         names.delete(name);
-        return { name, job };
+        return () => job(name);
       }
     }
     return null;
   }
 
   async function lane() {
-    for (let next = nextJob(); next; next = nextJob()) {
-      reading.add(next.name);
-      await next.job(next.name);
-      reading.delete(next.name);
+    lanes += 1;
+    for (let job = nextJob(); job; job = nextJob()) {
+      await job();
       for (const { repositories, deliver } of waiting.values()) deliver(snapshot(repositories));
     }
+    lanes -= 1;
+    if (lanes === 0) waiting.clear();
   }
 
   // key names the window that asks. Its newest request replaces the one before.
@@ -197,12 +203,9 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
       const entry = known.get(name);
       if (!reading.has(name) && (!entry || now() - entry.triedAt >= FRESH_MS)) queue.add(name);
     }
-    if (!work && queue.size === 0) return;
+    if (lanes === 0 && queue.size === 0) return;
     waiting.set(key, { repositories, deliver });
-    work ||= Promise.all(Array.from({ length: LANES }, lane)).finally(() => {
-      work = null;
-      waiting.clear();
-    });
+    for (let free = LANES - lanes; free > 0; free -= 1) void lane();
   }
 
   return { read };

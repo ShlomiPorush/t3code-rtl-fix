@@ -52,6 +52,8 @@ so 0 always means that GitHub answered 0.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.
+"Read in part" means that GitHub did not give everything about the project, or
+that it has more than the 30 pull requests that were read last.
 
 Home does not change anything on GitHub.
 

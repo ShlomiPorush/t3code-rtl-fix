@@ -165,7 +165,7 @@ const pull = (number, login = "someone") => ({
 });
 const repository = (overrides = {}) => ({
   issues: { totalCount: 3 },
-  pullRequests: { totalCount: 1, pageInfo: { hasNextPage: false }, nodes: [pull(7)] },
+  pullRequests: { totalCount: 1, nodes: [pull(7)] },
   latestRelease: { tagName: "v1", publishedAt: "2026-11-23T00:00:00Z", tag: { compare: { aheadBy: 2 } } },
   defaultBranchRef: { target: { statusCheckRollup: { state: "SUCCESS" } } },
   ...overrides,
@@ -187,9 +187,10 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(failed.failedField, true);
   assert.equal(failed.cut, false);
   assert.equal(readAnswer(answer(repository({ latestRelease: { tagName: "v1", tag: null } }))).release.ahead, null);
-  assert.equal(readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: true }, nodes: [pull(1)] } }))).cut, true);
-  const lost = readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: false }, nodes: [pull(1), null] } }), [{ path: ["repository", "pullRequests", "nodes", 1] }]));
+  assert.equal(readAnswer(answer(repository({ pullRequests: { totalCount: 2, nodes: [pull(1)] } }))).cut, true);
+  const lost = readAnswer(answer(repository({ pullRequests: { totalCount: 2, nodes: [pull(1), null] } }), [{ path: ["repository", "pullRequests", "nodes", 1] }]));
   assert.deepEqual([lost.cut, lost.failedField], [true, true], "a lost pull request is missing from the list");
+  assert.equal(readAnswer(answer(repository({ pullRequests: { totalCount: 1, nodes: null } }))).cut, true);
   const none = readAnswer(answer(repository({ pullRequests: null }), [{ path: ["repository", "pullRequests"] }]));
   assert.deepEqual([none.cut, none.openPulls, none.pulls.length], [true, null, 0]);
   assert.equal(readAnswer(answer(repository({ defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } } }))).mainFails, true);
@@ -214,7 +215,7 @@ test("alerts are counted from the sources that answer, and unknown when one fail
 test("dependency updates are known by their author alone", () => {
   const logins = ["dependabot", "dependabot[bot]", "renovate", "renovate[bot]", "t3-code-bot", "github-actions"];
   const nodes = logins.map((login, index) => pull(index + 1, login));
-  const read = readAnswer(answer(repository({ pullRequests: { pageInfo: { hasNextPage: false }, nodes } })));
+  const read = readAnswer(answer(repository({ pullRequests: { totalCount: nodes.length, nodes } })));
   assert.deepEqual(read.pulls.map((item) => item.update), [true, true, true, true, false, false]);
 });
 
@@ -285,6 +286,36 @@ test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read
   const stale = await read();
   assert.deepEqual([stale.status, stale.stale, stale.alerts], ["read", true, null]);
   assert.equal(alertCalls.length, 3);
+});
+
+test("a window that asks while alerts are read does not wait for them, and an older read's alerts do not come back", async () => {
+  const held = [];
+  let broken = false;
+  let time = 1e6;
+  const run = (file, args) => {
+    if (!args.includes("--paginate")) return Promise.resolve({ stdout: broken ? answer(null) : answer(repository()), stderr: "", error: null });
+    return new Promise((resolve) => held.push(() => resolve({ stdout: "high\n", stderr: "", error: null })));
+  };
+  const service = createHomeGithub({ run, now: () => time });
+  const ask = (key, name) => {
+    const got = [];
+    service.read(key, [name], (facts) => got.push(facts.repositories[name]));
+    return got;
+  };
+  ask("a", "o/one");
+  await settle();
+  const second = ask("b", "o/two");
+  await settle();
+  assert.equal(second.at(-1).status, "read", "its pull requests are there, while the alerts of both are still read");
+  time += FRESH_MS;
+  broken = true;
+  const failed = ask("a", "o/one");
+  await settle();
+  while (held.length) {
+    held.shift()();
+    await settle();
+  }
+  assert.deepEqual([failed.at(-1).stale, failed.at(-1).alerts], [true, null]);
 });
 
 test("facts are read again only when they are old, for every window together, failures included", async () => {
@@ -509,7 +540,7 @@ test("a card says what its agent does, and a computer that is not connected has 
   for (const status of ["completed", "failed", "interrupted", "idle"]) assert.doesNotMatch(card({ runtime: { status } }), /Working/, status);
   assert.match(card({ runtime: { status: "idle" }, pendingBackgroundTasks: [{}] }), /Working/);
   assert.doesNotMatch(card(running, []), /Working/);
-  for (const waits of [{ hasPendingUserInput: true }, { hasPendingApprovals: true }, { pendingSubagentRequest: "approval" }]) {
+  for (const waits of [{ hasPendingUserInput: true }, { hasPendingApprovals: true }, { pendingSubagentRequest: "approval" }, { pendingGuestMessageCount: 1 }]) {
     assert.match(card({ ...running, ...waits }), /Waiting for you/);
     assert.doesNotMatch(card({ ...running, ...waits }), /Working/);
   }
@@ -555,7 +586,6 @@ test("rows past the fifth are behind a button, and threads left long ago come la
   const open = renderHome({ projects: [project("app")], threads, opened: ["local:app"] });
   assert.equal(open.having("t3h-row").length, 8);
   assert.deepEqual(open.having("t3h-old").map((row) => row.split("\n")[0]), ["Thread 0"]);
-  assert.equal(renderHome({ projects: [project("app")], threads: threads.slice(0, 6) }).having("t3h-row").length, 6);
 });
 
 test("a card counts issues, pull requests, and alerts, and leaves out what GitHub did not give", () => {
@@ -565,8 +595,8 @@ test("a card counts issues, pull requests, and alerts, and leaves out what GitHu
   const alerts = (total, critical, high) => ({ total, critical, high, sources: ["Dependabot"] });
   assert.deepEqual(counts({ issues: 2, openPulls: 3, pulls: [pullFact(1), pullFact(2, { update: true })], alerts: alerts(45, 4, 11) }), [
     ["2 issues", "2", "/issues"],
-    ["3 pull requests, 1 update", "3, 1 update", "/pulls"],
-    ["45 security alerts in Dependabot, 4 critical", "45, 4 critical", "/security"],
+    ["3 pull requests: 3, 1 update", "3, 1 update", "/pulls"],
+    ["45 security alerts in Dependabot: 45, 4 critical", "45, 4 critical", "/security"],
   ]);
   assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[1]), ["0", "2 updates", "1 high"]);
   assert.deepEqual(counts({ alerts: alerts(0, 0, 0) }).map((item) => item[0]), ["0 issues", "0 pull requests", "0 security alerts in Dependabot"]);
@@ -621,6 +651,15 @@ test("a project's page shows every row with the dependency updates, and Home lea
   page.buttons.find((button) => /Home/.test(button.name)).click();
   assert.deepEqual(page.calls.at(-1), ["go", { to: "/" }]);
   assert.match(renderHome({ projects: [project("app")], search: { project: "o/gone" } }).shown, /No open work/);
+});
+
+test("a project's page says that nothing is in the middle only when its pull requests were read", () => {
+  const page = (repositories) => renderHome({ projects: [project("app", "o/app")], github: answered(repositories), search: { project: "o/app" } }).shown;
+  assert.match(page({ "o/app": facts() }), /Nothing is in the middle/);
+  for (const [unread, reason] of [[{ status: "waiting" }, /Reading GitHub…/], [{ status: "unavailable" }, /GitHub is not available/], [facts({ cut: true }), /Read in part/]]) {
+    assert.doesNotMatch(page({ "o/app": unread }), /Nothing is in the middle/);
+    assert.match(page({ "o/app": unread }), reason);
+  }
 });
 
 test("the page's styles stay inside the page", () => {

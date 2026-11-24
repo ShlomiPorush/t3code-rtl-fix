@@ -47,7 +47,8 @@ function homeView({
   const repositoryOf = (project) =>
     /^github\.com\/([a-z0-9_-]+\/[\w.-]+)$/i.exec(project.repositoryIdentity?.canonicalKey || "")?.[1].toLowerCase() ?? null;
 
-  const isWaiting = (thread) => thread.hasPendingApprovals || thread.hasPendingUserInput || thread.pendingSubagentRequest != null;
+  const isWaiting = (thread) =>
+    thread.hasPendingApprovals || thread.hasPendingUserInput || thread.pendingSubagentRequest != null || thread.pendingGuestMessageCount > 0;
 
   // An idle runtime with background work is an agent whose turn ended while its
   // delegates or commands still run. T3 Code lists it under Working too.
@@ -174,11 +175,13 @@ function homeView({
     };
   }
 
+  const isKnown = (entry, facts) => !entry.repository || (isRead(facts) && !facts.cut);
+
   function unreadReason(entry, facts) {
     if (!entry.repository) return null;
     if (!facts || facts.status === "waiting") return "Reading GitHub…";
     if (facts.status === "unavailable") return "GitHub is not available";
-    return facts.failedField || facts.release?.ahead === null ? "Read in part" : null;
+    return facts.cut || facts.failedField || facts.release?.ahead === null ? "Read in part" : null;
   }
 
   function Glyph({ children, size = 16 }) {
@@ -250,7 +253,7 @@ function homeView({
     ].filter(Boolean);
   }
 
-  const nameOf = ({ name, extra }) => (extra ? `${name}, ${extra.replace(/^,? /, "")}` : name);
+  const nameOf = ({ name, number, extra }) => (extra ? `${name}: ${number}${extra}` : name);
 
   function Counts({ entry, facts }) {
     const counts = countsOf(entry, facts);
@@ -289,10 +292,7 @@ function homeView({
     return [entry.latest ? `${ago(now - entry.latest)} ago` : "", ""];
   }
 
-  function shownRows(rows, opened) {
-    // One hidden row would take the place of the button that shows it.
-    return opened || rows.length <= ROWS + 1 ? rows : rows.slice(0, ROWS);
-  }
+  const shownRows = (rows, opened) => (opened ? rows : rows.slice(0, ROWS));
 
   function Card({ entry, facts, rows, now, actions, opened, toggle }) {
     const [state, tone] = headline(entry, now);
@@ -384,12 +384,12 @@ function homeView({
     const cards = entries.map((entry) => ({ entry, facts: factsOf(entry), rows: rowsOf(entry, factsOf(entry), now).rows }));
     const open = cards.filter(({ entry, rows }) => rows.length > 0 || entry.pinned);
     const rest = cards.filter((card) => !open.includes(card));
-    const isKnown = ({ entry, facts }) => !entry.repository || (isRead(facts) && !facts.cut);
+    const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
     return h("div", null,
       open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, now, actions })) : null,
-      open.length === 0 && rest.every(isKnown) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
-      h(Tiles, { title: "No open work", cards: rest.filter(isKnown), actions }),
-      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !isKnown(card)), actions }));
+      open.length === 0 && known.length === rest.length ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
+      h(Tiles, { title: "No open work", cards: known, actions }),
+      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), actions }));
   }
 
   function Project({ entry, facts, now, actions }) {
@@ -404,7 +404,8 @@ function homeView({
       h("div", { className: "t3h-actions" },
         h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, null, GLYPHS.plus), "New thread"),
         entry.repository ? h("a", { ...outward, className: "t3h-button", href: `https://github.com/${entry.repository}`, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.out), "GitHub") : null),
-      rows.length ? rowList(rows, now, actions) : h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle."),
+      rowList(rows, now, actions),
+      rows.length === 0 && isKnown(entry, facts) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
       updates.length ? h("h2", { className: "t3h-section", dir: "ltr" }, "Dependency updates") : null,
       rowList(updates, now, actions),
       h(Foot, { entry, facts, now }));
