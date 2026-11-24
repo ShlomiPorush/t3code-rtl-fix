@@ -201,15 +201,22 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(readAnswer("<html>"), null);
 });
 
+const lines = (...list) => ({ error: null, stdout: list.map((item) => `${JSON.stringify(item)}\n`).join(""), stderr: "" });
+const words = (...severities) => lines(...severities.map((severity, index) => ({ number: index + 1, severity, package: `p${index}` })));
+const summary = (alerts) => alerts && { total: alerts.total, critical: alerts.critical, high: alerts.high, sources: alerts.sources };
+
 test("alerts are counted from the sources that answer, and unknown when one failed", () => {
-  const words = (...list) => ({ error: null, stdout: list.map((word) => `${word}\n`).join(""), stderr: "" });
   const failed = (stderr) => ({ error: new Error("exit 1"), stdout: '{"message":"critical"}', stderr });
   const off = failed("gh: Dependabot alerts are disabled for this repository. (HTTP 403)");
   const absent = failed("gh: no analysis found (HTTP 404)");
-  assert.deepEqual(readAlerts([words("critical", "high", "medium", "high"), words("high", "other"), words("secret")]), {
-    total: 7, critical: 1, high: 3, sources: ["Dependabot", "code scanning", "secret scanning"],
-  });
-  assert.deepEqual(readAlerts([words(), absent, off]), { total: 0, critical: 0, high: 0, sources: ["Dependabot"] });
+  const read = readAlerts([words("critical", "high", "moderate", "high"), words("error", "note"), lines({ number: 4, type: "GitHub Token" })]);
+  assert.deepEqual(summary(read), { total: 7, critical: 1, high: 3, sources: ["Dependabot", "code scanning", "secret scanning"] });
+  assert.deepEqual(read.lists.dependabot.alerts[2], { number: 3, severity: "medium", package: "p2" });
+  assert.deepEqual(read.lists.secretScanning, { value: 1, capped: false, alerts: [{ number: 4, type: "GitHub Token" }] });
+  assert.deepEqual(summary(readAlerts([words(), absent, off])), { total: 0, critical: 0, high: 0, sources: ["Dependabot"] });
+  const many = readAlerts([words(...Array.from({ length: 130 }, () => "high")), absent, off]);
+  assert.deepEqual([many.total, many.high, many.lists.dependabot.value, many.lists.dependabot.alerts.length], [130, 130, 130, 100], "a long list is kept in part, and counted in full");
+  assert.equal(readAlerts([lines("x", [1]), absent, off]).total, 2, "an alert that cannot be read still counts");
   assert.equal(readAlerts([off, absent, off]), null);
   assert.equal(readAlerts([words("high"), failed("gh: API rate limit exceeded for user ID 1. (HTTP 403)"), off]), null);
   assert.equal(readAlerts([words("high"), off, failed("error connecting to api.github.com")]), null);
@@ -266,11 +273,11 @@ test("a request is answered at once, and again as each repository is read", asyn
   assert.ok(calls.every((call) => call.file === "gh" && call.args.join(" ").includes("--hostname github.com")));
 });
 
-test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read do not stay", async () => {
+test("alerts leave gh with only the fields shown, secrets stay hidden, and alerts of a failed read do not stay", async () => {
   let broken = false;
   const { alertCalls, service, pass } = github({
     answers: () => (broken ? answer(null) : answer(repository())),
-    alerts: (args) => (args.join(" ").includes("dependabot") ? "critical\nlow\n" : ""),
+    alerts: (args) => (args.join(" ").includes("dependabot") ? words("critical", "low").stdout : ""),
   });
   const read = async () => {
     const got = [];
@@ -283,7 +290,7 @@ test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read
   assert.ok(alertCalls.every((args) => args.includes("github.com") && args.includes("-q") && args.some((arg) => arg.startsWith("repos/o/one/"))));
   const secrets = alertCalls.find((args) => args.join(" ").includes("secret-scanning"));
   assert.ok(secrets.some((arg) => arg.includes("hide_secret=true")));
-  assert.equal(secrets.at(-1), '.[] | "secret"');
+  assert.equal(secrets.at(-1), ".[] | {number, type: (.secret_type_display_name // .secret_type)} | tojson");
   pass(FRESH_MS);
   await read();
   assert.equal(alertCalls.length, 6);
@@ -413,7 +420,7 @@ test("a restart shows the saved facts at once, and reads only the old ones again
 });
 
 test("the thread details card's counts update Home, keep what they do not say, and are not read again", async () => {
-  const { alertCalls, calls, service, pass } = github({ alerts: (args) => (args.join(" ").includes("dependabot") ? "critical\n" : "") });
+  const { alertCalls, calls, service, pass } = github({ alerts: (args) => (args.join(" ").includes("dependabot") ? words("critical").stdout : "") });
   const got = [];
   service.read("a", ["o/one"], (facts) => got.push(facts.repositories["o/one"]));
   await settle();
@@ -447,6 +454,40 @@ test("the thread details card's counts update Home, keep what they do not say, a
   service.note("o/unknown", counts);
   service.note("o/one", { issues: null, pulls: null, dependabot: null, codeScanning: null, secretScanning: null });
   assert.equal(got.at(-1).issues, 12, "what could not be read changes nothing");
+});
+
+test("each count above zero has the popover of the thread details card, from Home's own reads and from the card's", async () => {
+  const issue = (number) => ({ number, title: `Issue ${number}`, updatedAt: "2026-11-24T00:00:00Z", author: { login: "someone" }, labels: { nodes: [{ name: "bug", color: "d73a4a" }] } });
+  const node = repository({
+    issues: { totalCount: 40, nodes: [issue(5), issue(4)] },
+    pullRequests: { totalCount: 1, nodes: [{ ...pull(7), isDraft: true, reviewDecision: "APPROVED" }] },
+  });
+  const { service } = github({
+    answers: () => answer(node),
+    alerts: (args) => (args.join(" ").includes("dependabot") ? words("critical", "low").stdout : ""),
+  });
+  const got = [];
+  service.read("a", ["o/one"], (facts) => got.push(facts.repositories["o/one"]));
+  await settle();
+  const { details, issueItems } = got.at(-1);
+  assert.equal(issueItems, undefined, "the lists reach the page only as the popovers");
+  assert.deepEqual([details.issue.title, details.issue.summary, details.issue.sections[0].more, details.issue.sections[0].link], ["Issues", "40 open", 38, "issues"]);
+  assert.deepEqual(details.issue.sections[0].items[0], {
+    lead: "#5", text: "Issue 5", meta: ["someone"], time: Date.parse("2026-11-24T00:00:00Z"), badges: [{ text: "bug", color: "d73a4a" }], link: "issues/5",
+  });
+  assert.deepEqual(details.pull.sections[0].items[0].badges.map((badge) => badge.text), ["Draft", "Approved"]);
+  assert.deepEqual(details.shield.sections.map((section) => section.title), ["Dependabot · 2"], "a source without alerts has no section");
+  assert.deepEqual(details.shield.sections[0].items.map((item) => [item.text, item.link]), [["p0", "security/dependabot/1"], ["p1", "security/dependabot/2"]]);
+
+  service.note("o/one", {
+    issues: { value: 1, capped: false, items: [{ number: 9, title: "From the card", author: "a", time: 1, labels: [] }] },
+    pulls: { value: 1, items: [{ number: 7, title: "Seven", author: "b", time: 2, draft: false, review: "CHANGES_REQUESTED" }] },
+  });
+  const noted = got.at(-1).details;
+  assert.deepEqual(noted.issue.sections[0].items.map((item) => item.text), ["From the card"]);
+  assert.deepEqual(noted.pull.sections[0].items[0].badges.map((badge) => badge.text), ["Changes requested"]);
+  service.note("o/one", { issues: { value: 0, items: [] }, pulls: null });
+  assert.equal(got.at(-1).details.issue, undefined, "no popover for nothing");
 });
 
 test("facts from before a failed read stay, marked as old, and one failure is not a problem of all", async () => {
@@ -578,7 +619,7 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     const inner = text(props.children);
     if (props.className) classes.push([props.className, inner]);
     if (type === "button") buttons.push({ name: inner || props["aria-label"], label: props["aria-label"], click: props.onClick });
-    if (type === "a") links.push({ name: inner, label: props["aria-label"], href: props.href });
+    if (type === "a") links.push({ name: inner, label: props["aria-label"], href: props.href, props });
     return inner + (type === "i" ? "" : "\n");
   };
   const shown = text(React.createElement(Home, { native: () => "T3 Code's own page" })).replace(/\n+/g, "\n");
@@ -744,6 +785,18 @@ test("a card counts issues, pull requests, and alerts, and leaves out what GitHu
   assert.deepEqual(counts({ openPulls: 40, cut: true, pulls: [pullFact(1, { update: true })] })[1][1], "40", "a part of the list does not count the updates");
 });
 
+test("a count with a list opens it on hover, and the others keep their plain tooltip", () => {
+  const detail = { title: "Issues", summary: "2 open", sections: [] };
+  const page = renderHome({
+    projects: [project("app", "o/app")], threads: [thread()],
+    github: answered({ "o/app": facts({ issues: 2, openPulls: 0, details: { issue: detail } }) }),
+  });
+  const [issues, pulls] = page.links.filter((item) => item.label);
+  assert.deepEqual([issues.props["aria-haspopup"], issues.props.title, typeof issues.props.onPointerEnter], ["dialog", undefined, "function"]);
+  assert.deepEqual([pulls.props["aria-haspopup"], pulls.props.title], [undefined, "0 pull requests"]);
+  assert.equal(page.having("t3h-tip")[0], "", "the popover is closed until a count is hovered");
+});
+
 test("a project has no open work only when its pull requests were read, and otherwise says why not", () => {
   const projects = ["read", "cut", "waiting", "failed"].map((id) => project(id, `o/${id}`)).concat(project("local"));
   const github = answered({ "o/read": facts(), "o/cut": facts({ cut: true }), "o/waiting": { status: "waiting" }, "o/failed": { status: "unavailable" } });
@@ -756,12 +809,23 @@ test("a project has no open work only when its pull requests were read, and othe
   assert.equal(renderHome({ projects: [project("read", "o/read")], github: update }).tiles.length, 1, "updates alone are not open work");
 });
 
-test("a card tells a release without new commits, with new commits, and one that could not be compared", () => {
-  const card = (overrides) => renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }) }).cards[0];
+test("the version is a tag beside the project's name, with the commits since it", () => {
+  const page = (overrides, options = {}) => renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }), ...options });
+  const card = (overrides) => page(overrides).cards[0];
   const at = Date.now() - 3 * HOUR;
-  assert.match(card({ release: { tag: "v1", at, ahead: 0 } }), /v1\n, 3h ago/);
-  assert.match(card({ release: { tag: "v1", at, ahead: 1 } }), /v1\n, 1 commit since/);
+  assert.match(card({ release: { tag: "v1", at, ahead: 0 } }), /^AP\napp\nv1\n/);
+  const ahead = page({ release: { tag: "v1.2", at, ahead: 3 } });
+  assert.match(ahead.cards[0], /^AP\napp\nv1.2\n\+3\n/);
+  assert.deepEqual(ahead.links.filter((item) => item.label?.startsWith("Version")).map(({ label, href }) => [label, href]), [
+    ["Version v1.2, 3 commits since", "https://github.com/o/app/compare/v1.2...HEAD"],
+  ]);
+  assert.equal(page({ release: { tag: "v1", at, ahead: 0 } }).links.find((item) => item.label?.startsWith("Version")).label, "Version v1, released 3h ago");
+  assert.match(page({ release: { tag: "v1", at, ahead: 0 } }, { search: { project: "o/app" } }).shown, /\napp\nv1\n/, "and on the project's page");
+  const tile = renderHome({ projects: [project("app", "o/app")], github: answered({ "o/app": facts({ release: { tag: "v1", at, ahead: 2 } }) }) });
+  assert.match(tile.tiles[0], /app\nv1\n\+2/);
+  assert.equal(tile.links.length, 0, "a tile is one button, so its tag is no link");
   assert.match(card({ release: { tag: "v1", at, ahead: null } }), /Read in part/);
+  assert.doesNotMatch(card({ release: null }), /v1/);
   assert.match(card({ failedField: true }), /Read in part/);
   assert.match(card({ mainFails: true }), /The default branch fails its checks/);
 });

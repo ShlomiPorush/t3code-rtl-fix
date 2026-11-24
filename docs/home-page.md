@@ -41,6 +41,10 @@ without checks, the row says "no checks". Threads that had no activity for two
 weeks come last, in a weaker color. A card shows five rows, and its button shows
 the others.
 
+The tag beside a project's name is its latest release on GitHub. When the
+default branch has commits that are not in it, the tag says how many, such as
+`v1.4.0 +3`. Click the tag to see the release, or the commits since it.
+
 Click a project's name to open its own page, which also lists its dependency
 updates.
 
@@ -53,9 +57,15 @@ updates.
 | Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together, and how many are critical, or else high. |
 
 The security count is red when it has critical or high alerts. It covers only
-the sources that are on in the repository and that your account may read. Rest
-the pointer on it to see which. A count that GitHub does not give is left out,
-so 0 always means that GitHub answered 0.
+the sources that are on in the repository and that your account may read. A
+count that GitHub does not give is left out, so 0 always means that GitHub
+answered 0.
+
+Rest the pointer on a count, or move to it with Tab, to see its list, as in the
+thread details card: the 30 issues and the 30 pull requests updated last, and
+the security alerts of each source by severity. Move the pointer into the list,
+or press the Down arrow, to reach its items. A pull request opens in T3 Code's
+panel, and the other items open on GitHub. Escape closes the list.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.
@@ -69,7 +79,8 @@ Home does not change anything on GitHub.
 Projects and threads are T3 Code's own live data. GitHub is read with the `gh`
 command, which must be installed and signed in. Answers are kept in
 `home-cache.json` in the folder of the fix, so Home shows them at once, also
-after a restart of T3 Code. The file holds titles of pull requests and counts,
+after a restart of T3 Code. The file holds the titles and authors of issues
+and pull requests, the packages and rules that alerts are about, and counts,
 and no sign-in. Answers older than a week are dropped. A repository is read
 again:
 

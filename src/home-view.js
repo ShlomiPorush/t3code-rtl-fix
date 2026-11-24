@@ -256,35 +256,266 @@ function homeView({
 
   const nameOf = ({ name, number, extra }) => (extra ? `${name}: ${number}${extra}` : name);
 
-  function Counts({ entry, facts }) {
+  function Counts({ entry, facts, actions }) {
     const counts = countsOf(entry, facts);
     const reason = unreadReason(entry, facts);
     if (counts.length === 0 && !reason) return null;
     return h("div", { className: "t3h-counts" },
-      counts.map((item) => h("a", {
-        key: item.key, ...outward, href: item.href, title: item.name, "aria-label": nameOf(item),
-        className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
-      }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra))),
+      counts.map((item) => {
+        const detail = item.number > 0 ? facts.details?.[item.key] : null;
+        return h("a", {
+          key: item.key, ...outward, href: item.href, "aria-label": nameOf(item),
+          ...(detail && actions.tips ? actions.tips.anchor(entry.repository, item.key) : { title: item.name }),
+          className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
+        }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra));
+      }),
       reason ? small(reason) : null);
   }
 
-  function releaseText(release, now) {
-    if (release.ahead > 0) return `, ${count(release.ahead, "commit")} since`;
-    return release.at ? `, ${ago(now - release.at)} ago` : "";
+  const releaseOf = (facts) => (isRead(facts) && facts.release?.tag ? facts.release : null);
+
+  function ReleaseTag({ entry, facts, now, linked = true }) {
+    const release = releaseOf(facts);
+    if (!release) return null;
+    const url = `https://github.com/${entry.repository}`;
+    const ahead = release.ahead > 0 ? release.ahead : 0;
+    const since = ahead ? `, ${count(ahead, "commit")} since` : release.at ? `, released ${ago(now - release.at)} ago` : "";
+    const label = `Version ${release.tag}${since}`;
+    const content = [
+      h("span", { key: "tag", className: "t3h-cut" }, release.tag),
+      ahead ? h("span", { key: "ahead", className: "t3h-tag-ahead" }, `+${ahead}`) : null,
+    ];
+    const shared = { className: "t3h-tag", dir: "ltr", title: label, "aria-label": label };
+    if (!linked) return h("span", shared, ...content);
+    const href = ahead ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : `${url}/releases`;
+    return h("a", { ...shared, ...outward, href }, ...content);
   }
 
-  function Foot({ entry, facts, now }) {
+  function Foot({ entry, facts, actions }) {
     const url = `https://github.com/${entry.repository}`;
-    const release = isRead(facts) ? facts.release : null;
     return h(React.Fragment, null,
       isRead(facts) && facts.mainFails ? h("div", { className: "t3h-foot" }, h("a", { ...outward, href: `${url}/commits`, className: "t3h-small t3h-bad", dir: "ltr" }, "The default branch fails its checks")) : null,
-      release
-        ? h("div", { className: "t3h-foot" }, h("a", {
-          ...outward, className: "t3h-small", dir: "ltr",
-          href: release.ahead > 0 ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : `${url}/releases`,
-        }, h("b", null, release.tag), releaseText(release, now)))
-        : null,
-      h(Counts, { entry, facts }));
+      h(Counts, { entry, facts, actions }));
+  }
+
+  const LIST_LINE_MIN = 5;
+
+  function Badge({ badge }) {
+    const color = /^[0-9a-f]{6}$/i.test(badge.color || "") ? badge.color : null;
+    return h("span", {
+      className: "t3h-tip-badge", dir: "auto", "data-tone": badge.tone || undefined,
+      "data-label": color ? "" : undefined, style: color ? { "--t3h-label": `#${color}` } : undefined,
+    }, badge.text);
+  }
+
+  function TipItem({ item, now, linkTo }) {
+    const meta = [...(item.meta || []), item.time ? `${ago(now - item.time)} ago` : ""].filter(Boolean).join(" · ");
+    const badges = item.badges || [];
+    return h(item.link ? "a" : "div", {
+      className: "t3h-tip-item", ...(item.link ? linkTo(item.link) : {}),
+      "data-lead": item.lead ? "" : undefined, "data-inline": !item.lead && !meta && badges.length ? "" : undefined,
+    },
+    item.lead ? h("span", { className: "t3h-tip-lead" }, item.lead) : null,
+    h("span", { className: "t3h-tip-text", dir: "auto" }, item.text),
+    meta || badges.length
+      ? h("div", { className: "t3h-tip-sub" },
+        meta ? h("span", { className: "t3h-tip-meta", dir: "auto" }, meta) : null,
+        badges.map((badge, index) => h(Badge, { key: index, badge })))
+      : null);
+  }
+
+  function TipSection({ section, now, linkTo }) {
+    const items = section.items || [];
+    const lined = section.more > 0 || (section.link && (section.partial || items.length > LIST_LINE_MIN));
+    const line = section.more > 0 ? `and ${section.more} more` : section.partial ? "View all on GitHub" : `View all ${items.length} on GitHub`;
+    return h("div", { className: "t3h-tip-section" },
+      section.title ? h("div", { className: "t3h-tip-section-title" }, section.title) : null,
+      section.chips?.length ? h("div", { className: "t3h-tip-chips" }, section.chips.map((chip, index) => h(Badge, { key: index, badge: chip }))) : null,
+      items.map((item, index) => h(TipItem, { key: item.link || index, item, now, linkTo })),
+      lined ? h(section.link ? "a" : "div", { className: "t3h-tip-more", ...(section.link ? linkTo(section.link) : {}) }, line) : null);
+  }
+
+  const TIP_DELAY_MS = 250;
+  const TIP_SWITCH_DELAY_MS = 120;
+  const TIP_HIDE_DELAY_MS = 200;
+
+  function useTips() {
+    const [tip, setTip] = React.useState(null);
+    const state = React.useRef({ show: 0, hide: 0, hiddenAt: 0, tip: null });
+    const box = React.useRef(null);
+    const held = state.current;
+    held.tip = tip;
+    const clear = () => {
+      clearTimeout(held.show);
+      clearTimeout(held.hide);
+    };
+    const show = (anchor, repository, kind) => {
+      clear();
+      setTip({ anchor, repository, kind });
+    };
+    const hide = () => {
+      clear();
+      if (held.tip) held.hiddenAt = Date.now();
+      held.tip = null;
+      setTip(null);
+    };
+    const focusInside = () => Boolean(box.current?.contains(document.activeElement));
+    const scheduleHide = () => {
+      clear();
+      if (held.tip) held.hide = setTimeout(() => focusInside() || hide(), TIP_HIDE_DELAY_MS);
+    };
+    const links = () => [...(box.current?.querySelectorAll("a") || [])];
+    const focusLink = (index) => {
+      const all = links();
+      if (all.length) all[((index % all.length) + all.length) % all.length].focus();
+    };
+    const returnFocus = () => {
+      const anchor = held.tip?.anchor;
+      hide();
+      held.returning = true;
+      try {
+        anchor?.focus();
+      } finally {
+        held.returning = false;
+      }
+    };
+    const anchor = (repository, kind) => ({
+      "aria-haspopup": "dialog",
+      "aria-expanded": tip?.repository === repository && tip?.kind === kind,
+      onPointerEnter: (event) => {
+        const target = event.currentTarget;
+        clear();
+        if (held.tip?.anchor === target || focusInside()) return;
+        const delay = held.tip ? TIP_SWITCH_DELAY_MS : Date.now() - held.hiddenAt < 300 ? 0 : TIP_DELAY_MS;
+        held.show = setTimeout(() => show(target, repository, kind), delay);
+      },
+      onPointerLeave: scheduleHide,
+      onFocus: (event) => {
+        if (!held.returning && event.currentTarget.matches(":focus-visible")) show(event.currentTarget, repository, kind);
+      },
+      onBlur: (event) => {
+        if (!box.current?.contains(event.relatedTarget) && held.tip?.anchor === event.currentTarget) hide();
+      },
+      onClick: hide,
+      onKeyDown: (event) => {
+        if (event.key === "Escape" && held.tip) {
+          event.preventDefault();
+          event.stopPropagation();
+          hide();
+        } else if (event.key === "ArrowDown" && held.tip?.anchor === event.currentTarget) {
+          event.preventDefault();
+          focusLink(0);
+        }
+      },
+    });
+    const keys = (event) => {
+      const all = links();
+      const index = all.indexOf(document.activeElement);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        returnFocus();
+      } else if (index !== -1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        focusLink(index + (event.key === "ArrowDown" ? 1 : -1));
+      } else if (index !== -1 && (event.key === "Home" || event.key === "End")) {
+        event.preventDefault();
+        focusLink(event.key === "Home" ? 0 : -1);
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        const anchor = held.tip?.anchor;
+        const order = [...document.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]")]
+          .filter((node) => node.tabIndex >= 0 && node.getClientRects().length > 0 && !box.current?.contains(node));
+        returnFocus();
+        const next = order[order.indexOf(anchor) + (event.shiftKey ? -1 : 1)];
+        next?.focus();
+      }
+    };
+    return { tip, box, anchor, clear, hide, scheduleHide, keys, held };
+  }
+
+  function placeTip(node, anchor) {
+    const gap = 6;
+    const margin = 8;
+    const room = anchor.getBoundingClientRect();
+    const below = innerHeight - room.bottom - gap - margin;
+    const above = room.top - gap - margin;
+    const down = node.scrollHeight <= below || below >= above;
+    node.style.maxHeight = `${Math.max(0, down ? below : above)}px`;
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    const start = getComputedStyle(anchor).direction === "rtl" ? room.right - width : room.left;
+    const left = Math.min(Math.max(start, margin), Math.max(margin, innerWidth - width - margin));
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(down ? room.bottom + gap : room.top - gap - height)}px`;
+  }
+
+  function Tip({ tips, detail, now, actions }) {
+    const { tip, box } = tips;
+    const open = Boolean(tip && detail);
+    React.useLayoutEffect(() => {
+      const node = box.current;
+      if (!node) return;
+      const isOpen = () => {
+        try {
+          return node.matches(":popover-open");
+        } catch {
+          return false;
+        }
+      };
+      if (!open || !tip.anchor.isConnected) {
+        node.removeAttribute("data-shown");
+        if (isOpen()) node.hidePopover();
+        if (tip) tips.hide();
+        return;
+      }
+      if (typeof node.showPopover === "function" && !isOpen()) {
+        node.setAttribute("popover", "manual");
+        try {
+          node.showPopover();
+        } catch {
+          node.removeAttribute("popover");
+        }
+      }
+      placeTip(node, tip.anchor);
+      const frame = requestAnimationFrame(() => node.setAttribute("data-shown", ""));
+      return () => cancelAnimationFrame(frame);
+    }, [open, tip, detail]);
+    React.useEffect(() => {
+      if (!open) return;
+      const away = (event) => {
+        if (!box.current?.contains(event.target)) tips.hide();
+      };
+      addEventListener("scroll", away, true);
+      addEventListener("resize", away);
+      return () => {
+        removeEventListener("scroll", away, true);
+        removeEventListener("resize", away);
+      };
+    }, [open]);
+    const url = (link) => `https://github.com/${tip.repository}/${link}`;
+    const linkTo = (link) => ({
+      ...outward, href: url(link), tabIndex: -1,
+      onClick: (event) => {
+        if (/^pull\/\d+$/.test(link)) actions.openPull?.(event, url(link));
+        tips.hide();
+      },
+    });
+    return h("div", {
+      ref: box, className: "t3h-tip", role: "dialog", dir: "ltr",
+      "aria-label": open ? detail.title : undefined, "data-open": open ? "" : undefined,
+      onPointerEnter: tips.clear, onPointerLeave: tips.scheduleHide, onKeyDown: tips.keys,
+      onMouseDown: (event) => event.target.closest?.("a") || event.preventDefault(),
+      onBlur: (event) => {
+        if (!box.current?.contains(event.relatedTarget) && event.relatedTarget !== tip?.anchor) tips.hide();
+      },
+    }, open
+      ? [
+        h("div", { key: "head", className: "t3h-tip-head" }, h("span", { className: "t3h-tip-title" }, detail.title), h("span", { className: "t3h-tip-summary" }, detail.summary)),
+        ...(detail.sections || []).map((section, index) => h(TipSection, { key: index, section, now, linkTo })),
+        detail.note ? h("div", { key: "note", className: "t3h-tip-note" }, detail.note) : null,
+      ]
+      : null);
   }
 
   function Headline({ entry, now }) {
@@ -308,18 +539,19 @@ function homeView({
         h("div", { className: "t3h-names" },
           h("h3", null,
             entry.pinned ? h("span", { className: "t3h-pin", title: "Pinned", role: "img", "aria-label": "Pinned" }, h(Glyph, { size: 15 }, GLYPHS.pin)) : null,
-            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title)),
+            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title),
+            h(ReleaseTag, { entry, facts, now })),
           h(Headline, { entry, now })),
         h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
       rowList(shown, now, actions),
       more ? h("button", { type: "button", className: "t3h-more t3h-small", "aria-expanded": opened, "aria-label": opened ? `Show less of ${title}` : `${more} more in ${title}`, onClick: () => toggle(entry.key) }, text(opened ? "Show less" : `${more} more`)) : null,
-      h(Foot, { entry, facts, now }));
+      h(Foot, { entry, facts, actions }));
   }
 
   function heightOf({ entry, rows }) {
     const shown = shownRows(rows, false);
     const notes = shown.filter((row) => row.notes.length > 0).length;
-    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 3.5 : 0);
+    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 2.6 : 0);
   }
 
   // Agents start and stop all the time, and cards that follow them never rest,
@@ -367,11 +599,9 @@ function homeView({
         h(Card, { key, ...cardOf(key), now, actions, opened: opened.has(key), toggle })))));
   }
 
-  function Tile({ entry, facts, actions }) {
-    const release = isRead(facts) ? facts.release : null;
+  function Tile({ entry, facts, now, actions }) {
     const reason = unreadReason(entry, facts);
     const details = [
-      release ? small(`${release.tag}${release.ahead > 0 ? `, ${count(release.ahead, "commit")} since` : ""}`) : null,
       ...countsOf(entry, facts).filter((item) => item.number > 0).map((item) =>
         h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
           h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number, item.extra))),
@@ -380,15 +610,15 @@ function homeView({
     return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
       h(Picture, { project: entry.project, className: "t3h-icon-small" }),
       h("span", { className: "t3h-tile-text" },
-        text(entry.project.title, "t3h-cut t3h-tile-name"),
+        h("span", { className: "t3h-tile-top" }, text(entry.project.title, "t3h-cut t3h-tile-name"), h(ReleaseTag, { entry, facts, now, linked: false })),
         h("span", { className: "t3h-tile-details" }, ...details)));
   }
 
-  function Tiles({ title, cards, actions }) {
+  function Tiles({ title, cards, now, actions }) {
     if (cards.length === 0) return null;
     return h("section", null,
       h(SectionTitle, { title, cards }),
-      h("div", { className: "t3h-tiles" }, cards.map(({ entry, facts }) => h(Tile, { key: entry.key, entry, facts, actions }))));
+      h("div", { className: "t3h-tiles" }, cards.map(({ entry, facts }) => h(Tile, { key: entry.key, entry, facts, now, actions }))));
   }
 
   function SectionTitle({ title, cards }) {
@@ -417,8 +647,8 @@ function homeView({
     const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
     return h("div", null,
       open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, complete, now, actions })) : null,
-      h(Tiles, { title: "No open work", cards: known, actions }),
-      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), actions }));
+      h(Tiles, { title: "No open work", cards: known, now, actions }),
+      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), now, actions }));
   }
 
   function Project({ entry, facts, now, actions }) {
@@ -429,7 +659,8 @@ function homeView({
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
         h(Picture, { project: entry.project, className: "t3h-icon-large" }),
-        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title)),
+        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title),
+        h(ReleaseTag, { entry, facts, now })),
       h("div", { className: "t3h-actions" },
         h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, null, GLYPHS.plus), "New thread"),
         entry.repository ? h("a", { ...outward, className: "t3h-button", href: `https://github.com/${entry.repository}`, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.out), "GitHub") : null),
@@ -437,7 +668,7 @@ function homeView({
       rows.length === 0 && isKnown(entry, facts) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
       updates.length ? h("h2", { className: "t3h-section", dir: "ltr" }, "Dependency updates") : null,
       rowList(updates, now, actions),
-      h(Foot, { entry, facts, now }));
+      h(Foot, { entry, facts, actions }));
   }
 
   // Facts come from the launcher, through the fix's own script in this page,
@@ -511,11 +742,13 @@ function homeView({
     const now = useNow();
     const chosen = useChosen(router);
     const [failed, setFailed] = React.useState(false);
+    const tips = useTips();
     const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
     const factsOf = (entry) => (entry.repository && github ? github.repositories[entry.repository] ?? null : null);
     const actions = {
       openPull,
+      tips,
       openMap: () => router.navigate({ to: "/" }),
       openProject: (entry) => router.navigate({ to: "/", search: { project: entry.key } }),
       openThread: (thread) => router.navigate({ to: "/$environmentId/$threadId", params: { environmentId: thread.environmentId, threadId: thread.id } }),
@@ -541,7 +774,8 @@ function homeView({
       h("div", { className: "t3h", key: entry ? entry.key : "map" },
         h("div", { className: "t3h-page" },
           notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
-          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions }))));
+          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions }))),
+      h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 
   class Boundary extends React.Component {
@@ -604,6 +838,11 @@ const HOME_CSS = `
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
 .t3h .t3h-name:hover { color: var(--primary); }
 .t3h-pin { color: var(--primary); }
+.t3h .t3h-tag { display: inline-flex; align-items: center; gap: .3rem; flex: none; min-width: 0; max-width: 9rem; padding: .08rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--foreground) 80%, transparent); background: color-mix(in srgb, var(--foreground) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 11%, transparent); }
+.t3h a.t3h-tag:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 12%, transparent); }
+.t3h-tag-ahead { color: var(--primary); }
+.t3h .t3h-title .t3h-tag { max-width: 12rem; padding: .2rem .7rem; font-size: .95rem; }
+.t3h-tile-top { display: flex; align-items: center; gap: .45rem; min-width: 0; }
 .t3h-icon { width: 2.1rem; height: 2.1rem; flex: none; }
 .t3h-icon-small { width: 1.5rem; height: 1.5rem; flex: none; }
 .t3h-icon-large { width: 3rem; height: 3rem; flex: none; }
@@ -629,7 +868,6 @@ const HOME_CSS = `
 
 .t3h-foot { margin-top: .6rem; line-height: 1.3; }
 .t3h-foot + .t3h-foot { margin-top: .2rem; }
-.t3h-foot b { font-weight: 600; color: color-mix(in srgb, var(--foreground) 80%, transparent); }
 .t3h-counts { display: flex; flex-wrap: wrap; gap: .1rem 1rem; margin-top: .75rem; padding-top: .65rem; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent); }
 .t3h .t3h-count { display: inline-flex; align-items: center; gap: .32rem; font-size: .82rem; font-weight: 550; color: var(--t3h-k, color-mix(in srgb, var(--foreground) 82%, transparent)); }
 .t3h a.t3h-count:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -655,12 +893,58 @@ const HOME_CSS = `
 .t3h .t3h-project .t3h-text { -webkit-line-clamp: none; font-size: 1.05rem; line-height: 1.4; }
 .t3h-project .t3h-mark { height: 1.4em; font-size: 1.05rem; }
 
+.t3h-tip {
+  --t3h-tip-critical: var(--destructive, #dc2626); --t3h-tip-high: #ea580c; --t3h-tip-medium: var(--warning, #d97706);
+  --t3h-tip-low: var(--muted-foreground, #71717a); --t3h-tip-muted: var(--muted-foreground, #71717a);
+  --t3h-tip-success: var(--success, #16a34a); --t3h-tip-info: var(--info, #2563eb);
+  position: fixed; inset: auto; top: 0; left: 0; z-index: 2147483647; box-sizing: border-box;
+  width: max-content; min-width: 240px; max-width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
+  margin: 0; padding: 0; overflow: hidden auto; scrollbar-width: thin;
+  border: 1px solid var(--border, rgb(0 0 0 / .12)); border-radius: 10px;
+  background: var(--popover, #fff); color: var(--popover-foreground, #18181b);
+  box-shadow: 0 12px 32px -10px rgb(0 0 0 / .35), 0 2px 6px -2px rgb(0 0 0 / .15);
+  direction: ltr; font-size: 12px; line-height: 1.4; text-align: start;
+  pointer-events: none; opacity: 0; transform: translateY(3px); transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+.t3h-tip:not([data-open]) { display: none; }
+.t3h-tip[data-shown] { opacity: 1; transform: none; pointer-events: auto; }
+.t3h-tip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 12px 8px; border-bottom: 1px solid var(--border, rgb(0 0 0 / .12)); }
+.t3h-tip-title { font-size: 13px; font-weight: 600; }
+.t3h-tip :is(.t3h-tip-summary, .t3h-tip-lead, .t3h-tip-meta, .t3h-tip-more, .t3h-tip-note, .t3h-tip-section-title) { color: var(--muted-foreground, #71717a); }
+.t3h-tip-summary { font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t3h-tip-section { display: grid; gap: 2px; padding: 7px 12px 8px; }
+.t3h-tip-section + .t3h-tip-section { border-top: 1px solid var(--border, rgb(0 0 0 / .12)); }
+.t3h-tip-section-title { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.t3h-tip :is(.t3h-tip-chips, .t3h-tip-badges) { display: flex; flex-wrap: wrap; gap: 4px; }
+.t3h-tip-chips { margin: 2px 0 3px; }
+.t3h-tip-item { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; margin: 0 -6px; padding: 3px 6px; border-radius: 6px; color: inherit; text-decoration: none; }
+.t3h-tip a.t3h-tip-item { cursor: pointer; }
+.t3h-tip a.t3h-tip-item:is(:hover, :focus-visible) { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
+.t3h-tip-lead { font-variant-numeric: tabular-nums; }
+.t3h-tip-text { grid-column: 2; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.t3h-tip-sub { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.t3h-tip-item:not([data-lead]) :is(.t3h-tip-text, .t3h-tip-sub) { grid-column: 1 / -1; }
+.t3h-tip-meta { font-size: 11px; overflow-wrap: anywhere; }
+.t3h-tip-item[data-inline] { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.t3h-tip-item[data-inline] .t3h-tip-sub { flex: none; }
+.t3h-tip-badge { --t3h-tone: var(--t3h-tip-muted); display: inline-flex; align-items: center; max-width: 100%; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--t3h-tone) 35%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--t3h-tone) 14%, transparent); color: color-mix(in srgb, var(--t3h-tone) 75%, currentColor); font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t3h-tip-badge[data-tone="critical"] { --t3h-tone: var(--t3h-tip-critical); }
+.t3h-tip-badge[data-tone="high"] { --t3h-tone: var(--t3h-tip-high); }
+.t3h-tip-badge[data-tone="medium"] { --t3h-tone: var(--t3h-tip-medium); }
+.t3h-tip-badge[data-tone="low"] { --t3h-tone: var(--t3h-tip-low); }
+.t3h-tip-badge[data-tone="success"] { --t3h-tone: var(--t3h-tip-success); }
+.t3h-tip-badge[data-tone="info"] { --t3h-tone: var(--t3h-tip-info); }
+.t3h-tip-badge[data-label] { --t3h-tone: var(--t3h-label); color: color-mix(in oklab, var(--t3h-label) 45%, currentColor); }
+.t3h-tip-more { padding-top: 2px; font-size: 11px; justify-self: start; border-radius: 4px; text-decoration: none; }
+.t3h-tip a.t3h-tip-more:is(:hover, :focus-visible) { color: inherit; text-decoration: underline; outline: none; }
+.t3h-tip-note { padding: 7px 12px 8px; border-top: 1px solid var(--border, rgb(0 0 0 / .12)); font-size: 11px; }
+
 @container (max-width: 56rem) {
   .t3h-page { padding-inline: 1.15rem; }
   .t3h .t3h-title h1 { font-size: 2.3rem; }
   .t3h-icon-large { width: 2.3rem; height: 2.3rem; }
 }
-@media (prefers-reduced-motion: reduce) { .t3h-is-run::after { display: none; } }
+@media (prefers-reduced-motion: reduce) { .t3h-is-run::after { display: none; } .t3h-tip { transition: none; transform: none; } }
 `;
 
 module.exports = { homeView, HOME_CSS };
