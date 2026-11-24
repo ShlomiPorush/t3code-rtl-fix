@@ -70,7 +70,8 @@ Projects and threads are T3 Code's own live data. GitHub is read with the `gh`
 command, which must be installed and signed in. Answers are kept in
 `home-cache.json` in the folder of the fix, so Home shows them at once, also
 after a restart of T3 Code. The file holds titles of pull requests and counts,
-and no sign-in. A repository is read again:
+and no sign-in. Answers older than a week are dropped. A repository is read
+again:
 
 - When you open Home or come back to its window, and the answer is older than 15
   minutes.

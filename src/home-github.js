@@ -16,7 +16,7 @@ const FRESH_MS = 15 * 60 * 1000;
 // Older facts are read again while Home is closed.
 const BACKGROUND_MS = 60 * 60 * 1000;
 const CHECK_MS = 5 * 60 * 1000;
-// A file of another format is not read.
+const KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 const FORMAT = 1;
 
 const REPOSITORY = /^[A-Za-z0-9_-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
@@ -162,23 +162,20 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
   const windows = new Map();
   let lanes = 0;
   let ghMissing = false;
-  let loaded = false;
   let timer = null;
 
-  function load() {
-    loaded = true;
-    try {
-      const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (saved.format === FORMAT) for (const [name, entry] of Object.entries(saved.repositories)) known.set(name, entry);
-    } catch {
-      // The first start has no file, and a damaged one is written again.
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    for (const [name, entry] of saved.format === FORMAT ? Object.entries(saved.repositories) : []) {
+      if (now() - entry.readAt < KEPT_MS) known.set(name, entry);
     }
+  } catch {
+    // The first start has no file, and a damaged one is written again.
   }
 
   function save() {
     if (!file) return;
-    const listed = new Set([...windows.values()].flatMap(({ repositories }) => repositories));
-    const repositories = Object.fromEntries([...known].filter(([name, entry]) => listed.has(name) && entry.facts));
+    const repositories = Object.fromEntries([...known].filter(([, entry]) => entry.facts));
     try {
       fs.writeFileSync(`${file}.tmp`, JSON.stringify({ format: FORMAT, repositories }), { mode: 0o600 });
       fs.renameSync(`${file}.tmp`, file);
@@ -273,7 +270,6 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
 
   // key names the window that asks. Its newest request replaces the one before.
   function read(key, repositories, deliver) {
-    if (file && !loaded) load();
     windows.set(key, { repositories, deliver });
     timer ||= setInterval(refresh, CHECK_MS).unref();
     deliver(snapshot(repositories));
@@ -290,19 +286,15 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
   // The thread details card reads counts of the same repositories, so Home
   // gets them without a request of its own.
   function note(slug, counts) {
-    const name = slug.toLowerCase();
-    const entry = known.get(name);
+    const entry = known.get(slug.toLowerCase());
     if (!entry?.facts) return;
     const alerts = noteAlerts(entry.alerts, counts);
-    known.set(name, {
-      ...entry,
-      facts: {
-        ...entry.facts,
-        ...(counts.issues ? { issues: counts.issues.value } : {}),
-        ...(counts.pulls ? notePulls(entry.facts.pulls, counts.pulls) : {}),
-      },
-      ...(alerts ? { alerts, alertsAt: now() } : {}),
-    });
+    entry.facts = {
+      ...entry.facts,
+      ...(counts.issues ? { issues: counts.issues.value } : {}),
+      ...(counts.pulls ? notePulls(entry.facts.pulls, counts.pulls) : {}),
+    };
+    if (alerts) Object.assign(entry, { alerts, alertsAt: now() });
     tellWindows();
     save();
   }

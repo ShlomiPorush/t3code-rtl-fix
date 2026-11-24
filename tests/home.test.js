@@ -394,7 +394,15 @@ test("a restart shows the saved facts at once, and reads only the old ones again
   assert.deepEqual([got[0].status, got[0].issues, got[0].pulls.length], ["read", 9, 1]);
   await settle();
   assert.equal(next.calls.length, 0);
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).repositories), ["o/one"], "only the projects that T3 Code has");
+  const later = github({ file });
+  later.pass(8 * 24 * 60 * 60 * 1000);
+  later.service.forget("a");
+  later.service.note("o/one", { issues: { value: 10 }, pulls: null });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).repositories["o/one"].facts.issues, 10, "the card updates the file before Home opens, and without a window");
+  const old = [];
+  github({ file, now: () => 1e6 + 8 * 24 * 60 * 60 * 1000 }).service.read("a", ["o/one"], (facts) => old.push(facts.repositories["o/one"].status));
+  assert.equal(old[0], "waiting", "answers of last week are dropped");
+  await settle();
   for (const damaged of ["{", '{"format":0,"repositories":{"o/one":{}}}', "null"]) {
     fs.writeFileSync(file, damaged);
     const empty = [];
@@ -546,8 +554,7 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     projectReference: (environmentId, projectId) => ({ environmentId, projectId }),
     Frame: ({ children }) => children, focusProps: () => ({}), Header: ({ children }) => children, electron: true, main: {}, frameClass: "", css: "",
   });
-  // The first answers wait for each other, and later ones do not.
-  for (const next of github ? [{ problem: null, repositories: {} }, github] : []) receive({ detail: JSON.stringify(next) });
+  if (github) receive({ detail: JSON.stringify(github) });
   const buttons = [];
   const links = [];
   const classes = [];
@@ -780,6 +787,13 @@ test("a project's page shows every row with the dependency updates, and Home lea
   page.buttons.find((button) => /Home/.test(button.name)).click();
   assert.deepEqual(page.calls.at(-1), ["go", { to: "/" }]);
   assert.match(renderHome({ projects: [project("app")], search: { project: "o/gone" } }).shown, /No open work/);
+});
+
+test("the first answers wait for each other, unless some came from the cache", () => {
+  const projects = [project("a", "o/a"), project("b", "o/b")];
+  const show = (repositories) => renderHome({ projects, github: answered(repositories) }).shown;
+  assert.match(show({ "o/a": facts(), "o/b": { status: "waiting" } }), /No open work\n1 project/);
+  assert.match(show({ "o/a": { status: "unavailable" }, "o/b": { status: "waiting" } }), /Reading GitHub…[\s\S]*Reading GitHub…/);
 });
 
 test("a project's page says that nothing is in the middle only when its pull requests were read", () => {

@@ -443,12 +443,16 @@ function homeView({
   // Facts come from the launcher, through the fix's own script in this page,
   // also while Home is closed.
   let github = null;
+  let heard = false;
   const subscribers = new Set();
   document.addEventListener("t3-rtl-home:facts", (event) => {
     const next = JSON.parse(event.detail);
-    // All the first answers together, so the page changes once and not with
-    // every repository.
-    if (!github && Object.values(next.repositories).some((facts) => facts.status === "waiting")) return;
+    const some = (status) => Object.values(next.repositories).some((facts) => facts.status === status);
+    const cached = !heard && some("read");
+    heard = true;
+    // Without a cache, all the first answers together, so the page changes once
+    // and not with every repository.
+    if (!github && !cached && some("waiting")) return;
     github = next;
     for (const changed of subscribers) changed();
   });
