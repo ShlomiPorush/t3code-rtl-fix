@@ -6,6 +6,8 @@ Turns the whole T3 Code app right to left, and aligns each user and assistant
 message from its own text while keeping code, commands, and file paths left to
 right.
 
+<img src="assets/screenshot.png" alt="T3 Code laid out right to left, with the sidebar on the right. Labels mark the Working section, the usage limits, and the GitHub repository status." width="100%">
+
 The fix is applied every time the T3 Code desktop app starts. It removes the
 need to open DevTools and paste CSS manually.
 
