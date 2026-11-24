@@ -168,7 +168,7 @@ function homeView({
 
   function rowsOf(entry, facts) {
     const threads = entry.threads.map((item) => threadRow(entry, item, facts));
-    const linked = new Set(threads.flatMap((row) => row.linked));
+    const linked = new Set(threads.filter((row) => !row.old).flatMap((row) => row.linked));
     const others = pullsOf(facts).filter((pull) => !linked.has(pull.number));
     const rowsFor = (update) => others.filter((pull) => pull.update === update).map((pull) => pullRow(entry, pull));
     return {

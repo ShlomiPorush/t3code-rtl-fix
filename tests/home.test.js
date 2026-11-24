@@ -602,6 +602,9 @@ test("a pull request is on the row of the thread it is linked to, and otherwise 
   assert.match(rows[1], /^Pull 2\n1m\n#2 conflicts$/);
   assert.equal(rows.length, 2, "dependency updates have no row");
   assert.ok(page.links.some((item) => item.name.trim() === "#1 ready to merge" && item.href === "https://github.com/o/app/pull/1"));
+  const left = [thread({ createdAt: before(24 * 20), pullRequests: [link(1)] })];
+  const apart = renderHome({ projects, threads: left, github: answered({ "o/app": facts({ pulls: [pullFact(1)], openPulls: 1 }) }) }).having("t3h-row");
+  assert.match(apart[0], /^Pull 1/, "a thread left long ago does not hide its pull request");
   assert.match(renderHome({ projects, threads }).having("t3h-row")[0], /#1 open\n#7 open\n#8 open$/, "T3 Code's links alone, until GitHub is read");
 });
 
