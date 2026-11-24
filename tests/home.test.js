@@ -2,8 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
-const { ALERTS_FRESH_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
+const { BACKGROUND_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
 const { createWorkingShelfService, URL_PATTERN } = require("../src/working-shelf");
 const { createExtrasService } = require("../src/extras");
 const { HOME_CSS, homeView } = require("../src/home-view");
@@ -219,7 +222,7 @@ test("dependency updates are known by their author alone", () => {
   assert.deepEqual(read.pulls.map((item) => item.update), [true, true, true, true, false, false]);
 });
 
-function github({ answers = () => answer(repository()), alerts = () => "" } = {}) {
+function github({ answers = () => answer(repository()), alerts = () => "", ...options } = {}) {
   const calls = [];
   const alertCalls = [];
   let time = 1e6;
@@ -240,7 +243,7 @@ function github({ answers = () => answer(repository()), alerts = () => "" } = {}
     const result = answers(`${owner}/${name}`);
     return typeof result === "string" ? { stdout: result, stderr: "", error: null } : result;
   };
-  const service = createHomeGithub({ run, now: () => time });
+  const service = createHomeGithub({ run, now: () => time, ...options });
   return { calls, alertCalls, service, most: () => most, pass: (ms) => (time += ms) };
 }
 const settle = async () => {
@@ -282,9 +285,6 @@ test("alerts leave gh as words, secrets stay hidden, and alerts of a failed read
   assert.ok(secrets.some((arg) => arg.includes("hide_secret=true")));
   assert.equal(secrets.at(-1), '.[] | "secret"');
   pass(FRESH_MS);
-  assert.equal((await read()).alerts.total, 2, "alerts stay while they are fresh");
-  assert.equal(alertCalls.length, 3);
-  pass(ALERTS_FRESH_MS - FRESH_MS);
   await read();
   assert.equal(alertCalls.length, 6);
   broken = true;
@@ -353,6 +353,92 @@ test("facts are read again only when they are old, for every window together, fa
   assert.equal(again.at(-1).repositories["o/one"].readAt, 1e6 + FRESH_MS, "facts are from when their read started");
 });
 
+test("while Home is closed, facts are read again once an hour, for the windows that asked, and only while Home is on", async () => {
+  let on = true;
+  const { calls, service, pass } = github({ isOn: () => on });
+  service.read("a", ["o/one"], () => {});
+  await settle();
+  const refreshed = async () => {
+    service.refresh();
+    await settle();
+    return calls.length;
+  };
+  pass(BACKGROUND_MS - 1);
+  assert.equal(await refreshed(), 1);
+  pass(1);
+  assert.equal(await refreshed(), 2);
+  pass(BACKGROUND_MS);
+  on = false;
+  assert.equal(await refreshed(), 2);
+  on = true;
+  service.forget("a");
+  assert.equal(await refreshed(), 2);
+});
+
+const folder = (t) => {
+  const made = fs.mkdtempSync(path.join(os.tmpdir(), "t3-home-cache-"));
+  t.after(() => fs.rmSync(made, { recursive: true, force: true }));
+  return path.join(made, "home-cache.json");
+};
+
+test("a restart shows the saved facts at once, and reads only the old ones again", async (t) => {
+  const file = folder(t);
+  const first = github({ file });
+  first.service.read("a", ["o/one", "o/gone"], () => {});
+  await settle();
+  first.service.read("a", ["o/one"], () => {});
+  first.service.note("o/one", { issues: { value: 9 }, pulls: null });
+  const next = github({ file });
+  const got = [];
+  next.service.read("a", ["o/one"], (facts) => got.push(facts.repositories["o/one"]));
+  assert.deepEqual([got[0].status, got[0].issues, got[0].pulls.length], ["read", 9, 1]);
+  await settle();
+  assert.equal(next.calls.length, 0);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, "utf8")).repositories), ["o/one"], "only the projects that T3 Code has");
+  for (const damaged of ["{", '{"format":0,"repositories":{"o/one":{}}}', "null"]) {
+    fs.writeFileSync(file, damaged);
+    const empty = [];
+    github({ file }).service.read("a", ["o/one"], (facts) => empty.push(facts.repositories["o/one"].status));
+    assert.equal(empty[0], "waiting", damaged);
+    await settle();
+  }
+});
+
+test("the thread details card's counts update Home, keep what they do not say, and are not read again", async () => {
+  const { alertCalls, calls, service, pass } = github({ alerts: (args) => (args.join(" ").includes("dependabot") ? "critical\n" : "") });
+  const got = [];
+  service.read("a", ["o/one"], (facts) => got.push(facts.repositories["o/one"]));
+  await settle();
+  assert.equal(alertCalls.length, 3);
+  const item = (number, author = "someone", draft = false) => ({ number, title: `New ${number}`, author, time: 5, draft });
+  const list = (...severities) => ({ value: severities.length, capped: false, alerts: severities.map((severity) => ({ severity })) });
+  const counts = {
+    issues: { value: 12 }, pulls: { value: 3, items: [item(8, "dependabot"), item(9, "someone", true), item(7)] },
+    dependabot: list("high", "low"), codeScanning: list("high"), secretScanning: list(),
+  };
+  pass(FRESH_MS - 1);
+  service.note("O/One", counts);
+  let facts = got.at(-1);
+  assert.deepEqual([facts.issues, facts.openPulls, facts.cut], [12, 3, false]);
+  assert.deepEqual(facts.pulls.map(({ number, title, update, stage, note }) => [number, title, update, stage, note]), [
+    [8, "New 8", true, "open", "merge state unknown"], [9, "New 9", false, "open", "draft"], [7, "New 7", false, "ready", ""],
+  ]);
+  assert.deepEqual(facts.alerts, { total: 3, critical: 0, high: 2, sources: ["Dependabot", "code scanning", "secret scanning"] });
+  assert.equal(facts.release.tag, "v1");
+  pass(1);
+  service.read("a", ["o/one"], (next) => got.push(next.repositories["o/one"]));
+  await settle();
+  assert.deepEqual([calls.length, alertCalls.length], [2, 3], "the alerts are still fresh");
+
+  for (const less of [{ ...counts, codeScanning: null }, { ...counts, dependabot: { value: 200, capped: false, alerts: [{ severity: "low" }] } }, { ...counts, secretScanning: { ...list(), capped: true } }]) {
+    service.note("o/one", less);
+    assert.equal(got.at(-1).alerts.total, 3, "counts that cover less do not replace them");
+  }
+  service.note("o/unknown", counts);
+  service.note("o/one", { issues: null, pulls: null, dependabot: null, codeScanning: null, secretScanning: null });
+  assert.equal(got.at(-1).issues, 12, "what could not be read changes nothing");
+});
+
 test("facts from before a failed read stay, marked as old, and one failure is not a problem of all", async () => {
   let broken = false;
   const missing = { stdout: "", stderr: "", error: Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }) };
@@ -388,7 +474,7 @@ function extras({ homePage = true } = {}) {
     },
     store: { get: () => ({ homePage }), reload() {}, change: async () => ({ ok: true }) },
     reader: { read: async () => ({ accounts: [], problem: null }) },
-    homeGithub: { read: (key, names, deliver) => (asked.push([key, names]), deliver({ problem: null, repositories: {} })) },
+    homeGithub: { read: (key, names, deliver) => (asked.push([key, names]), deliver({ problem: null, repositories: {} })), forget: (key) => asked.push(["forget", key]) },
   });
   return { asked, evaluated, service };
 }
@@ -403,6 +489,8 @@ test("only the fix's own world can ask, only for repositories, and only while Ho
   await on.service.handle("s", 5, message);
   assert.deepEqual(on.asked, [["s", ["o/r"]]]);
   assert.match(on.evaluated.at(-1), /"kind":"home"/);
+  on.service.forget("s");
+  assert.deepEqual(on.asked.at(-1), ["forget", "s"]);
 
   const off = extras({ homePage: false });
   await off.service.attach("s");

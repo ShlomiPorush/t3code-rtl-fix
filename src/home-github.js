@@ -4,15 +4,20 @@
 // security alerts of the asked repositories stand, read through the gh CLI,
 // which keeps its own sign-in. The token never reaches the page.
 
+const fs = require("node:fs");
 const { runFile } = require("./repo-status");
 
 // One query per repository: GitHub answers a large one slowly, and fails a
 // query of several together with its neighbors.
 const LANES = 4;
 const PULLS = 30;
-const FRESH_MS = 5 * 60 * 1000;
-// Alerts are three of the four requests, and change seldom.
-const ALERTS_FRESH_MS = 15 * 60 * 1000;
+// Older facts are read again when Home opens.
+const FRESH_MS = 15 * 60 * 1000;
+// Older facts are read again while Home is closed.
+const BACKGROUND_MS = 60 * 60 * 1000;
+const CHECK_MS = 5 * 60 * 1000;
+// A file of another format is not read.
+const FORMAT = 1;
 
 const REPOSITORY = /^[A-Za-z0-9_-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
 
@@ -35,7 +40,7 @@ const QUERY = `query($owner: String!, $name: String!) {
 // Each read prints one word per alert. GitHub hides the secrets themselves.
 const ALERTS = [
   { source: "Dependabot", path: "dependabot/alerts?state=open&per_page=100", words: ".[].security_advisory.severity" },
-  { source: "code scanning", path: "code-scanning/alerts?state=open&per_page=100", words: '.[] | (.rule.security_severity_level // "other")' },
+  { source: "code scanning", path: "code-scanning/alerts?state=open&per_page=100", words: '.[] | (.rule.security_severity_level // (if .rule.severity == "error" then "high" else "other" end))' },
   { source: "secret scanning", path: "secret-scanning/alerts?state=open&per_page=100&hide_secret=true", words: '.[] | "secret"' },
 ];
 
@@ -59,6 +64,8 @@ function stageOf(pull, checks) {
   return { stage: "open", tone: "", note: notes[pull.mergeStateStatus] || "merge state unknown" };
 }
 
+const isUpdate = (login) => /^(dependabot|renovate)(\[bot\])?$/i.test(login || "");
+
 function readPull(node) {
   if (!Number.isInteger(node?.number)) return null;
   const checks = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
@@ -66,7 +73,7 @@ function readPull(node) {
     number: node.number,
     title: typeof node.title === "string" ? node.title.slice(0, 300) : "",
     at: Date.parse(node.updatedAt) || null,
-    update: /^(dependabot|renovate)(\[bot\])?$/i.test(node.author?.login || ""),
+    update: isUpdate(node.author?.login),
     ...stageOf(node, checks),
   };
 }
@@ -122,16 +129,67 @@ function readAlerts(results) {
   return { total: words.length, critical: having("critical"), high: having("high"), sources: answered.map(({ source }) => source) };
 }
 
+// The alerts in the counts of the thread details card, or null when they cover
+// less than is known already.
+function noteAlerts(before, { dependabot, codeScanning, secretScanning }) {
+  const answered = [["Dependabot", dependabot], ["code scanning", codeScanning], ["secret scanning", secretScanning]].filter(([, found]) => found);
+  const sources = answered.map(([source]) => source);
+  if (sources.length === 0 || before?.sources.some((source) => !sources.includes(source))) return null;
+  if (answered.some(([, found]) => found.capped || found.alerts.length < found.value)) return null;
+  const alerts = answered.flatMap(([, found]) => found.alerts);
+  const having = (severity) => alerts.filter((alert) => alert.severity === severity).length;
+  return { total: alerts.length, critical: having("critical"), high: having("high"), sources };
+}
+
+// The pull requests in the counts of the thread details card, which do not say
+// whether one can be merged.
+function notePulls(before, { value, items }) {
+  const pulls = items.map(({ number, title, author, time, draft }) => {
+    const known = before.find((pull) => pull.number === number);
+    const stage = known ? { stage: known.stage, tone: known.tone, note: known.note } : { stage: "open", tone: "", note: draft ? "draft" : "merge state unknown" };
+    return { number, title, at: time, update: isUpdate(author), ...stage };
+  });
+  return { pulls, openPulls: value, cut: pulls.length !== value };
+}
+
 // One set of lanes reads for all windows. Facts are kept per repository, so a
 // request is answered at once with what is known, and again as facts arrive.
-function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}) {
+function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file = null, isOn = () => true } = {}) {
   const known = new Map();
   const reading = new Set();
   const queue = new Set();
   const alertQueue = new Set();
-  const waiting = new Map();
+  const windows = new Map();
   let lanes = 0;
   let ghMissing = false;
+  let loaded = false;
+  let timer = null;
+
+  function load() {
+    loaded = true;
+    try {
+      const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (saved.format === FORMAT) for (const [name, entry] of Object.entries(saved.repositories)) known.set(name, entry);
+    } catch {
+      // The first start has no file, and a damaged one is written again.
+    }
+  }
+
+  function save() {
+    if (!file) return;
+    const listed = new Set([...windows.values()].flatMap(({ repositories }) => repositories));
+    const repositories = Object.fromEntries([...known].filter(([name, entry]) => listed.has(name) && entry.facts));
+    try {
+      fs.writeFileSync(`${file}.tmp`, JSON.stringify({ format: FORMAT, repositories }), { mode: 0o600 });
+      fs.renameSync(`${file}.tmp`, file);
+    } catch (error) {
+      log(`Home: the cache could not be saved: ${error.message}`);
+    }
+  }
+
+  function tellWindows() {
+    for (const { repositories, deliver } of windows.values()) deliver(snapshot(repositories));
+  }
 
   function snapshot(repositories) {
     const facts = {};
@@ -160,10 +218,10 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
       log(`Home: ${name} could not be read: ${(result.stderr || result.error?.message || "no answer").trim().split("\n")[0].slice(0, 200)}`);
     }
     known.set(name, facts
-      ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null, alertsAt: before?.alertsAt ?? -Infinity }
+      ? { triedAt, readAt: triedAt, failed: false, facts, alerts: before?.alerts ?? null, alertsAt: before?.alertsAt ?? 0 }
       : { triedAt, readAt: before?.readAt ?? null, failed: true, facts: before?.facts ?? null, alerts: null });
     if (!facts) alertQueue.delete(name);
-    else if (triedAt - known.get(name).alertsAt >= ALERTS_FRESH_MS) alertQueue.add(name);
+    else if (triedAt - known.get(name).alertsAt >= FRESH_MS) alertQueue.add(name);
   }
 
   // A newer read of the repository has an entry of its own, which keeps the
@@ -193,25 +251,63 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
     lanes += 1;
     for (let job = nextJob(); job; job = nextJob()) {
       await job();
-      for (const { repositories, deliver } of waiting.values()) deliver(snapshot(repositories));
+      tellWindows();
     }
     lanes -= 1;
-    if (lanes === 0) waiting.clear();
+    if (lanes === 0) save();
+  }
+
+  function readOlder(repositories, age) {
+    for (const name of repositories) {
+      const entry = known.get(name);
+      if (!reading.has(name) && (!entry || now() - entry.triedAt >= age)) queue.add(name);
+    }
+    if (queue.size === 0) return;
+    for (let free = LANES - lanes; free > 0; free -= 1) void lane();
+  }
+
+  function refresh() {
+    if (!isOn()) return;
+    for (const { repositories } of windows.values()) readOlder(repositories, BACKGROUND_MS);
   }
 
   // key names the window that asks. Its newest request replaces the one before.
   function read(key, repositories, deliver) {
+    if (file && !loaded) load();
+    windows.set(key, { repositories, deliver });
+    timer ||= setInterval(refresh, CHECK_MS).unref();
     deliver(snapshot(repositories));
-    for (const name of repositories) {
-      const entry = known.get(name);
-      if (!reading.has(name) && (!entry || now() - entry.triedAt >= FRESH_MS)) queue.add(name);
-    }
-    if (lanes === 0 && queue.size === 0) return;
-    waiting.set(key, { repositories, deliver });
-    for (let free = LANES - lanes; free > 0; free -= 1) void lane();
+    readOlder(repositories, FRESH_MS);
   }
 
-  return { read };
+  function forget(key) {
+    windows.delete(key);
+    if (windows.size > 0) return;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  // The thread details card reads counts of the same repositories, so Home
+  // gets them without a request of its own.
+  function note(slug, counts) {
+    const name = slug.toLowerCase();
+    const entry = known.get(name);
+    if (!entry?.facts) return;
+    const alerts = noteAlerts(entry.alerts, counts);
+    known.set(name, {
+      ...entry,
+      facts: {
+        ...entry.facts,
+        ...(counts.issues ? { issues: counts.issues.value } : {}),
+        ...(counts.pulls ? notePulls(entry.facts.pulls, counts.pulls) : {}),
+      },
+      ...(alerts ? { alerts, alertsAt: now() } : {}),
+    });
+    tellWindows();
+    save();
+  }
+
+  return { read, refresh, forget, note };
 }
 
-module.exports = { ALERTS_FRESH_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf };
+module.exports = { BACKGROUND_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf };

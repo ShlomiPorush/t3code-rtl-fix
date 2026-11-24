@@ -462,12 +462,16 @@ function homeView({
     const asked = JSON.stringify(repositories);
     React.useEffect(() => {
       const ask = () => {
-        if (asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
+        if (document.visibilityState === "visible" && asked !== "[]") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: asked }));
       };
       // The fix's script can start after this page.
       document.addEventListener("t3-rtl-home:ready", ask);
+      document.addEventListener("visibilitychange", ask);
       ask();
-      return () => document.removeEventListener("t3-rtl-home:ready", ask);
+      return () => {
+        document.removeEventListener("t3-rtl-home:ready", ask);
+        document.removeEventListener("visibilitychange", ask);
+      };
     }, [asked]);
     return repositories.length > 0 ? current : null;
   }

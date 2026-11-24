@@ -224,6 +224,7 @@ function createExtrasService({
 
   function forget(sessionId) {
     sessions.delete(sessionId);
+    homeGithub?.forget(sessionId);
   }
 
   return { attach, navigated, handle, forget };

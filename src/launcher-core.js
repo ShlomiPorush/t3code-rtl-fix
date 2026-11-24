@@ -121,6 +121,7 @@ function prepareCore({ send, log, rootDirectory }) {
     log(`Home page ${state(homePage)}. Boring sidebar: Working ${state(next.working)}, Done ${state(next.done)}, plain pinned ${state(next.pinned)}. ${reloaded} windows reloaded`);
   }
 
+  let homeGithub = null;
   let repoStatus = null;
   let repoStatusBinding = null;
   let repoStatusRuns = false;
@@ -132,6 +133,7 @@ function prepareCore({ send, log, rootDirectory }) {
       send: (...args) => send(...args),
       log,
       enabled: initialSettings.repoStatus !== false && repoStatusRuns,
+      onCounts: (slug, counts) => homeGithub?.note(slug, counts),
     });
   } catch (error) {
     log(`Repository status is off: ${error.message}`);
@@ -152,6 +154,7 @@ function prepareCore({ send, log, rootDirectory }) {
       const { EXTRAS_BINDING, createExtrasService } = require("./extras");
       const { createHomeGithub } = require("./home-github");
       extrasBinding = EXTRAS_BINDING;
+      homeGithub = createHomeGithub({ log, file: path.join(rootDirectory, "home-cache.json"), isOn: () => settingsStore.get().homePage });
       extras = createExtrasService({
         send: (...args) => send(...args),
         log,
@@ -159,7 +162,7 @@ function prepareCore({ send, log, rootDirectory }) {
         reader: createUsageReader({ t3Home, log }),
         repoStatusAvailable: () => !!repoStatus && repoStatusRuns,
         updates,
-        homeGithub: createHomeGithub({ log }),
+        homeGithub,
       });
     } catch (error) {
       log(`Extras are off: ${error.message}`);
