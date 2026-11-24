@@ -26,8 +26,9 @@ const DEFAULTS = Object.freeze({
   boringWorkingShelf: false,
   boringDoneShelf: false,
   boringPlainPinned: false,
+  homePage: false,
 });
-const BOOLEAN_KEYS = new Set(["rtlLayout", "repoStatus", "usageLimits", "boringWorkingShelf", "boringDoneShelf", "boringPlainPinned"]);
+const BOOLEAN_KEYS = new Set(["rtlLayout", "repoStatus", "usageLimits", "boringWorkingShelf", "boringDoneShelf", "boringPlainPinned", "homePage"]);
 
 // T3 Code reads its home from T3CODE_HOME, trimmed, with a leading ~ expanded
 // and a relative path taken from the home folder. Empty means ~/.t3.
@@ -71,6 +72,7 @@ function pick(raw) {
       typeof source.boringWorkingShelf === "boolean" ? source.boringWorkingShelf : DEFAULTS.boringWorkingShelf,
     boringDoneShelf: typeof source.boringDoneShelf === "boolean" ? source.boringDoneShelf : DEFAULTS.boringDoneShelf,
     boringPlainPinned: typeof source.boringPlainPinned === "boolean" ? source.boringPlainPinned : DEFAULTS.boringPlainPinned,
+    homePage: typeof source.homePage === "boolean" ? source.homePage : DEFAULTS.homePage,
   };
 }
 

@@ -89,6 +89,9 @@ need to open DevTools and paste CSS manually.
 - A thread opens at the start of the agent's last reply, so a long reply
   reads from its first line. See
   [Opening at the last reply](#opening-at-the-last-reply).
+- An optional Home page shows what is in the middle in every project, with
+  its issues, pull requests, and security alerts, in place of the new thread
+  that T3 Code opens with. See [Home page](docs/home-page.md).
 - T3 Code itself is not patched or repackaged.
 
 ## Right-to-left layout
@@ -337,8 +340,8 @@ the fix:
 - **RTL Fix** shows the installed version, checks for a newer one, and installs
   it. See [Updates from T3 Code](#updates-from-t3-code).
 
-Changes apply at once, without a restart. A change of a boring sidebar
-switch reloads T3 Code's windows. They are saved in `settings.json`
+Changes apply at once, without a restart. A change of the Home page switch or
+a boring sidebar switch reloads T3 Code's windows. They are saved in `settings.json`
 in the installed folder. The installer never writes this file,
 so an update keeps your choices, and a file that the fix cannot read is never
 overwritten: the section says so, and changes wait until you fix or delete it.
@@ -540,15 +543,16 @@ repairs the shortcuts and shows the message once. It only touches shortcuts
 that the installer of the fix changed, so the uninstaller still restores all
 of them.
 
-When a boring sidebar switch is on, the launcher asks
-Chromium to pause the response for T3 Code's main script,
-`t3code://app/assets/main-*.js`, before the first window loads. It changes the
-sidebar code in that response only when every place it changes is found
-exactly once, and otherwise passes the script on unchanged. Every other
-request is not touched. A reload or a new window in the same session usually
-gets the script from Chromium's cache without a new pause. So when the switch
-changes, the launcher reloads each T3 Code window without the cache, which
-loads the script again through the pause. A reload restarts only the window.
+When the Home page switch or a boring sidebar switch is on, the launcher asks
+Chromium to pause the responses for T3 Code's main script,
+`t3code://app/assets/main-*.js`, and for the script of its start page,
+`t3code://app/assets/_chat.index-*.js`, before the first window loads. It
+changes the sidebar code or the start page in a response only when its switch
+is on and every place it changes is found exactly once, and otherwise passes
+the script on unchanged. Every other request is not touched. A reload or a new
+window in the same session usually gets a script from Chromium's cache without
+a new pause. So when a switch changes, the launcher empties that cache and
+reloads each T3 Code window, which loads the scripts again through the pause. A reload restarts only the window.
 T3 Code's server, which runs the sessions, keeps running.
 
 The launcher has two parts. `t3-rtl-launcher.js` opens T3 Code and keeps the

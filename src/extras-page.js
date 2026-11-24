@@ -870,6 +870,13 @@ function pageMain(config) {
       }),
     ));
     card.appendChild(settingRow(
+      "Home page",
+      "Open T3 Code on a page that shows where every project stands, instead of a new thread. Reads GitHub with the gh command. A change reloads the window. Running sessions keep running.",
+      sw(settings.homePage === true, locked, "Home page", function (value) {
+        change({ type: "set", key: "homePage", value: value });
+      }),
+    ));
+    card.appendChild(settingRow(
       "Working section in the boring sidebar",
       "Show T3 Code's Working section with the boring sidebar, at the top above Pinned. Needs Sidebar › Working section on. A change reloads the window. Running sessions keep running.",
       sw(settings.boringWorkingShelf === true, locked, "Working section in the boring sidebar", function (value) {
@@ -1017,6 +1024,10 @@ function pageMain(config) {
 
   function receive(data) {
     if (!data || typeof data !== "object") return false;
+    if (data.kind === "home") {
+      document.dispatchEvent(new CustomEvent("t3-rtl-home:facts", { detail: JSON.stringify(data.github) }));
+      return true;
+    }
     if (data.settings) state.settings = data.settings;
     if (Array.isArray(data.accounts)) state.accounts = data.accounts;
     if (typeof data.repoStatusAvailable === "boolean") state.repoStatusAvailable = data.repoStatusAvailable;
@@ -1046,10 +1057,27 @@ function pageMain(config) {
     claim();
     state.busy = false;
     notify({ type: "check" });
+    homeReady();
   }
+
+  // The Home page is in T3 Code's world. It asks for repositories only, and
+  // its other calls have no way here.
+  function homeReady() {
+    document.dispatchEvent(new CustomEvent("t3-rtl-home:ready"));
+  }
+  document.addEventListener("t3-rtl-home:ask", function (event) {
+    var repositories = null;
+    try {
+      repositories = JSON.parse(event.detail);
+    } catch (error) {
+      return;
+    }
+    notify({ type: "home", repositories: repositories });
+  });
 
   register(config.receiver);
   claim();
+  homeReady();
 
   document.addEventListener("pointerdown", function (event) {
     if (listbox && !listbox.contains(event.target) && event.target !== listTrigger && !(listTrigger && listTrigger.contains(event.target))) {

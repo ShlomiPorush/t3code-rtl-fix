@@ -98,6 +98,7 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
       totalCount
       nodes { number title updatedAt isDraft reviewDecision headRefName baseRefName author { login } }
     }
+    hasVulnerabilityAlertsEnabled
     vulnerabilityAlerts(states: OPEN, first: ${DEPENDABOT_PAGE_SIZE}) {
       totalCount
       nodes { number securityVulnerability { severity package { name } } }
@@ -823,7 +824,7 @@ async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
   return {
     issues: readIssues(repository.issues),
     pulls: readPulls(repository.pullRequests),
-    dependabot: readDependabot(repository.vulnerabilityAlerts),
+    dependabot: repository.hasVulnerabilityAlertsEnabled === false ? null : readDependabot(repository.vulnerabilityAlerts),
     codeScanning,
     secretScanning,
     branches: readBranches(repository, local, now),
@@ -940,6 +941,7 @@ function createRepoStatusService({
   findProjectFolder = (projectId) => lookupProjectFolder(databaseDirectory, projectId),
   open = (url) => openExternal(run, url),
   enabled: initiallyEnabled = true,
+  onCounts = () => {},
 } = {}) {
   const sessions = new Map();
   // Turning the section off or on starts a new generation. Work that began
@@ -1017,9 +1019,11 @@ function createRepoStatusService({
     const maxAge = reason === "interval" ? REFRESH_INTERVAL_MS - 30 * 1000 : FRESH_MS;
     // Local branches belong to a folder, so two clones of one repository on
     // GitHub keep separate entries.
-    return cached(counts, JSON.stringify([repo.slug, repo.folder]), maxAge, () =>
-      fetchCounts(run, repo, { folder: repo.folder, now: now() }),
-    );
+    return cached(counts, JSON.stringify([repo.slug, repo.folder]), maxAge, async () => {
+      const found = await fetchCounts(run, repo, { folder: repo.folder, now: now() });
+      onCounts(repo.slug, found);
+      return found;
+    });
   }
 
   // A new thread names its project, which the page reads from T3 Code's
@@ -2451,4 +2455,5 @@ module.exports = {
   parseThreadLocation,
   parseThreadPath,
   repositoryUrl,
+  runFile,
 };
