@@ -146,11 +146,11 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now } = {}
   async function readOne(name) {
     const [owner, repo] = name.split("/");
     reading.add(name);
+    const triedAt = now();
     const result = await run("gh", [
       "api", "--hostname", "github.com", "graphql", "-f", `query=${QUERY}`, "-f", `owner=${owner}`, "-f", `name=${repo}`,
     ]);
     reading.delete(name);
-    const triedAt = now();
     const facts = readAnswer(result.stdout);
     ghMissing = result.error?.code === "ENOENT";
     const before = known.get(name);

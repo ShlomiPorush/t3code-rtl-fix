@@ -337,9 +337,11 @@ test("facts are read again only when they are old, for every window together, fa
   assert.equal(cached.length, 1);
   assert.equal(cached[0].repositories["o/bad"].status, "unavailable");
   pass(FRESH_MS);
-  read("a", ["o/one"]);
+  const again = read("a", ["o/one"]);
+  pass(1000);
   await settle();
   assert.equal(calls.length, 4);
+  assert.equal(again.at(-1).repositories["o/one"].readAt, 1e6 + FRESH_MS, "facts are from when their read started");
 });
 
 test("facts from before a failed read stay, marked as old, and one failure is not a problem of all", async () => {
