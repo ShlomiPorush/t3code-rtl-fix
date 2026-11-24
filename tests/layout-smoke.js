@@ -108,7 +108,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), "t3-rtl-layout-test-"));
 let child = null;
 const pending = new Map();
 let nextId = 1;
-let traced = [];
+const traced = [];
 let traceComplete = null;
 let incoming = Buffer.alloc(0);
 
@@ -126,7 +126,6 @@ function check(condition, message) {
 
 // How many elements the browser restyled between the two marks an expression makes.
 async function restyledBy(sessionId, expression) {
-  traced = [];
   const complete = new Promise((resolve) => (traceComplete = resolve));
   await send("Tracing.start", {
     traceConfig: { includedCategories: ["devtools.timeline", "blink.user_timing"], excludedCategories: ["*"] },
