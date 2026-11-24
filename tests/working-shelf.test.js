@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require("../src/working-shelf");
+const { ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
 
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
@@ -561,7 +562,7 @@ function installedServerAsar() {
   });
 }
 
-function readInstalledMainChunks(asarPath) {
+function readInstalledChunks(asarPath, wanted) {
   const fd = fs.openSync(asarPath, "r");
   try {
     const sizes = Buffer.alloc(16);
@@ -574,7 +575,7 @@ function readInstalledMainChunks(asarPath) {
     for (const part of ["apps", "server", "dist", "client", "assets"]) node = node?.files?.[part];
     const chunks = [];
     for (const [name, entry] of Object.entries(node?.files || {})) {
-      if (!/^main-.*\.js$/.test(name) || entry.unpacked || entry.files) continue;
+      if (!wanted.test(name) || entry.unpacked || entry.files) continue;
       const buffer = Buffer.alloc(entry.size);
       fs.readSync(fd, buffer, 0, entry.size, base + Number(entry.offset));
       chunks.push({ name, source: buffer.toString("utf8") });
@@ -591,7 +592,7 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
   const asarPath = installedServerAsar();
   if (!asarPath) return t.skip("T3 Code is not installed here");
-  const chunk = readInstalledMainChunks(asarPath).find((item) => item.source.includes("sidebarWorkingShelfEnabled}"));
+  const chunk = readInstalledChunks(asarPath, /^main-.*\.js$/).find((item) => item.source.includes("sidebarWorkingShelfEnabled}"));
   assert.ok(chunk, "the installed T3 Code has a main script with the sidebar");
   for (const sections of [WORKING, DONE, PINNED, { ...BOTH, pinned: true }]) {
     const alone = patchSidebarChunk(chunk.source, sections);
@@ -611,6 +612,23 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-working-shelf-"));
   try {
     const file = path.join(directory, "main.mjs");
+    fs.writeFileSync(file, result.source);
+    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the installed T3 Code's start route is recognized and stays valid", (t) => {
+  if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
+  const asarPath = installedServerAsar();
+  if (!asarPath) return t.skip("T3 Code is not installed here");
+  const [chunk] = readInstalledChunks(asarPath, /^_chat\.index-.*\.js$/);
+  const result = patchHomeRoute(chunk.source);
+  assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-home-route-"));
+  try {
+    const file = path.join(directory, "route.mjs");
     fs.writeFileSync(file, result.source);
     execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
   } finally {
@@ -647,12 +665,12 @@ const paused = (overrides = {}) => ({
   ...overrides,
 });
 
-test("the browser watches only T3 Code's main script, and a refusal is only logged", async () => {
+test("the browser watches T3 Code's main script and start route, and a refusal is only logged", async () => {
   const ok = fakeConnection();
   assert.equal(await createWorkingShelfService({ send: ok.send, sections: () => WORKING }).enable(), true);
   assert.deepEqual(ok.calls[0], {
     method: "Fetch.enable",
-    params: { patterns: [{ urlPattern: URL_PATTERN, resourceType: "Script", requestStage: "Response" }] },
+    params: { patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })) },
   });
   const refused = fakeConnection({ failEnable: true });
   const logs = [];
@@ -739,26 +757,28 @@ test("windows reload without the cache, and one that cannot reload is only logge
   const logs = [];
   const send = async (method, params, sessionId) => {
     calls.push({ method, params, sessionId });
-    if (sessionId === "gone") throw new Error("Page.reload: no session");
+    if (sessionId === "gone" && method === "Page.reload") throw new Error("Page.reload: no session");
     return {};
   };
   const service = createWorkingShelfService({ send, sections: () => WORKING, log: (m) => logs.push(m) });
   assert.equal(await service.reloadWindows(["a", "gone", "b"]), 2);
-  assert.deepEqual(calls, ["a", "gone", "b"].map((sessionId) => ({ method: "Page.reload", params: { ignoreCache: true }, sessionId })));
+  // The route script loads after the reload, so its cached copy goes first.
+  const evict = (sessionId) => [true, false].map((cacheDisabled) => ({ method: "Network.setCacheDisabled", params: { cacheDisabled }, sessionId }));
+  assert.deepEqual(calls.filter((call) => call.sessionId !== "gone"), ["a", "b"].flatMap((sessionId) => [...evict(sessionId), { method: "Page.reload", params: { ignoreCache: true }, sessionId }]));
   assert.match(logs.join("\n"), /could not be reloaded/);
   assert.equal(await service.reloadWindows([]), 0);
 });
 
 test("a change of a switch reloads only after the browser watches the script", () => {
   const core = fs.readFileSync(path.join(__dirname, "..", "src", "launcher-core.js"), "utf8");
-  const start = core.indexOf("async function switchSidebarSections(");
+  const start = core.indexOf("async function switchScripts(");
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
-  assert.match(body, /if \(Object\.keys\(next\)\.every\(\(name\) => next\[name\] === sidebarSections\[name\]\)\) return;/);
+  assert.match(body, /if \(nextHome === homePage && Object\.keys\(next\)\.every\(\(name\) => next\[name\] === sidebarSections\[name\]\)\) return;/);
   const watched = body.indexOf("await watchWorkingShelf()");
   assert.ok(watched > 0 && watched < body.indexOf("reloadWindows"), "watching starts before the reload");
   assert.match(body, /if \(!watching\) return;/);
-  assert.match(core, /void switchSidebarSections\(sectionsOf\(settings\)\)/);
+  assert.match(core, /void switchScripts\(sectionsOf\(settings\), settings\.homePage === true\)/);
   assert.match(body, /reloadWindows\(\[\.\.\.appPages\.values\(\)\]\)/);
 });
 

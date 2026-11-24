@@ -23,7 +23,12 @@
 // the code around stable strings, never written in here, because the minified
 // names change with every build.
 //
+// The service at the end also answers for the script of the Home page's route
+// (see home-route.js), because the browser takes one list of watched scripts.
+//
 // This module has no side effects when it is loaded, so tests can use it.
+
+const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("./home-route");
 
 const ID = "[\\w$]+";
 const URL_PATTERN = "t3code://app/assets/main-*.js";
@@ -540,18 +545,34 @@ function patchSidebarChunk(source, sections) {
   return { source: patched, applied: true };
 }
 
-// Answers the browser's paused requests for T3 Code's main script. Every
-// paused request is answered once: patched when a section is on and the code
-// is recognized, passed on unchanged otherwise.
-function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
+// Answers the browser's paused requests for T3 Code's main script and for the
+// script of its start route. Every paused request is answered once: patched
+// when its switch is on and the code is recognized, passed on unchanged otherwise.
+function createWorkingShelfService({ send, sections, home = () => false, log = () => {} } = {}) {
   const logged = new Set();
   const logOnce = (message) => {
     if (logged.has(message)) return;
     logged.add(message);
-    log(`Sidebar sections: ${message}`);
+    log(`T3 Code's scripts: ${message}`);
   };
 
   const isOn = (wanted) => wanted.working || wanted.done || wanted.pinned;
+
+  function patchSidebar(text) {
+    const wanted = sections();
+    if (!isOn(wanted)) return null;
+    const result = patchSidebarChunk(text, wanted);
+    // The rest goes on when a T3 Code update changes only what Done needs.
+    if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
+      logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
+      return patchSidebarChunk(text, { ...wanted, done: false });
+    }
+    return result;
+  }
+  const scripts = {
+    sidebar: { name: "sidebar", isOn: () => isOn(sections()), patch: patchSidebar, changed: "changed in the boring sidebar" },
+    home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
+  };
 
   // Interception stays on once enabled: turning the sections off makes every
   // paused request pass unchanged, so no request is left waiting by a
@@ -559,7 +580,7 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
   async function enable() {
     try {
       await send("Fetch.enable", {
-        patterns: [{ urlPattern: URL_PATTERN, resourceType: "Script", requestStage: "Response" }],
+        patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })),
       });
       return true;
     } catch (error) {
@@ -575,21 +596,16 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
       send("Fetch.continueRequest", { requestId }).catch((error) => {
         logOnce(`could not pass T3 Code's script on: ${error.message}`);
       });
+    const script = ROUTE_URL.test(params.request?.url || "") ? scripts.home : scripts.sidebar;
     try {
-      if (!isOn(sections()) || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
+      if (!script.isOn() || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
       const body = await send("Fetch.getResponseBody", { requestId });
       const text = body.base64Encoded ? Buffer.from(body.body || "", "base64").toString("utf8") : body.body || "";
       // The switches may have changed while the body was read.
-      const wanted = sections();
-      if (!isOn(wanted)) return await pass();
-      let result = patchSidebarChunk(text, wanted);
-      // The rest goes on when a T3 Code update changes only what Done needs.
-      if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
-        logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
-        result = patchSidebarChunk(text, { ...wanted, done: false });
-      }
+      const result = script.patch(text);
+      if (!result) return await pass();
       if (!result.applied) {
-        logOnce(`T3 Code's sidebar code was not recognized (${result.problem})`);
+        logOnce(`T3 Code's ${script.name} code was not recognized (${result.problem})`);
         return await pass();
       }
 
@@ -602,7 +618,7 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
         responseHeaders,
         body: Buffer.from(result.source, "utf8").toString("base64"),
       });
-      logOnce("changed in the boring sidebar");
+      logOnce(script.changed);
     } catch (error) {
       logOnce(`T3 Code's script was passed on unchanged: ${error.message}`);
       await pass();
@@ -616,6 +632,10 @@ function createWorkingShelfService({ send, sections, log = () => {} } = {}) {
     let reloaded = 0;
     for (const sessionId of sessionIds) {
       try {
+        // ignoreCache covers the scripts of the load itself. T3 Code loads its
+        // start page's script later, so the browser must forget its copy too.
+        await send("Network.setCacheDisabled", { cacheDisabled: true }, sessionId);
+        await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
         await send("Page.reload", { ignoreCache: true }, sessionId);
         reloaded += 1;
       } catch (error) {

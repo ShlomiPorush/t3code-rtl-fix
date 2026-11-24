@@ -12,10 +12,13 @@
 
 const crypto = require("node:crypto");
 const { buildExtrasPageSource } = require("./extras-page");
+const { readRequest: readHomeRequest } = require("./home-github");
 
 const EXTRAS_BINDING = "__t3Extras";
 const WORLD_NAME = "t3-extras";
 const MAX_MESSAGE_BYTES = 1024;
+// The Home page names every repository in one message.
+const MAX_HOME_MESSAGE_BYTES = 32 * 1024;
 
 function createExtrasService({
   send,
@@ -24,6 +27,7 @@ function createExtrasService({
   reader,
   repoStatusAvailable = () => false,
   updates = null,
+  homeGithub = null,
   protocol = "t3code:",
 } = {}) {
   const sessions = new Map();
@@ -84,6 +88,7 @@ function createExtrasService({
       boringWorkingShelf: settings.boringWorkingShelf,
       boringDoneShelf: settings.boringDoneShelf,
       boringPlainPinned: settings.boringPlainPinned,
+      homePage: settings.homePage,
       writable: settings.writable,
       problem: settings.problem,
     };
@@ -178,7 +183,9 @@ function createExtrasService({
   async function handle(sessionId, executionContextId, payload) {
     const session = sessions.get(sessionId);
     if (!session || session.contextId === null || executionContextId !== session.contextId) return;
-    if (typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_MESSAGE_BYTES) return;
+    if (typeof payload !== "string") return;
+    const size = Buffer.byteLength(payload, "utf8");
+    if (size > MAX_HOME_MESSAGE_BYTES) return;
     let message;
     try {
       message = JSON.parse(payload);
@@ -187,6 +194,13 @@ function createExtrasService({
     }
     if (!message || typeof message !== "object") return;
     const current = session.start;
+    if (message.type === "home") {
+      const repositories = readHomeRequest(message.repositories);
+      if (!homeGithub || !repositories || !store.get().homePage) return;
+      homeGithub.read(sessionId, repositories, (github) => void push(sessionId, current, () => ({ kind: "home", github })));
+      return;
+    }
+    if (size > MAX_MESSAGE_BYTES) return;
     if (message.type === "check") {
       await sendState(sessionId, current);
       return;

@@ -92,6 +92,7 @@ test("only the allowed settings and values are accepted", () => {
     boringWorkingShelf: false,
     boringDoneShelf: false,
     boringPlainPinned: false,
+    homePage: false,
   });
   assert.deepEqual(applyChange({}, { type: "set", key: "boringWorkingShelf", value: true }), { boringWorkingShelf: true });
   assert.equal(applyChange({}, { type: "set", key: "boringWorkingShelf", value: "on" }), null);
@@ -155,7 +156,7 @@ test("a settings file that cannot be parsed is never overwritten", async (t) => 
 test("a byte order mark is accepted and a missing file means the defaults", async (t) => {
   const { home, fix } = layout(t);
   const store = createSettingsStore({ directory: fix, t3Home: home });
-  assert.deepEqual(pick(store.get()), { rtlLayout: true, repoStatus: true, usageLimits: true, usageHiddenAccounts: [], chatWidth: null, boringWorkingShelf: false, boringDoneShelf: false, boringPlainPinned: false });
+  assert.deepEqual(pick(store.get()), { rtlLayout: true, repoStatus: true, usageLimits: true, usageHiddenAccounts: [], chatWidth: null, boringWorkingShelf: false, boringDoneShelf: false, boringPlainPinned: false, homePage: false });
   fs.writeFileSync(path.join(fix, "settings.json"), "\uFEFF{\"repoStatus\":false}", "utf8");
   assert.equal(createSettingsStore({ directory: fix, t3Home: home }).get().repoStatus, false);
 });

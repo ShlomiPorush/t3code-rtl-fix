@@ -2451,4 +2451,5 @@ module.exports = {
   parseThreadLocation,
   parseThreadPath,
   repositoryUrl,
+  runFile,
 };

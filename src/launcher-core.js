@@ -81,6 +81,7 @@ function prepareCore({ send, log, rootDirectory }) {
     pinned: settings.boringPlainPinned === true,
   });
   let sidebarSections = sectionsOf(initialSettings);
+  let homePage = initialSettings.homePage === true;
   let workingShelf = null;
   let workingShelfWatch = null;
   try {
@@ -88,15 +89,16 @@ function prepareCore({ send, log, rootDirectory }) {
     workingShelf = createWorkingShelfService({
       send: (...args) => send(...args),
       sections: () => sidebarSections,
+      home: () => homePage,
       log,
     });
   } catch (error) {
-    log(`The changes to the boring sidebar are off: ${error.message}`);
+    log(`The Home page and the changes to the boring sidebar are off: ${error.message}`);
   }
 
   // Never turned off, so a request paused while a switch turns off is still answered.
   function watchWorkingShelf() {
-    if (!workingShelf || !Object.values(sidebarSections).includes(true)) return Promise.resolve(false);
+    if (!workingShelf || (!homePage && !Object.values(sidebarSections).includes(true))) return Promise.resolve(false);
     if (!workingShelfWatch) {
       workingShelfWatch = workingShelf.enable().then((watching) => {
         if (!watching) workingShelfWatch = null;
@@ -106,14 +108,15 @@ function prepareCore({ send, log, rootDirectory }) {
     return workingShelfWatch;
   }
 
-  async function switchSidebarSections(next) {
-    if (Object.keys(next).every((name) => next[name] === sidebarSections[name])) return;
+  async function switchScripts(next, nextHome) {
+    if (nextHome === homePage && Object.keys(next).every((name) => next[name] === sidebarSections[name])) return;
     sidebarSections = next;
-    const watching = Object.values(next).includes(true) ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
+    homePage = nextHome;
+    const watching = homePage || Object.values(next).includes(true) ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
     if (!watching) return;
     const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
     const state = (on) => (on ? "on" : "off");
-    log(`Boring sidebar: Working ${state(next.working)}, Done ${state(next.done)}, plain pinned ${state(next.pinned)}, ${reloaded} windows reloaded`);
+    log(`Home page ${state(homePage)}. Boring sidebar: Working ${state(next.working)}, Done ${state(next.done)}, plain pinned ${state(next.pinned)}. ${reloaded} windows reloaded`);
   }
 
   let repoStatus = null;
@@ -145,6 +148,7 @@ function prepareCore({ send, log, rootDirectory }) {
     try {
       const { createUsageReader } = require("./usage-limits");
       const { EXTRAS_BINDING, createExtrasService } = require("./extras");
+      const { createHomeGithub } = require("./home-github");
       extrasBinding = EXTRAS_BINDING;
       extras = createExtrasService({
         send: (...args) => send(...args),
@@ -153,6 +157,7 @@ function prepareCore({ send, log, rootDirectory }) {
         reader: createUsageReader({ t3Home, log }),
         repoStatusAvailable: () => !!repoStatus && repoStatusRuns,
         updates,
+        homeGithub: createHomeGithub({ log }),
       });
     } catch (error) {
       log(`Extras are off: ${error.message}`);
@@ -164,7 +169,7 @@ function prepareCore({ send, log, rootDirectory }) {
         rtlLayout = nextLayout;
         for (const sessionId of layoutSessions) void switchLayout(sessionId);
       }
-      void switchSidebarSections(sectionsOf(settings));
+      void switchScripts(sectionsOf(settings), settings.homePage === true);
       const nextWidth = settings.chatWidth ?? null;
       if (nextWidth !== chatWidth) {
         chatWidth = nextWidth;

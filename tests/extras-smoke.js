@@ -191,6 +191,7 @@ async function run() {
     reader: { read: async () => ({ accounts, problem: null }) },
     repoStatusAvailable: () => true,
     updates,
+    homeGithub: { read: (key, repositories, deliver) => deliver({ problem: null, repositories: { [repositories[0]]: { status: "waiting" } } }) },
     protocol: "http:",
   });
   dispatch = createDispatch({
@@ -418,9 +419,14 @@ async function run() {
   await clickOn(sessionId, usageSwitch);
   await waitFor(sessionId, `document.querySelector(${JSON.stringify(usageSwitch)}).getAttribute("aria-checked") === "true"`, "the switch to turn on");
 
-  // The boring sidebar's switches are off by default and are saved when clicked.
-  for (const [name, key] of [["Working section", "boringWorkingShelf"], ["Done section", "boringDoneShelf"], ["Plain pinned threads", "boringPlainPinned"]]) {
-    const shelfSwitch = `[data-t3-extras-settings] [role=switch][aria-label="${name} in the boring sidebar"]`;
+  // The switches of the Home page and the boring sidebar are off by default and are saved when clicked.
+  for (const [name, key] of [
+    ["Home page", "homePage"],
+    ["Working section in the boring sidebar", "boringWorkingShelf"],
+    ["Done section in the boring sidebar", "boringDoneShelf"],
+    ["Plain pinned threads in the boring sidebar", "boringPlainPinned"],
+  ]) {
+    const shelfSwitch = `[data-t3-extras-settings] [role=switch][aria-label="${name}"]`;
     if (await evaluate(sessionId, `document.querySelector(${JSON.stringify(shelfSwitch)}).getAttribute("aria-checked")`) !== "false") {
       throw new Error(`The ${name} switch is not off by default`);
     }
@@ -463,6 +469,13 @@ async function run() {
   // The checks below run on the new document and its frame.
   await waitFor(sessionId, `!window.__oldDocument && document.readyState === "complete" && !!window.__frameSaw`, "the new document");
   await waitFor(sessionId, `(${STRIP_TEXT} || "").startsWith("100% 83%")`, "the chips after a reload");
+  // The Home page, in the main world, gets its facts through DOM events only.
+  await store.change({ type: "set", key: "homePage", value: true });
+  await evaluate(sessionId, `(document.addEventListener("t3-rtl-home:facts", (event) => { window.__homeFacts = event.detail; }), document.addEventListener("t3-rtl-home:ready", () => { window.__homeReady = true; }), 1)`);
+  await evaluate(sessionId, `(document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: "not json" })), document.dispatchEvent(new CustomEvent("t3-rtl-home:ask", { detail: JSON.stringify(["o/r"]) })), 1)`);
+  await waitFor(sessionId, `window.__homeFacts === '{"problem":null,"repositories":{"o/r":{"status":"waiting"}}}'`, "the facts of the Home page");
+  await service.attach(sessionId);
+  await waitFor(sessionId, "window.__homeReady === true", "the ready event after a second start");
   const afterReload = await evaluate(sessionId, `typeof window.${EXTRAS_BINDING}`);
   if (afterReload !== "undefined") throw new Error("The binding reached the main world after a reload");
   if ((await probeFrame(sessionId)) !== "undefined") throw new Error("The frame reached the binding after a reload");
