@@ -36,8 +36,9 @@ branch or tag, the user or app that deployed, the commit, and the time.
   be long.
 - An environment whose last deployment was destroyed, such as a preview of a
   closed pull request, does not show.
-- The group reads up to 500 environments of the repository and shows up to 50
-  of them. In a repository with hundreds of environments, the section can take
-  a few seconds longer to show.
+- The group looks at the newest 500 deployments of the repository and shows up
+  to 50 environments. In a very busy repository, an environment deployed only
+  before those 500 deployments does not show, and the section can take a few
+  seconds longer to show.
 - When GitHub does not answer about deployments, or your account cannot read
   them, the group does not show. The other rows still show.

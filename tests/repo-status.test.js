@@ -238,27 +238,28 @@ test("the thread folder comes from T3 Code's database", (t) => {
   assert.equal(lookupProjectFolder(directory, "p3"), null);
 });
 
-function deploymentAnswer(environments, args, { pageSize = 100, recent = [] } = {}) {
+function deploymentAnswer(environments, args, { pageSize = 100 } = {}) {
   const asked = args.map((argument) => /^e(\d+)=(.*)$/s.exec(argument)).filter(Boolean);
   if (asked.length === 0) {
     const start = Number(args.find((argument) => argument.startsWith("after="))?.slice(6) || 0);
-    const page = environments.slice(start, start + pageSize);
-    const completed = (deployments) => deployments.find((deployment) => !["IN_PROGRESS", "QUEUED", "PENDING", "WAITING"].includes(deployment.state));
+    const all = environments
+      .flatMap(({ name, reportedAs, deployments }) => deployments.map(({ createdAt }) => ({ environment: reportedAs || name, createdAt })))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return {
       data: {
         repository: {
-          environments: {
-            pageInfo: { hasNextPage: start + pageSize < environments.length, endCursor: String(start + pageSize) },
-            nodes: page.map(({ name, deployments }) => ({ name, latestCompletedDeployment: completed(deployments) || null })),
+          deployments: {
+            pageInfo: { hasNextPage: start + pageSize < all.length, endCursor: String(start + pageSize) },
+            nodes: all.slice(start, start + pageSize),
           },
-          deployments: { nodes: recent.map((environment) => ({ environment })) },
         },
       },
     };
   }
   const repository = {};
   for (const [, index, name] of asked) {
-    const environment = environments.find((candidate) => candidate.name === name);
+    const environment = environments.find((candidate) => (candidate.reportedAs || candidate.name) === name);
+    repository[`n${index}`] = { nodes: environment && !environment.deleted ? [{ name: environment.name }] : [] };
     repository[`e${index}`] = { nodes: environment ? environment.deployments : [] };
   }
   return { data: { repository } };
@@ -295,7 +296,7 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
       if (state.holdGit) await hold();
       return { error: null, stdout: `${state.remotes[args[1]] || remote}\n`, stderr: "" };
     }
-    if (args[3] === "graphql" && args[5].includes("environments")) {
+    if (args[3] === "graphql" && args[5].includes("deployments(")) {
       state.deploymentCalls += 1;
       if (!state.environments) return { error: new Error("exit 1"), stdout: "", stderr: "no permission" };
       return { error: null, stdout: JSON.stringify(deploymentAnswer(state.environments, args, state.deploymentPaging)), stderr: "" };
@@ -1332,12 +1333,13 @@ function deploymentHarness(environments, paging) {
 test("deployments show each live environment deployed in the last 30 days, newest first", async () => {
   const { check, last } = deploymentHarness([
     { name: "Production – ui", deployments: [deployment(2, "ACTIVE"), deployment(30, "FAILURE")] },
-    { name: "Preview", deployments: [deployment(1, "WAITING", { ref: null })] },
+    { name: "Preview", reportedAs: "preview", deployments: [deployment(1, "WAITING", { ref: null })] },
+    { name: "deleted-env", deleted: true, deployments: [deployment(1, "ACTIVE")] },
     { name: "staging", deployments: [deployment(3, "SOMETHING_NEW"), deployment(4, null)] },
     { name: "old", deployments: [deployment(31 * 24, "ACTIVE")] },
     { name: "pr-12", deployments: [deployment(5, "DESTROYED")] },
     { name: "copilot", deployments: [] },
-  ], { recent: ["preview", "deleted-env"] });
+  ]);
   await check();
   const rows = last().rows.filter((row) => row.group === "deployments");
   assert.deepEqual(rows.map((row) => [row.label, row.count, row.tone, row.time, row.link]), [
@@ -1398,16 +1400,20 @@ test("deployments that cannot be read leave out only their group", async () => {
   assert.equal(state.deploymentCalls, 1);
 });
 
-test("an environment past the first page of many old ones still shows", async () => {
-  const old = Array.from({ length: 5 }, (_, index) => ({ name: `pr-${index}`, deployments: [deployment(40 * 24, "INACTIVE")] }));
+test("a quiet environment behind pages of busy deployments still shows, and paging stops at 30 days", async () => {
+  const busy = Array.from({ length: 5 }, (_, index) => deployment(index + 1, index === 0 ? "IN_PROGRESS" : "INACTIVE"));
   const { state, check, last } = deploymentHarness(
-    [...old, { name: "Production", deployments: [deployment(2, "ACTIVE")] }, { name: "Preview", deployments: [deployment(1, "IN_PROGRESS")] }],
-    { pageSize: 2, recent: ["Preview"] },
+    [
+      { name: "Preview", deployments: busy },
+      { name: "Production", deployments: [deployment(10, "WAITING")] },
+      { name: "old", deployments: [deployment(40 * 24, "ACTIVE"), deployment(41 * 24, "ACTIVE")] },
+    ],
+    { pageSize: 2 },
   );
   await check();
   assert.deepEqual(last().rows.filter((row) => row.group === "deployments").map((row) => [row.label, row.count]), [
     ["Preview", "In progress"],
-    ["Production", "Active"],
+    ["Production", "Waiting"],
   ]);
   assert.equal(state.deploymentCalls, 5);
 });

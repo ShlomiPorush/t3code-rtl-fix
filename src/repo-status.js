@@ -82,9 +82,8 @@ const SEVERITIES = ["critical", "high", "medium", "low"];
 const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
 // GitHub names severities differently for each kind of alert.
 const SEVERITY_ALIASES = { moderate: "medium", error: "high", warning: "medium", note: "low" };
-const ENVIRONMENT_PAGE_SIZE = 100;
-const ENVIRONMENT_PAGES = 5;
-const RECENT_DEPLOYMENTS = 20;
+const DEPLOYMENT_PAGE_SIZE = 100;
+const DEPLOYMENT_PAGES = 5;
 const ENVIRONMENTS_SHOWN = 50;
 const STATUSES_PER_DEPLOYMENT = 5;
 const DEPLOYMENTS_PER_ENVIRONMENT = 10;
@@ -138,13 +137,12 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-const ENVIRONMENTS_QUERY = `query($owner: String!, $name: String!, $after: String) {
+const RECENT_DEPLOYMENTS_QUERY = `query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
-    environments(first: ${ENVIRONMENT_PAGE_SIZE}, after: $after) {
+    deployments(first: ${DEPLOYMENT_PAGE_SIZE}, after: $after, orderBy: { field: CREATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
-      nodes { name latestCompletedDeployment { createdAt } }
+      nodes { environment createdAt }
     }
-    deployments(first: ${RECENT_DEPLOYMENTS}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { environment } }
   }
 }`;
 
@@ -152,6 +150,7 @@ function deploymentsQuery(count) {
   const indexes = Array.from({ length: count }, (_, index) => index);
   const variables = indexes.map((index) => `, $e${index}: String!`).join("");
   const fields = indexes.map((index) => `
+    n${index}: environments(names: [$e${index}], first: 1) { nodes { name } }
     e${index}: deployments(environments: [$e${index}], first: ${DEPLOYMENTS_PER_ENVIRONMENT}, orderBy: { field: CREATED_AT, direction: DESC }) {
       nodes { state createdAt commitOid ref { name } creator { login } statuses(first: ${STATUSES_PER_DEPLOYMENT}) { nodes { environmentUrl } } }
     }`).join("");
@@ -954,50 +953,38 @@ async function fetchDeployments(run, repo, now) {
       `name=${repo.name}`,
       ...variables,
     ]);
-  const listed = [];
-  let recent = null;
+  const recentSince = now - STALE_DAYS * DAY_MS;
+  const names = new Map();
   let after = null;
-  for (let page = 0; page < ENVIRONMENT_PAGES; page += 1) {
-    const repository = parseJson((await graphql(ENVIRONMENTS_QUERY, after ? ["-f", `after=${after}`] : [])).stdout)?.data?.repository;
-    const environments = repository?.environments;
-    if (!environments) return null;
-    recent ??= nodesOf(repository.deployments).map((deployment) => deployment.environment);
-    listed.push(...nodesOf(environments));
-    const { hasNextPage, endCursor } = environments.pageInfo || {};
-    if (!hasNextPage || typeof endCursor !== "string") break;
+  for (let page = 0; page < DEPLOYMENT_PAGES; page += 1) {
+    const connection = parseJson((await graphql(RECENT_DEPLOYMENTS_QUERY, after ? ["-f", `after=${after}`] : [])).stdout)?.data?.repository?.deployments;
+    if (!connection) {
+      if (page === 0) return null;
+      break;
+    }
+    const recent = nodesOf(connection).filter((deployment) => timeOf(deployment.createdAt) >= recentSince);
+    for (const { environment } of recent) {
+      if (typeof environment === "string" && environment !== "" && !names.has(environment.toLowerCase())) names.set(environment.toLowerCase(), environment);
+    }
+    const { hasNextPage, endCursor } = connection.pageInfo || {};
+    if (recent.length < nodesOf(connection).length || !hasNextPage || typeof endCursor !== "string") break;
     after = endCursor;
   }
-  const names = recentEnvironmentNames(listed, recent, now);
-  if (names.length === 0) return [];
-  const variables = names.flatMap((name, index) => ["-f", `e${index}=${name}`]);
-  const answer = parseJson((await graphql(deploymentsQuery(names.length), variables)).stdout)?.data?.repository;
-  return answer ? readEnvironments(names, answer, now) : null;
-}
-
-function recentEnvironmentNames(listed, recent, now) {
-  const recentSince = now - STALE_DAYS * DAY_MS;
-  const byName = new Map();
-  for (const environment of listed) {
-    if (typeof environment.name === "string" && environment.name !== "") byName.set(environment.name.toLowerCase(), environment);
-  }
-  const picked = new Set();
-  for (const name of recent) {
-    const environment = typeof name === "string" ? byName.get(name.toLowerCase()) : null;
-    if (environment) picked.add(environment.name);
-  }
-  const completed = (environment) => timeOf(environment.latestCompletedDeployment?.createdAt);
-  const recentlyCompleted = [...byName.values()]
-    .filter((environment) => completed(environment) >= recentSince)
-    .sort((a, b) => completed(b) - completed(a));
-  for (const environment of recentlyCompleted) picked.add(environment.name);
-  return [...picked].slice(0, ENVIRONMENTS_SHOWN);
+  const picked = [...names.values()].slice(0, ENVIRONMENTS_SHOWN);
+  if (picked.length === 0) return [];
+  const variables = picked.flatMap((name, index) => ["-f", `e${index}=${name}`]);
+  const answer = parseJson((await graphql(deploymentsQuery(picked.length), variables)).stdout)?.data?.repository;
+  return answer ? readEnvironments(picked, answer, now) : null;
 }
 
 function readEnvironments(names, answer, now) {
   const recentSince = now - STALE_DAYS * DAY_MS;
   return names
-    .map((name, index) => ({ name: text(name, 255), deployments: nodesOf(answer[`e${index}`]).map(readDeployment) }))
-    .filter(({ deployments: [latest] }) => latest && latest.time >= recentSince && latest.state !== "DESTROYED")
+    .map((name, index) => ({
+      name: text(nodesOf(answer[`n${index}`])[0]?.name, 255),
+      deployments: nodesOf(answer[`e${index}`]).map(readDeployment),
+    }))
+    .filter(({ name, deployments: [latest] }) => name && latest && latest.time >= recentSince && latest.state !== "DESTROYED")
     .sort((a, b) => b.deployments[0].time - a.deployments[0].time);
 }
 
