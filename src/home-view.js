@@ -180,7 +180,7 @@ function homeView({
 
   function unreadReason(entry, facts) {
     if (!entry.repository) return null;
-    if (!facts || facts.status === "waiting") return "Reading GitHub…";
+    if (!facts || facts.status === "waiting") return "Fetching from GitHub…";
     if (facts.status === "unavailable") return "GitHub is not available";
     return facts.cut || facts.failedField || facts.release?.ahead === null ? "Read in part" : null;
   }
@@ -213,7 +213,7 @@ function homeView({
 
   function Row({ row, now, actions }) {
     const title = { className: "t3h-text", dir: directionOf(row.text) };
-    const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
+    const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openLink(event, url) });
     return h("li", { className: `t3h-row${row.old && row.state === "idle" ? " t3h-old" : ""}` },
       row.thread
         ? h("span", { className: "t3h-mark", role: "img", title: STATES[row.state].text, "aria-label": STATES[row.state].text }, h("i", { className: `t3h-state t3h-is-${row.state}` }))
@@ -239,7 +239,10 @@ function homeView({
     if (!isRead(facts)) return [];
     const updates = facts.pulls.filter((pull) => pull.update).length;
     const alerts = facts.alerts;
-    const graded = !alerts ? "" : alerts.critical ? share(alerts.total, alerts.critical, "critical") : share(alerts.total, alerts.high, "high");
+    const graded = !alerts ? [] : [
+      ["critical", alerts.critical], ["high", alerts.high], ["medium", alerts.medium], ["low", alerts.low],
+      ["other", alerts.total - alerts.critical - alerts.high - alerts.medium - alerts.low],
+    ].filter(([, number]) => number > 0);
     const url = `https://github.com/${entry.repository}`;
     return [
       facts.issues === null ? null : { key: "issue", number: facts.issues, name: count(facts.issues, "issue"), href: `${url}/issues` },
@@ -249,42 +252,281 @@ function homeView({
       },
       !alerts ? null : {
         key: "shield", number: alerts.total, name: `${count(alerts.total, "security alert")} in ${alerts.sources.join(", ")}`, href: `${url}/security`,
-        extra: graded, tone: alerts.critical || alerts.high ? "bad" : alerts.total ? "warn" : "",
+        severities: graded, extra: graded.map(([severity, number]) => `, ${number} ${severity === "other" ? "without a severity" : severity}`).join(""),
+        tone: alerts.critical || alerts.high ? "bad" : alerts.total ? "warn" : "",
       },
     ].filter(Boolean);
   }
 
   const nameOf = ({ name, number, extra }) => (extra ? `${name}: ${number}${extra}` : name);
+  const shownNumber = (item) => (item.severities?.length
+    ? item.severities.map(([severity, number]) => h("span", { key: severity, className: `t3h-severity t3h-sev-${severity}` }, number))
+    : item.number);
 
-  function Counts({ entry, facts }) {
+  function Counts({ entry, facts, now, actions }) {
     const counts = countsOf(entry, facts);
     const reason = unreadReason(entry, facts);
-    if (counts.length === 0 && !reason) return null;
+    if (counts.length === 0 && !reason && !releaseOf(facts)) return null;
     return h("div", { className: "t3h-counts" },
-      counts.map((item) => h("a", {
-        key: item.key, ...outward, href: item.href, title: item.name, "aria-label": nameOf(item),
-        className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
-      }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra))),
-      reason ? small(reason) : null);
+      counts.map((item) => {
+        const detail = item.number > 0 ? facts.details?.[item.key] : null;
+        return h("a", {
+          key: item.key, ...outward, href: item.href, "aria-label": nameOf(item),
+          ...(detail ? actions.tips.anchor(entry.repository, item.key) : { title: item.name }),
+          className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
+        }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", item.severities?.length ? { className: "t3h-severities" } : { dir: "ltr" }, shownNumber(item)));
+      }),
+      reason ? small(reason, "t3h-cut") : null,
+      releaseOf(facts) ? h("span", { className: "t3h-release" }, h(ReleaseTag, { entry, facts, now })) : null);
   }
 
-  function releaseText(release, now) {
-    if (release.ahead > 0) return `, ${count(release.ahead, "commit")} since`;
-    return release.at ? `, ${ago(now - release.at)} ago` : "";
-  }
+  const releaseOf = (facts) => (isRead(facts) && facts.release?.tag ? facts.release : null);
 
-  function Foot({ entry, facts, now }) {
+  function ReleaseTag({ entry, facts, now, linked = true }) {
+    const release = releaseOf(facts);
+    if (!release) return null;
     const url = `https://github.com/${entry.repository}`;
-    const release = isRead(facts) ? facts.release : null;
+    const ahead = release.ahead > 0 ? release.ahead : 0;
+    const since = ahead ? `, ${count(ahead, "commit")} since` : release.at ? `, released ${ago(now - release.at)} ago` : "";
+    const label = `Version ${release.tag}${since}`;
+    const content = [
+      h("span", { key: "tag", className: "t3h-cut" }, release.tag),
+      ahead ? h("span", { key: "ahead", className: "t3h-tag-ahead" }, `+${ahead}`) : null,
+    ];
+    const shared = { className: "t3h-tag", dir: "ltr", title: label, "aria-label": label };
+    if (!linked) return h("span", shared, ...content);
+    const href = ahead ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : release.tagOnly ? `${url}/releases/tag/${encodeURIComponent(release.tag)}` : `${url}/releases`;
+    return h("a", { ...shared, ...outward, href }, ...content);
+  }
+
+  function Foot({ entry, facts, now, actions }) {
+    const url = `https://github.com/${entry.repository}`;
     return h(React.Fragment, null,
       isRead(facts) && facts.mainFails ? h("div", { className: "t3h-foot" }, h("a", { ...outward, href: `${url}/commits`, className: "t3h-small t3h-bad", dir: "ltr" }, "The default branch fails its checks")) : null,
-      release
-        ? h("div", { className: "t3h-foot" }, h("a", {
-          ...outward, className: "t3h-small", dir: "ltr",
-          href: release.ahead > 0 ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : `${url}/releases`,
-        }, h("b", null, release.tag), releaseText(release, now)))
-        : null,
-      h(Counts, { entry, facts }));
+      h(Counts, { entry, facts, now, actions }));
+  }
+
+  const LIST_LINE_MIN = 5;
+
+  function Badge({ badge }) {
+    const color = /^[0-9a-f]{6}$/i.test(badge.color || "") ? badge.color : null;
+    return h("span", {
+      className: "t3h-tip-badge", dir: "auto", "data-tone": badge.tone || undefined,
+      "data-label": color ? "" : undefined, style: color ? { "--t3h-label": `#${color}` } : undefined,
+    }, badge.text);
+  }
+
+  function TipItem({ item, now, linkTo }) {
+    const meta = [...(item.meta || []), item.time ? `${ago(now - item.time)} ago` : ""].filter(Boolean).join(" · ");
+    const badges = item.badges || [];
+    return h(item.link ? "a" : "div", {
+      className: "t3h-tip-item", ...(item.link ? linkTo(item.link) : {}),
+      "data-lead": item.lead ? "" : undefined, "data-inline": !item.lead && !meta && badges.length ? "" : undefined,
+    },
+    item.lead ? h("span", { className: "t3h-tip-lead" }, item.lead) : null,
+    h("span", { className: "t3h-tip-text", dir: "auto" }, item.text),
+    meta || badges.length
+      ? h("div", { className: "t3h-tip-sub" },
+        meta ? h("span", { className: "t3h-tip-meta", dir: "auto" }, meta) : null,
+        badges.map((badge, index) => h(Badge, { key: index, badge })))
+      : null);
+  }
+
+  function TipSection({ section, now, linkTo }) {
+    const items = section.items || [];
+    const lined = section.more > 0 || (section.link && (section.partial || items.length > LIST_LINE_MIN));
+    const line = section.more > 0 ? `and ${section.more} more` : section.partial ? "View all on GitHub" : `View all ${items.length} on GitHub`;
+    return h("div", { className: "t3h-tip-section" },
+      section.title ? h("div", { className: "t3h-tip-section-title" }, section.title) : null,
+      section.chips?.length ? h("div", { className: "t3h-tip-chips" }, section.chips.map((chip, index) => h(Badge, { key: index, badge: chip }))) : null,
+      items.map((item, index) => h(TipItem, { key: item.link || index, item, now, linkTo })),
+      lined ? h(section.link ? "a" : "div", { className: "t3h-tip-more", ...(section.link ? linkTo(section.link) : {}) }, line) : null);
+  }
+
+  const TIP_DELAY_MS = 250;
+  const TIP_SWITCH_DELAY_MS = 120;
+  const TIP_HIDE_DELAY_MS = 200;
+
+  function useTips() {
+    const [tip, setTip] = React.useState(null);
+    const state = React.useRef({ show: 0, hide: 0, hiddenAt: 0, tip: null });
+    const box = React.useRef(null);
+    const held = state.current;
+    held.tip = tip;
+    const clear = () => {
+      clearTimeout(held.show);
+      clearTimeout(held.hide);
+    };
+    const show = (anchor, repository, kind) => {
+      clear();
+      setTip({ anchor, repository, kind });
+    };
+    const hide = () => {
+      clear();
+      if (held.tip) held.hiddenAt = Date.now();
+      held.tip = null;
+      setTip(null);
+    };
+    const focusInside = () => Boolean(box.current?.contains(document.activeElement));
+    const scheduleHide = () => {
+      clear();
+      if (held.tip) held.hide = setTimeout(() => focusInside() || held.tip?.anchor.matches(":focus-visible") || hide(), TIP_HIDE_DELAY_MS);
+    };
+    const links = () => [...(box.current?.querySelectorAll("a") || [])];
+    const focusLink = (index) => {
+      const all = links();
+      if (all.length) all[((index % all.length) + all.length) % all.length].focus();
+    };
+    const returnFocus = () => {
+      const anchor = held.tip?.anchor;
+      hide();
+      held.returning = true;
+      try {
+        anchor?.focus();
+      } finally {
+        held.returning = false;
+      }
+    };
+    const anchor = (repository, kind) => ({
+      "aria-haspopup": "dialog",
+      "aria-expanded": tip?.repository === repository && tip?.kind === kind,
+      onPointerEnter: (event) => {
+        const target = event.currentTarget;
+        clear();
+        if (held.tip?.anchor === target || focusInside()) return;
+        const delay = held.tip ? TIP_SWITCH_DELAY_MS : Date.now() - held.hiddenAt < 300 ? 0 : TIP_DELAY_MS;
+        held.show = setTimeout(() => show(target, repository, kind), delay);
+      },
+      onPointerLeave: scheduleHide,
+      onFocus: (event) => {
+        if (!held.returning && event.currentTarget.matches(":focus-visible")) show(event.currentTarget, repository, kind);
+      },
+      onBlur: (event) => {
+        if (!box.current?.contains(event.relatedTarget) && held.tip?.anchor === event.currentTarget) hide();
+      },
+      onClick: hide,
+      onKeyDown: (event) => {
+        if (event.key !== "ArrowDown") return;
+        event.preventDefault();
+        if (held.tip?.anchor === event.currentTarget) {
+          focusLink(0);
+        } else {
+          held.enter = true;
+          show(event.currentTarget, repository, kind);
+        }
+      },
+    });
+    const keys = (event) => {
+      const all = links();
+      const index = all.indexOf(document.activeElement);
+      if (index !== -1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        focusLink(index + (event.key === "ArrowDown" ? 1 : -1));
+      } else if (index !== -1 && (event.key === "Home" || event.key === "End")) {
+        event.preventDefault();
+        focusLink(event.key === "Home" ? 0 : -1);
+      } else if (event.key === "Tab") {
+        returnFocus();
+      }
+    };
+    const close = () => (focusInside() ? returnFocus() : hide());
+    const escape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    return { tip, box, anchor, clear, hide, close, scheduleHide, keys, escape, focusLink, held };
+  }
+
+  function placeTip(node, anchor) {
+    const gap = 6;
+    const margin = 8;
+    const room = anchor.getBoundingClientRect();
+    const below = innerHeight - room.bottom - gap - margin;
+    const above = room.top - gap - margin;
+    const down = node.scrollHeight <= below || below >= above;
+    node.style.maxHeight = `${Math.max(0, down ? below : above)}px`;
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    const start = getComputedStyle(anchor).direction === "rtl" ? room.right - width : room.left;
+    const left = Math.min(Math.max(start, margin), Math.max(margin, innerWidth - width - margin));
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(down ? room.bottom + gap : room.top - gap - height)}px`;
+  }
+
+  function Tip({ tips, detail, now, actions }) {
+    const { tip, box } = tips;
+    const open = Boolean(tip && detail);
+    React.useLayoutEffect(() => {
+      const node = box.current;
+      if (!node) return;
+      const isOpen = () => {
+        try {
+          return node.matches(":popover-open");
+        } catch {
+          return false;
+        }
+      };
+      if (!open || !tip.anchor.isConnected) {
+        node.removeAttribute("data-shown");
+        if (isOpen()) node.hidePopover();
+        if (tip) tips.hide();
+        return;
+      }
+      if (typeof node.showPopover === "function" && !isOpen()) {
+        node.setAttribute("popover", "manual");
+        try {
+          node.showPopover();
+        } catch {
+          node.removeAttribute("popover");
+        }
+      }
+      placeTip(node, tip.anchor);
+      if (tips.held.enter) {
+        tips.held.enter = false;
+        tips.focusLink(0);
+      }
+      const frame = requestAnimationFrame(() => node.setAttribute("data-shown", ""));
+      return () => cancelAnimationFrame(frame);
+    }, [open, tip, detail]);
+    React.useEffect(() => {
+      if (!open) return;
+      const scrolled = (event) => {
+        if (!box.current?.contains(event.target)) tips.close();
+      };
+      addEventListener("scroll", scrolled, true);
+      addEventListener("resize", tips.close);
+      addEventListener("keydown", tips.escape, true);
+      return () => {
+        removeEventListener("scroll", scrolled, true);
+        removeEventListener("resize", tips.close);
+        removeEventListener("keydown", tips.escape, true);
+      };
+    }, [open]);
+    const url = (link) => `https://github.com/${tip.repository}/${link}`;
+    const linkTo = (link) => ({
+      ...outward, href: url(link), tabIndex: -1,
+      onClick: (event) => {
+        actions.openLink(event, url(link));
+        tips.close();
+      },
+    });
+    return h("div", {
+      ref: box, className: "t3h-tip", role: "dialog", dir: "ltr",
+      "aria-label": open ? detail.title : undefined, "data-open": open ? "" : undefined,
+      onPointerEnter: tips.clear, onPointerLeave: tips.scheduleHide, onKeyDown: tips.keys,
+      onMouseDown: (event) => event.target.closest?.("a") || event.preventDefault(),
+      onBlur: (event) => {
+        if (!box.current?.contains(event.relatedTarget) && event.relatedTarget !== tip?.anchor) tips.hide();
+      },
+    }, open
+      ? [
+        h("div", { key: "head", className: "t3h-tip-head" }, h("span", { className: "t3h-tip-title" }, detail.title), h("span", { className: "t3h-tip-summary" }, detail.summary)),
+        ...(detail.sections || []).map((section, index) => h(TipSection, { key: index, section, now, linkTo })),
+        detail.note ? h("div", { key: "note", className: "t3h-tip-note" }, detail.note) : null,
+      ]
+      : null);
   }
 
   function Headline({ entry, now }) {
@@ -313,13 +555,13 @@ function homeView({
         h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
       rowList(shown, now, actions),
       more ? h("button", { type: "button", className: "t3h-more t3h-small", "aria-expanded": opened, "aria-label": opened ? `Show less of ${title}` : `${more} more in ${title}`, onClick: () => toggle(entry.key) }, text(opened ? "Show less" : `${more} more`)) : null,
-      h(Foot, { entry, facts, now }));
+      h(Foot, { entry, facts, now, actions }));
   }
 
   function heightOf({ entry, rows }) {
     const shown = shownRows(rows, false);
     const notes = shown.filter((row) => row.notes.length > 0).length;
-    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 3.5 : 0);
+    return 4.4 + shown.length * 1.75 + notes * 0.8 + (shown.length < rows.length ? 1.2 : 0) + (entry.repository ? 2.6 : 0);
   }
 
   // Agents start and stop all the time, and cards that follow them never rest,
@@ -367,15 +609,14 @@ function homeView({
         h(Card, { key, ...cardOf(key), now, actions, opened: opened.has(key), toggle })))));
   }
 
-  function Tile({ entry, facts, actions }) {
-    const release = isRead(facts) ? facts.release : null;
+  function Tile({ entry, facts, now, actions }) {
     const reason = unreadReason(entry, facts);
     const details = [
-      release ? small(`${release.tag}${release.ahead > 0 ? `, ${count(release.ahead, "commit")} since` : ""}`) : null,
       ...countsOf(entry, facts).filter((item) => item.number > 0).map((item) =>
         h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
-          h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number, item.extra))),
+          h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { ...(item.severities?.length ? { className: "t3h-severities" } : { dir: "ltr" }), "aria-label": nameOf(item), role: "img" }, shownNumber(item)))),
       reason ? small(reason) : null,
+      releaseOf(facts) ? h("span", { key: "release", className: "t3h-release" }, h(ReleaseTag, { entry, facts, now, linked: false })) : null,
     ];
     return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
       h(Picture, { project: entry.project, className: "t3h-icon-small" }),
@@ -384,11 +625,11 @@ function homeView({
         h("span", { className: "t3h-tile-details" }, ...details)));
   }
 
-  function Tiles({ title, cards, actions }) {
+  function Tiles({ title, cards, now, actions }) {
     if (cards.length === 0) return null;
     return h("section", null,
       h(SectionTitle, { title, cards }),
-      h("div", { className: "t3h-tiles" }, cards.map(({ entry, facts }) => h(Tile, { key: entry.key, entry, facts, actions }))));
+      h("div", { className: "t3h-tiles" }, cards.map(({ entry, facts }) => h(Tile, { key: entry.key, entry, facts, now, actions }))));
   }
 
   function SectionTitle({ title, cards }) {
@@ -417,8 +658,8 @@ function homeView({
     const known = rest.filter(({ entry, facts }) => isKnown(entry, facts));
     return h("div", null,
       open.length ? h("section", null, h(SectionTitle, { title: "In the middle", cards: open }), h(Wall, { cards: open, complete, now, actions })) : null,
-      h(Tiles, { title: "No open work", cards: known, actions }),
-      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), actions }));
+      h(Tiles, { title: "No open work", cards: known, now, actions }),
+      h(Tiles, { title: "GitHub is not read", cards: rest.filter((card) => !known.includes(card)), now, actions }));
   }
 
   function Project({ entry, facts, now, actions }) {
@@ -437,7 +678,118 @@ function homeView({
       rows.length === 0 && isKnown(entry, facts) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
       updates.length ? h("h2", { className: "t3h-section", dir: "ltr" }, "Dependency updates") : null,
       rowList(updates, now, actions),
-      h(Foot, { entry, facts, now }));
+      h(Foot, { entry, facts, now, actions }));
+  }
+
+  const PANEL_KEY = "issues-panel:issues-panel";
+  const PANEL_KINDS = ["issue", "pull-request"];
+  const NO_IDS = new Set();
+  const NO_LABELS = new Map();
+  const NONE = {};
+  const nothing = () => {};
+
+  let panelLoad = null;
+  function loadPanelParts() {
+    panelLoad ||= (async () => {
+      const wanted = /\/(PanelLayoutControls|IssueDetailPanel|rightPanelStore)-[\w-]+\.js$/;
+      const urls = [...new Set([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.href).filter((href) => wanted.test(href)))];
+      const modules = await Promise.all(urls.map((url) => import(url).catch(() => null)));
+      const values = [...new Set(modules.filter(Boolean).flatMap((module) => Object.values(module)))];
+      const one = (test) => {
+        const found = values.filter((value) => {
+          try {
+            return test(value);
+          } catch {
+            return false;
+          }
+        });
+        return found.length === 1 ? found[0] : null;
+      };
+      const component = (mark) => one((value) => typeof value === "function" && String(value).includes(mark));
+      const parts = {
+        Shell: component("data-right-panel-tabbar"),
+        PullView: component("pullRequest.copyNumber"),
+        IssueView: component("Could not load this issue"),
+        store: one((value) => {
+          const state = typeof value === "function" && typeof value.getState === "function" ? value.getState() : null;
+          return Boolean(state) && typeof value.subscribe === "function" && typeof state.byThreadKey === "object" &&
+            ["openIssue", "openPullRequest", "activateSurface", "closeSurface", "closeOtherSurfaces", "closeSurfacesToRight", "closeAllSurfaces"].every((name) => typeof state[name] === "function");
+        }),
+        ref: one((value) => value !== null && typeof value === "object" && value.environmentId === "issues-panel" && value.threadId === "issues-panel"),
+      };
+      return Object.values(parts).every(Boolean) ? { ...parts, broken: false } : null;
+    })().catch(() => null);
+    return panelLoad;
+  }
+
+  function usePanelParts() {
+    const [parts, setParts] = React.useState(null);
+    React.useEffect(() => {
+      let live = true;
+      loadPanelParts().then((found) => live && setParts(found));
+      return () => {
+        live = false;
+      };
+    }, []);
+    return parts;
+  }
+
+  class PanelBoundary extends React.Component {
+    constructor(props) {
+      super(props);
+      this.state = { failed: false };
+    }
+    static getDerivedStateFromError() {
+      return { failed: true };
+    }
+    componentDidCatch(error) {
+      console.error("t3code-rtl-fix: the side panel on Home failed", error);
+      this.props.onFailed();
+    }
+    render() {
+      return this.state.failed ? null : this.props.children;
+    }
+  }
+
+  function SidePanel({ parts, issuesEnvironmentId }) {
+    const { Shell, PullView, IssueView, store, ref } = parts;
+    const panel = React.useSyncExternalStore(store.subscribe, () => store.getState().byThreadKey[PANEL_KEY]);
+    const active = panel?.isOpen ? panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId) : null;
+    if (!active || !PANEL_KINDS.includes(active.kind)) return null;
+    const state = () => store.getState();
+    const environmentId = active.environmentId ?? issuesEnvironmentId;
+    const getShortcutContext = () => ({
+      terminalFocus: false, terminalOpen: false, previewFocus: false, previewOpen: false, modelPickerOpen: false,
+      isWeb: !electron, isDesktop: Boolean(electron),
+    });
+    const host = active.host ? { host: active.host } : {};
+    const view = active.kind === "issue"
+      ? h(IssueView, {
+        key: `${environmentId}:${active.id}`, environmentId, listEntry: null,
+        reference: { projectId: active.projectId, tracker: active.tracker, ...host, scope: active.scope, key: active.key },
+        onSelectPullRequest: (pull) => state().openPullRequest(ref, {
+          projectId: pull.projectId, repository: pull.repository, number: pull.number, ...(pull.host === undefined ? {} : { host: pull.host }), environmentId,
+        }),
+      })
+      : h(PullView, {
+        key: active.id, getShortcutContext, shortcutsEnabled: false, environmentId,
+        reference: { projectId: active.projectId, repository: active.repository, number: active.number, ...host },
+      });
+    return h(Shell, {
+        mode: "inline", open: true, keybindings: [], getShortcutContext,
+        widthStorageKey: "t3code:issue-panel-width", defaultWidth: Math.floor(innerWidth / 2),
+        surfaces: panel.surfaces, environmentId, activeSurfaceId: active.id,
+        pendingSurfaceIds: NO_IDS, previewSessions: NONE, desktopByTabId: NONE, terminalLabelsById: NO_LABELS,
+        onActivate: (surface) => state().activateSurface(ref, surface.id),
+        onCloseSurface: (surface) => state().closeSurface(ref, surface.id),
+        onCloseOtherSurfaces: (surface) => state().closeOtherSurfaces(ref, surface.id),
+        onCloseSurfacesToRight: (surface) => state().closeSurfacesToRight(ref, surface.id),
+        onCloseAllSurfaces: () => state().closeAllSurfaces(ref),
+        onCopyFilePath: nothing, onAddBrowser: nothing, onAddBrowserInProfile: nothing, onAddTerminal: nothing, onAddDiff: nothing,
+        onAddFiles: nothing, onAddPullRequest: nothing, onAddPullRequests: nothing, onAddDevice: nothing,
+        browserAvailable: false, terminalAvailable: false, diffAvailable: false, filesAvailable: false,
+        pullRequestAvailable: false, pullRequestsAvailable: false, deviceAvailable: false,
+      }, view);
   }
 
   // Facts come from the launcher, through the fix's own script in this page,
@@ -511,12 +863,46 @@ function homeView({
     const now = useNow();
     const chosen = useChosen(router);
     const [failed, setFailed] = React.useState(false);
+    const tips = useTips();
+    const parts = usePanelParts();
     const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
     const factsOf = (entry) => (entry.repository && github ? github.repositories[entry.repository] ?? null : null);
+    const showsIssues = (project) =>
+      environments.find((item) => item.environmentId === project.environmentId)?.serverConfig?.environment?.capabilities?.issues === true;
+    const openInPanel = (event, project, repository, kind, number, url) => {
+      if (!parts || parts.broken) return false;
+      const surface = kind === "pull"
+        ? { environmentId: project.environmentId, projectId: project.id, host: "github.com", repository, number: Number(number), url }
+        : { environmentId: project.environmentId, projectId: project.id, tracker: "github", host: "github.com", scope: repository, key: number, url };
+      try {
+        parts.store.getState()[kind === "pull" ? "openPullRequest" : "openIssue"](parts.ref, surface);
+      } catch (error) {
+        console.error("t3code-rtl-fix: the side panel on Home could not open", error);
+        return false;
+      }
+      event.preventDefault();
+      return true;
+    };
     const actions = {
-      openPull,
+      tips,
       openMap: () => router.navigate({ to: "/" }),
+      openLink: (event, url) => {
+        const link = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(url);
+        const project = link && entries.find((item) => item.repository === link[1])?.project;
+        if (!project || event.button !== 0 || event.ctrlKey || event.metaKey) return;
+        const [, repository, kind, number] = link;
+        if (showsIssues(project) && openInPanel(event, project, repository, kind, number, url)) return;
+        if (kind === "pull") {
+          openPull?.(event, url);
+        } else if (showsIssues(project)) {
+          event.preventDefault();
+          router.navigate({
+            to: "/issues",
+            search: { selectedEnvironmentId: project.environmentId, selectedProjectId: project.id, selectedHost: "github.com", tracker: "github", scope: repository, key: number },
+          });
+        }
+      },
       openProject: (entry) => router.navigate({ to: "/", search: { project: entry.key } }),
       openThread: (thread) => router.navigate({ to: "/$environmentId/$threadId", params: { environmentId: thread.environmentId, threadId: thread.id } }),
       startThread: (entry) => {
@@ -535,13 +921,23 @@ function homeView({
       github?.problem === "github-failed" && "GitHub could not be read. Check that gh is signed in.",
       stale.length > 0 && `Some GitHub data is from ${ago(now - Math.min(...stale))} ago.`,
     ].filter(Boolean);
+    const [, setPanelBroken] = React.useState(false);
+    const panelFailed = () => {
+      parts.broken = true;
+      setPanelBroken(true);
+    };
+    const issuesEnvironmentId = environments.find((item) => item.serverConfig?.environment?.capabilities?.issues === true)?.environmentId;
     return h(Frame, { ...focusProps("home", 1, "Home"), role: "main", className: frameClass },
       h("style", null, css),
-      h(Header, { electron }, text(entry ? entry.project.title : "Home", "t3h-header")),
-      h("div", { className: "t3h", key: entry ? entry.key : "map" },
-        h("div", { className: "t3h-page" },
-          notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
-          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions }))));
+      h("div", { className: "t3h-split" },
+        h("div", { className: "t3h-main" },
+          h(Header, { electron }, text(entry ? entry.project.title : "Home", "t3h-header")),
+          h("div", { className: "t3h", key: entry ? entry.key : "map" },
+            h("div", { className: "t3h-page" },
+              notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
+              entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
+        parts && !parts.broken && issuesEnvironmentId ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
+      h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 
   class Boundary extends React.Component {
@@ -571,6 +967,9 @@ function homeView({
 }
 
 const HOME_CSS = `
+.t3h, .t3h-tip { --t3h-red: #e5484d; --t3h-blue: #3b82f6; }
+.t3h-split { position: relative; display: flex; flex: 1; min-height: 0; }
+.t3h-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .t3h { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; color: var(--foreground); font-size: .875rem; line-height: 1.45; direction: ltr; }
 :root[data-t3-rtl-app="on"] .t3h { direction: rtl; }
 .t3h [dir] { text-align: -webkit-match-parent; text-align: match-parent; }
@@ -584,7 +983,7 @@ const HOME_CSS = `
 .t3h-page { padding: .6rem 2.75rem 4rem; }
 .t3h .t3h-small { font-size: .8rem; color: var(--t3h-k, var(--muted-foreground)); }
 .t3h a.t3h-small:hover { text-decoration: underline; text-underline-offset: 3px; }
-.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--destructive); } .t3h-warn { --t3h-k: var(--warning); } .t3h-run { --t3h-k: var(--primary); }
+.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--t3h-red); } .t3h-warn { --t3h-k: var(--warning); } .t3h-run { --t3h-k: var(--foreground); }
 .t3h-notes { margin-bottom: 1rem; padding: .7rem .9rem; border-radius: .7rem; border: 1px solid var(--border); color: var(--muted-foreground); }
 .t3h-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t3h-none { padding: 1rem 0; font-size: 1.15rem; color: var(--muted-foreground); }
@@ -595,19 +994,25 @@ const HOME_CSS = `
 .t3h-wall { display: flex; gap: .9rem; align-items: flex-start; }
 .t3h-column { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; }
 .t3h-card { --t3h-edge: color-mix(in srgb, var(--foreground) 9%, transparent); min-width: 0; padding: 1rem 1.05rem .9rem; border-radius: 1rem; background: var(--card); box-shadow: inset 0 0 0 1px var(--t3h-edge); }
-.t3h-card-run { --t3h-edge: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
+.t3h-card-run { --t3h-edge: var(--t3h-blue); background: color-mix(in srgb, var(--t3h-blue) 9%, var(--card)); }
 .t3h-card-ask { --t3h-edge: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--card)); }
 .t3h-head { display: flex; align-items: center; gap: .7rem; }
 .t3h-names { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: .1rem; line-height: 1.3; }
 .t3h-names > .t3h-small:is(.t3h-run, .t3h-warn, .t3h-ok, .t3h-bad) { font-weight: 600; }
 .t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
-.t3h .t3h-name:hover { color: var(--primary); }
-.t3h-pin { color: var(--primary); }
+.t3h .t3h-name:hover { text-decoration: underline; text-underline-offset: 4px; }
+.t3h-pin { color: var(--muted-foreground); }
+.t3h .t3h-tag { display: inline-flex; align-items: center; gap: .3rem; flex: none; min-width: 0; max-width: 9rem; padding: .08rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--foreground) 80%, transparent); background: color-mix(in srgb, var(--foreground) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 11%, transparent); }
+.t3h a.t3h-tag:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 12%, transparent); }
+.t3h-tag-ahead { color: var(--muted-foreground); }
+.t3h-release { display: flex; min-width: 0; margin-inline-start: auto; }
+.t3h-release .t3h-tag { flex: 0 1 auto; }
+.t3h-counts > .t3h-count { flex: none; }
 .t3h-icon { width: 2.1rem; height: 2.1rem; flex: none; }
 .t3h-icon-small { width: 1.5rem; height: 1.5rem; flex: none; }
 .t3h-icon-large { width: 3rem; height: 3rem; flex: none; }
-.t3h-letters { display: inline-grid; place-items: center; border-radius: .4rem; font-size: .65rem; font-weight: 700; background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.t3h-letters { display: inline-grid; place-items: center; border-radius: .4rem; font-size: .65rem; font-weight: 700; background: color-mix(in srgb, var(--foreground) 14%, transparent); }
 .t3h .t3h-add { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: .55rem; color: var(--muted-foreground); }
 .t3h .t3h-add:hover { background: color-mix(in srgb, var(--foreground) 9%, transparent); color: var(--foreground); }
 
@@ -615,13 +1020,13 @@ const HOME_CSS = `
 .t3h-row { display: grid; grid-template-columns: 1.05rem minmax(0, 1fr) auto; column-gap: .6rem; align-items: baseline; padding: .34rem 0; }
 .t3h-mark { display: grid; place-items: center; align-self: start; height: 1.35em; font-size: .92rem; color: var(--t3h-k, var(--muted-foreground)); }
 .t3h .t3h-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: .92rem; line-height: 1.35; }
-.t3h .t3h-text:hover { color: var(--primary); }
+.t3h .t3h-text:hover { text-decoration: underline; text-underline-offset: 3px; }
 .t3h-old .t3h-text { color: var(--muted-foreground); }
 .t3h-age { white-space: nowrap; }
 .t3h-row-notes { grid-column: 2 / -1; display: flex; flex-wrap: wrap; column-gap: .7rem; line-height: 1.4; }
 .t3h-state { position: relative; width: .52rem; height: .52rem; border-radius: 50%; background: var(--t3h-k); }
 .t3h-is-idle { background: none; box-shadow: inset 0 0 0 1.6px var(--muted-foreground); }
-.t3h-is-run { --t3h-k: var(--primary); } .t3h-is-ask { --t3h-k: var(--warning); } .t3h-is-fail { --t3h-k: var(--destructive); } .t3h-is-done { --t3h-k: var(--success); }
+.t3h-is-run { --t3h-k: var(--t3h-blue); } .t3h-is-ask { --t3h-k: var(--warning); } .t3h-is-fail { --t3h-k: var(--t3h-red); } .t3h-is-done { --t3h-k: var(--success); }
 .t3h-is-run::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--t3h-k); animation: t3h-breathe 2.8s ease-out infinite; }
 @keyframes t3h-breathe { from { scale: 1; opacity: .55; } 70%, to { scale: 3.2; opacity: 0; } }
 .t3h .t3h-more { margin: .3rem 0 0; margin-inline-start: 1.65rem; }
@@ -629,16 +1034,18 @@ const HOME_CSS = `
 
 .t3h-foot { margin-top: .6rem; line-height: 1.3; }
 .t3h-foot + .t3h-foot { margin-top: .2rem; }
-.t3h-foot b { font-weight: 600; color: color-mix(in srgb, var(--foreground) 80%, transparent); }
-.t3h-counts { display: flex; flex-wrap: wrap; gap: .1rem 1rem; margin-top: .75rem; padding-top: .65rem; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent); }
+.t3h-counts { display: flex; align-items: center; gap: 1rem; white-space: nowrap; margin-top: .75rem; padding-top: .65rem; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent); }
 .t3h .t3h-count { display: inline-flex; align-items: center; gap: .32rem; font-size: .82rem; font-weight: 550; color: var(--t3h-k, color-mix(in srgb, var(--foreground) 82%, transparent)); }
 .t3h a.t3h-count:hover { text-decoration: underline; text-underline-offset: 3px; }
+.t3h-severities { display: inline-flex; gap: .35rem; }
+.t3h .t3h-sev-critical { color: var(--t3h-red); } .t3h .t3h-sev-high { color: #ea580c; } .t3h .t3h-sev-medium { color: var(--warning, #d97706); }
+.t3h .t3h-sev-low, .t3h .t3h-sev-other { color: var(--muted-foreground); }
 .t3h .t3h-zero { font-weight: 400; color: color-mix(in srgb, var(--muted-foreground) 70%, transparent); }
 
 .t3h-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: .1rem .9rem; }
 .t3h .t3h-tile { display: flex; align-items: center; gap: .65rem; min-width: 0; padding: .5rem .4rem; border-radius: .6rem; }
 .t3h .t3h-tile:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
-.t3h-tile-text { display: grid; min-width: 0; }
+.t3h-tile-text { flex: 1; display: grid; min-width: 0; }
 .t3h-tile-name { font-size: .95rem; font-weight: 600; }
 .t3h-tile-details { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .9rem; }
 
@@ -651,16 +1058,62 @@ const HOME_CSS = `
 .t3h-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.4rem 0 1.6rem; }
 .t3h .t3h-button { display: inline-flex; align-items: center; gap: .45rem; height: 2.5rem; padding: 0 1.05rem; border: 1px solid var(--border); border-radius: var(--radius, .625rem); background: var(--card); font-size: .95rem; font-weight: 550; white-space: nowrap; }
 .t3h .t3h-button:hover { border-color: color-mix(in srgb, var(--foreground) 35%, var(--border)); }
-.t3h .t3h-button.t3h-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.t3h .t3h-button.t3h-primary { background: var(--foreground); border-color: var(--foreground); color: var(--background); }
 .t3h .t3h-project .t3h-text { -webkit-line-clamp: none; font-size: 1.05rem; line-height: 1.4; }
 .t3h-project .t3h-mark { height: 1.4em; font-size: 1.05rem; }
+
+.t3h-tip {
+  --t3h-tip-critical: var(--t3h-red); --t3h-tip-high: #ea580c; --t3h-tip-medium: var(--warning, #d97706);
+  --t3h-tip-low: var(--muted-foreground, #71717a); --t3h-tip-muted: var(--muted-foreground, #71717a);
+  --t3h-tip-success: var(--success, #16a34a); --t3h-tip-info: var(--info, #2563eb);
+  position: fixed; inset: auto; top: 0; left: 0; z-index: 2147483647; box-sizing: border-box;
+  width: max-content; min-width: 240px; max-width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
+  margin: 0; padding: 0; overflow: hidden auto; scrollbar-width: thin;
+  border: 1px solid var(--border, rgb(0 0 0 / .12)); border-radius: 10px;
+  background: var(--popover, #fff); color: var(--popover-foreground, #18181b);
+  box-shadow: 0 12px 32px -10px rgb(0 0 0 / .35), 0 2px 6px -2px rgb(0 0 0 / .15);
+  direction: ltr; font-size: 12px; line-height: 1.4; text-align: start;
+  pointer-events: none; opacity: 0; transform: translateY(3px); transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+.t3h-tip:not([data-open]) { display: none; }
+.t3h-tip[data-shown] { opacity: 1; transform: none; pointer-events: auto; }
+.t3h-tip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 12px 8px; border-bottom: 1px solid var(--border, rgb(0 0 0 / .12)); }
+.t3h-tip-title { font-size: 13px; font-weight: 600; }
+.t3h-tip :is(.t3h-tip-summary, .t3h-tip-lead, .t3h-tip-meta, .t3h-tip-more, .t3h-tip-note, .t3h-tip-section-title) { color: var(--muted-foreground, #71717a); }
+.t3h-tip-summary { font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t3h-tip-section { display: grid; gap: 2px; padding: 7px 12px 8px; }
+.t3h-tip-section + .t3h-tip-section { border-top: 1px solid var(--border, rgb(0 0 0 / .12)); }
+.t3h-tip-section-title { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.t3h-tip :is(.t3h-tip-chips, .t3h-tip-badges) { display: flex; flex-wrap: wrap; gap: 4px; }
+.t3h-tip-chips { margin: 2px 0 3px; }
+.t3h-tip-item { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; margin: 0 -6px; padding: 3px 6px; border-radius: 6px; color: inherit; text-decoration: none; }
+.t3h-tip a.t3h-tip-item { cursor: pointer; }
+.t3h-tip a.t3h-tip-item:is(:hover, :focus-visible) { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
+.t3h-tip-lead { font-variant-numeric: tabular-nums; }
+.t3h-tip-text { grid-column: 2; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.t3h-tip-sub { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.t3h-tip-item:not([data-lead]) :is(.t3h-tip-text, .t3h-tip-sub) { grid-column: 1 / -1; }
+.t3h-tip-meta { font-size: 11px; overflow-wrap: anywhere; }
+.t3h-tip-item[data-inline] { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.t3h-tip-item[data-inline] .t3h-tip-sub { flex: none; }
+.t3h-tip-badge { --t3h-tone: var(--t3h-tip-muted); display: inline-flex; align-items: center; max-width: 100%; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--t3h-tone) 35%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--t3h-tone) 14%, transparent); color: color-mix(in srgb, var(--t3h-tone) 75%, currentColor); font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t3h-tip-badge[data-tone="critical"] { --t3h-tone: var(--t3h-tip-critical); }
+.t3h-tip-badge[data-tone="high"] { --t3h-tone: var(--t3h-tip-high); }
+.t3h-tip-badge[data-tone="medium"] { --t3h-tone: var(--t3h-tip-medium); }
+.t3h-tip-badge[data-tone="low"] { --t3h-tone: var(--t3h-tip-low); }
+.t3h-tip-badge[data-tone="success"] { --t3h-tone: var(--t3h-tip-success); }
+.t3h-tip-badge[data-tone="info"] { --t3h-tone: var(--t3h-tip-info); }
+.t3h-tip-badge[data-label] { --t3h-tone: var(--t3h-label); color: color-mix(in oklab, var(--t3h-label) 45%, currentColor); }
+.t3h-tip-more { padding-top: 2px; font-size: 11px; justify-self: start; border-radius: 4px; text-decoration: none; }
+.t3h-tip a.t3h-tip-more:is(:hover, :focus-visible) { color: inherit; text-decoration: underline; outline: none; }
+.t3h-tip-note { padding: 7px 12px 8px; border-top: 1px solid var(--border, rgb(0 0 0 / .12)); font-size: 11px; }
 
 @container (max-width: 56rem) {
   .t3h-page { padding-inline: 1.15rem; }
   .t3h .t3h-title h1 { font-size: 2.3rem; }
   .t3h-icon-large { width: 2.3rem; height: 2.3rem; }
 }
-@media (prefers-reduced-motion: reduce) { .t3h-is-run::after { display: none; } }
+@media (prefers-reduced-motion: reduce) { .t3h-is-run::after { display: none; } .t3h-tip { transition: none; transform: none; } }
 `;
 
 module.exports = { homeView, HOME_CSS };

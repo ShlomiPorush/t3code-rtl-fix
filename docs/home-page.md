@@ -41,6 +41,11 @@ without checks, the row says "no checks". Threads that had no activity for two
 weeks come last, in a weaker color. A card shows five rows, and its button shows
 the others.
 
+The tag at the end of a project's line of counts is its latest release on
+GitHub, or its newest tag when it has no releases. When the default branch has
+commits that are not in it, the tag says how many, such as `v1.4.0 +3`. Click
+the tag to see the release, or the commits since it.
+
 Click a project's name to open its own page, which also lists its dependency
 updates.
 
@@ -49,27 +54,56 @@ updates.
 | Count | What it counts |
 |---|---|
 | Issues | Open issues. |
-| Pull requests | Open pull requests, and how many of them are dependency updates. When there are more than 30, only the total. |
-| Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together, and how many are critical, or else high. |
+| Pull requests | Open pull requests, dependency updates among them. |
+| Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together, by severity. |
 
-The security count is red when it has critical or high alerts. It covers only
-the sources that are on in the repository and that your account may read. Rest
-the pointer on it to see which. A count that GitHub does not give is left out,
-so 0 always means that GitHub answered 0.
+The counts and the version always fit on one line. The security count shows one
+number for each severity that has alerts, in its color: critical in red, high in
+orange, medium in amber, and low in gray, followed in gray by alerts without a
+severity, such as found secrets. It covers only the sources that are on in the
+repository and that your account may read. A
+count that GitHub does not give is left out, so 0 always means that GitHub
+answered 0.
+
+Rest the pointer on a count, or move to it with Tab, to see its list, as in the
+thread details card: the issues and pull requests updated last, and the
+security alerts of each source, the most severe first. Move the pointer into the
+list, or press the Down arrow, to reach its items. Security alerts open on
+GitHub. Escape closes the list.
+
+## Side panel
+
+A pull request or an issue that you click on Home opens in T3 Code's own side
+panel, beside the cards, as it does in a thread. That covers the pull request
+rows, the pull request numbers under threads, and the items in the lists of the
+counts. Hold Ctrl, or click with the middle button, to open GitHub instead.
+
+The panel shares its tabs with T3 Code's Issues page, so a tab opened on Home
+also shows there, and the other way around. It shows only for a project whose
+T3 Code server can show issues.
+
+The panel is T3 Code's own, and Home finds it in T3 Code's code when it opens.
+When a T3 Code update changes it so that Home cannot find it, a click opens T3
+Code's Pull requests or Issues page instead, as before. A click in the first
+moment after Home opens does the same. When the panel fails to show, it closes,
+and the next click opens those pages.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.
 "Read in part" means that GitHub did not give everything about the project, or
 that it has more than the 30 pull requests that were read last.
 
-Home does not change anything on GitHub.
+Home itself does not change anything on GitHub. The side panel has T3 Code's
+own actions, such as merging a pull request, and the cards show their result
+when Home reads the repository again.
 
 ## Where the data comes from
 
 Projects and threads are T3 Code's own live data. GitHub is read with the `gh`
 command, which must be installed and signed in. Answers are kept in
 `home-cache.json` in the folder of the fix, so Home shows them at once, also
-after a restart of T3 Code. The file holds titles of pull requests and counts,
+after a restart of T3 Code. The file holds the titles and authors of issues
+and pull requests, the packages and rules that alerts are about, and counts,
 and no sign-in. Answers older than a week are dropped. A repository is read
 again:
 

@@ -5,44 +5,67 @@
 // which keeps its own sign-in. The token never reaches the page.
 
 const fs = require("node:fs");
-const { runFile } = require("./repo-status");
+const { issueDetail, pullDetail, readIssues, readSeverity, runFile, securityDetail } = require("./repo-status");
 
 // One query per repository: GitHub answers a large one slowly, and fails a
 // query of several together with its neighbors.
 const LANES = 4;
 const PULLS = 30;
+const ISSUES = 30;
+const LISTED_ALERTS = 100;
 // Older facts are read again when Home opens.
 const FRESH_MS = 15 * 60 * 1000;
 // Older facts are read again while Home is closed.
 const BACKGROUND_MS = 60 * 60 * 1000;
 const CHECK_MS = 5 * 60 * 1000;
 const KEPT_MS = 7 * 24 * 60 * 60 * 1000;
-const FORMAT = 1;
+const FORMAT = 3;
 
 const REPOSITORY = /^[A-Za-z0-9_-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
 
 const QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    issues(states: OPEN) { totalCount }
+    issues(states: OPEN, first: ${ISSUES}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      totalCount
+      nodes { number title updatedAt author { login } labels(first: 3) { nodes { name color } } }
+    }
     pullRequests(states: OPEN, first: ${PULLS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       nodes {
-        number title isDraft updatedAt mergeable mergeStateStatus
+        number title isDraft updatedAt mergeable mergeStateStatus reviewDecision
         author { login }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
     latestRelease { tagName publishedAt tag { compare(headRef: "HEAD") { aheadBy } } }
+    latestTag: refs(refPrefix: "refs/tags/", first: 1, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+      nodes { name compare(headRef: "HEAD") { aheadBy } target { ... on Commit { committedDate } ... on Tag { target { ... on Commit { committedDate } } } } }
+    }
     defaultBranchRef { target { ... on Commit { statusCheckRollup { state } } } }
   }
 }`;
 
-// Each read prints one word per alert. GitHub hides the secrets themselves.
+const shortText = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
+const alertNumber = (value) => (Number.isInteger(value) && value > 0 ? value : null);
+
 const ALERTS = [
-  { source: "Dependabot", path: "dependabot/alerts?state=open&per_page=100", words: ".[].security_advisory.severity" },
-  { source: "code scanning", path: "code-scanning/alerts?state=open&per_page=100", words: '.[] | (.rule.security_severity_level // (if .rule.severity == "error" then "high" else "other" end))' },
-  { source: "secret scanning", path: "secret-scanning/alerts?state=open&per_page=100&hide_secret=true", words: '.[] | "secret"' },
+  {
+    source: "Dependabot", key: "dependabot", path: "dependabot/alerts?state=open&per_page=100",
+    fields: "{number, severity: .security_advisory.severity, package: (.security_vulnerability.package.name // .dependency.package.name)}",
+    read: (alert) => ({ number: alertNumber(alert.number), severity: readSeverity(alert.severity), package: shortText(alert.package, 100) }),
+  },
+  {
+    source: "code scanning", key: "codeScanning", path: "code-scanning/alerts?state=open&per_page=100",
+    fields: "{number, severity: (.rule.security_severity_level // .rule.severity), rule: (.rule.description // .rule.name // .rule.id), path: .most_recent_instance.location.path}",
+    read: (alert) => ({ number: alertNumber(alert.number), severity: readSeverity(alert.severity), rule: shortText(alert.rule, 200), path: shortText(alert.path, 200) }),
+  },
+  {
+    source: "secret scanning", key: "secretScanning", path: "secret-scanning/alerts?state=open&per_page=100&hide_secret=true",
+    fields: "{number, type: (.secret_type_display_name // .secret_type)}",
+    read: (alert) => ({ number: alertNumber(alert.number), type: shortText(alert.type, 100) }),
+  },
 ];
+const alertQuery = ({ fields }) => `.[] | ${fields} | tojson`;
 
 function readRequest(value) {
   if (!Array.isArray(value) || !value.every((name) => typeof name === "string" && REPOSITORY.test(name))) return null;
@@ -64,6 +87,7 @@ function stageOf(pull, checks) {
   return { stage: "open", tone: "", note: notes[pull.mergeStateStatus] || "merge state unknown" };
 }
 
+const REVIEWS = ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"];
 const isUpdate = (login) => /^(dependabot|renovate)(\[bot\])?$/i.test(login || "");
 
 function readPull(node) {
@@ -73,13 +97,28 @@ function readPull(node) {
     number: node.number,
     title: typeof node.title === "string" ? node.title.slice(0, 300) : "",
     at: Date.parse(node.updatedAt) || null,
+    author: shortText(node.author?.login, 100),
+    draft: node.isDraft === true,
+    review: REVIEWS.includes(node.reviewDecision) ? node.reviewDecision : null,
     update: isUpdate(node.author?.login),
     ...stageOf(node, checks),
   };
 }
 
 // The release has three answers: one, none (null), and unknown (undefined).
-function readRelease(release, failedField) {
+function readTag(node) {
+  const ahead = node.compare?.aheadBy;
+  return {
+    tag: String(node.name).slice(0, 100),
+    at: Date.parse(node.target?.committedDate ?? node.target?.target?.committedDate) || null,
+    ahead: Number.isInteger(ahead) ? ahead : null,
+    tagOnly: true,
+  };
+}
+
+function readRelease(release, failedField, tags) {
+  const tag = tags?.nodes?.[0];
+  if (!release && typeof tag?.name === "string" && tag.name) return readTag(tag);
   if (!release) return failedField ? undefined : null;
   const ahead = release.tag?.compare?.aheadBy;
   return {
@@ -96,7 +135,8 @@ function readRepository(node, failedField) {
     pulls,
     openPulls,
     issues: Number.isInteger(node.issues?.totalCount) ? node.issues.totalCount : null,
-    release: readRelease(node.latestRelease, failedField),
+    issueItems: readIssues(node.issues)?.items ?? [],
+    release: readRelease(node.latestRelease, failedField, node.latestTag),
     mainFails: isFailure(node.defaultBranchRef?.target?.statusCheckRollup?.state),
     failedField,
     cut: pulls.length !== openPulls,
@@ -118,38 +158,71 @@ function readAnswer(stdout) {
 
 const isOff = ({ stderr }) => /HTTP 40[34]/.test(stderr) && !/rate limit/i.test(stderr);
 
-// Counts the alerts of the sources that answer. Returns null when none does,
-// and when a source failed for another reason than being off or not allowed.
+function lineOf(line) {
+  try {
+    const value = JSON.parse(line);
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+const SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+const rankOf = ({ severity }) => (SEVERITY_ORDER.includes(severity) ? SEVERITY_ORDER.indexOf(severity) : SEVERITY_ORDER.length);
+
+function summarizeAlerts(parts) {
+  const all = parts.flatMap(({ alerts }) => alerts);
+  const having = (severity) => all.filter((alert) => alert.severity === severity).length;
+  const lists = Object.fromEntries(parts.map(({ key, alerts }) => [key, { value: alerts.length, capped: false, alerts: [...alerts].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, LISTED_ALERTS) }]));
+  return {
+    total: all.length, critical: having("critical"), high: having("high"), medium: having("medium"), low: having("low"),
+    sources: parts.map(({ source }) => source), lists,
+  };
+}
+
 function readAlerts(results) {
   if (results.some((result) => result.error && !isOff(result))) return null;
-  const answered = ALERTS.map(({ source }, index) => ({ source, ...results[index] })).filter((result) => !result.error);
+  const answered = ALERTS.map((kind, index) => ({ ...kind, ...results[index] })).filter((result) => !result.error);
   if (answered.length === 0) return null;
-  const words = answered.flatMap(({ stdout }) => stdout.split(/\s+/).filter(Boolean));
-  const having = (word) => words.filter((item) => item === word).length;
-  return { total: words.length, critical: having("critical"), high: having("high"), sources: answered.map(({ source }) => source) };
+  return summarizeAlerts(answered.map(({ source, key, read, stdout }) => ({
+    source, key, alerts: stdout.split("\n").filter((line) => line.trim()).map((line) => read(lineOf(line))),
+  })));
 }
 
-// The alerts in the counts of the thread details card, or null when they cover
-// less than is known already.
 function noteAlerts(before, { dependabot, codeScanning, secretScanning }) {
-  const answered = [["Dependabot", dependabot], ["code scanning", codeScanning], ["secret scanning", secretScanning]].filter(([, found]) => found);
-  const sources = answered.map(([source]) => source);
+  const found = { dependabot, codeScanning, secretScanning };
+  const answered = ALERTS.filter(({ key }) => found[key]).map(({ source, key }) => ({ source, key, ...found[key] }));
+  const sources = answered.map(({ source }) => source);
   if (sources.length === 0 || before?.sources.some((source) => !sources.includes(source))) return null;
-  if (answered.some(([, found]) => found.capped || found.alerts.length < found.value)) return null;
-  const alerts = answered.flatMap(([, found]) => found.alerts);
-  const having = (severity) => alerts.filter((alert) => alert.severity === severity).length;
-  return { total: alerts.length, critical: having("critical"), high: having("high"), sources };
+  if (answered.some((part) => part.capped || part.alerts.length < part.value)) return null;
+  return summarizeAlerts(answered);
 }
 
-// The pull requests in the counts of the thread details card, which do not say
-// whether one can be merged.
 function notePulls(before, { value, items }) {
-  const pulls = items.map(({ number, title, author, time, draft }) => {
+  const pulls = items.map(({ number, title, author, time, draft, review }) => {
     const known = before.find((pull) => pull.number === number && !(draft && pull.stage === "ready"));
     const stage = known ? { stage: known.stage, tone: known.tone, note: known.note } : { stage: "open", tone: "", note: draft ? "draft" : "merge state unknown" };
-    return { number, title, at: time, update: isUpdate(author), ...stage };
+    return { number, title, at: time, author, draft, review: review ?? null, update: isUpdate(author), ...stage };
   });
   return { pulls, openPulls: value, cut: pulls.length !== value };
+}
+
+const listed = (list) => (list && list.value > 0 ? list : null);
+
+function detailsOf(facts, alerts) {
+  const details = {};
+  if (facts.issues > 0) details.issue = issueDetail({ value: facts.issues, capped: false, items: facts.issueItems || [] });
+  if (facts.openPulls > 0) {
+    const items = facts.pulls.map((pull) => ({ number: pull.number, title: pull.title, author: pull.author, time: pull.at, draft: pull.draft, review: pull.review }));
+    details.pull = pullDetail({ value: facts.openPulls, capped: false, items });
+  }
+  if (alerts?.total > 0 && alerts.lists) {
+    const { dependabot, codeScanning, secretScanning } = alerts.lists;
+    details.shield = securityDetail({ value: alerts.total, capped: false }, {
+      dependabot: listed(dependabot), codeScanning: listed(codeScanning), secretScanning: listed(secretScanning),
+    });
+  }
+  return details;
 }
 
 // One set of lanes reads for all windows. Facts are kept per repository, so a
@@ -194,10 +267,16 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
       const entry = known.get(name);
       if (!entry) facts[name] = { status: "waiting" };
       else if (!entry.facts) facts[name] = { status: "unavailable" };
-      else facts[name] = { status: "read", readAt: entry.readAt, stale: entry.failed, alerts: entry.alerts, ...entry.facts };
+      else facts[name] = factsOf(entry);
     }
     const failed = repositories.length > 0 && repositories.every((name) => known.get(name)?.failed);
     return { problem: !failed ? null : ghMissing ? "gh-missing" : "github-failed", repositories: facts };
+  }
+
+  function factsOf({ readAt, failed, alerts, facts }) {
+    const { issueItems, ...shown } = facts;
+    const summary = alerts && { total: alerts.total, critical: alerts.critical, high: alerts.high, medium: alerts.medium, low: alerts.low, sources: alerts.sources };
+    return { status: "read", readAt, stale: failed, alerts: summary, ...shown, details: detailsOf(facts, alerts) };
   }
 
   async function readOne(name) {
@@ -221,13 +300,11 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
     else if (triedAt - known.get(name).alertsAt >= FRESH_MS) alertQueue.add(name);
   }
 
-  // A newer read of the repository has an entry of its own, which keeps the
-  // alerts of an older one out.
   async function readAlertsOf(name) {
     const entry = known.get(name);
     const results = [];
-    for (const { path, words } of ALERTS) {
-      results.push(await run("gh", ["api", "--hostname", "github.com", "--paginate", `repos/${name}/${path}`, "-q", words]));
+    for (const kind of ALERTS) {
+      results.push(await run("gh", ["api", "--hostname", "github.com", "--paginate", `repos/${name}/${kind.path}`, "-q", alertQuery(kind)]));
     }
     entry.alerts = readAlerts(results);
     if (entry.alerts) entry.alertsAt = entry.triedAt;
@@ -291,7 +368,7 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
     const alerts = noteAlerts(entry.alerts, counts);
     entry.facts = {
       ...entry.facts,
-      ...(counts.issues ? { issues: counts.issues.value } : {}),
+      ...(counts.issues ? { issues: counts.issues.value, issueItems: counts.issues.items ?? entry.facts.issueItems } : {}),
       ...(counts.pulls ? notePulls(entry.facts.pulls, counts.pulls) : {}),
     };
     if (alerts) Object.assign(entry, { alerts, alertsAt: now() });
