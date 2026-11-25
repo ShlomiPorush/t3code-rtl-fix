@@ -213,7 +213,7 @@ function homeView({
 
   function Row({ row, now, actions }) {
     const title = { className: "t3h-text", dir: directionOf(row.text) };
-    const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openPull?.(event, url) });
+    const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openLink(event, url) });
     return h("li", { className: `t3h-row${row.old && row.state === "idle" ? " t3h-old" : ""}` },
       row.thread
         ? h("span", { className: "t3h-mark", role: "img", title: STATES[row.state].text, "aria-label": STATES[row.state].text }, h("i", { className: `t3h-state t3h-is-${row.state}` }))
@@ -501,10 +501,8 @@ function homeView({
     const linkTo = (link) => ({
       ...outward, href: url(link), tabIndex: -1,
       onClick: (event) => {
-        const issue = /^issues\/(\d+)$/.exec(link);
-        if (/^pull\/\d+$/.test(link)) actions.openPull?.(event, url(link));
-        else if (issue) actions.openIssue(event, tip.repository, issue[1]);
-        tips.hide();
+        if (/^(pull|issues)\/\d+$/.test(link)) actions.openLink(event, url(link));
+        tips.close();
       },
     });
     return h("div", {
@@ -676,6 +674,118 @@ function homeView({
       h(Foot, { entry, facts, now, actions }));
   }
 
+  const PANEL_KEY = "issues-panel:issues-panel";
+  const PANEL_KINDS = ["issue", "pull-request"];
+  const NO_IDS = new Set();
+  const NO_LABELS = new Map();
+  const NONE = {};
+  const nothing = () => {};
+
+  let panelLoad = null;
+  function loadPanelParts() {
+    panelLoad ||= (async () => {
+      const wanted = /\/(PanelLayoutControls|IssueDetailPanel|rightPanelStore)-[\w-]+\.js$/;
+      const urls = [...new Set([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.href).filter((href) => wanted.test(href)))];
+      const modules = await Promise.all(urls.map((url) => import(url).catch(() => null)));
+      const values = [...new Set(modules.filter(Boolean).flatMap((module) => Object.values(module)))];
+      const one = (test) => {
+        const found = values.filter((value) => {
+          try {
+            return test(value);
+          } catch {
+            return false;
+          }
+        });
+        return found.length === 1 ? found[0] : null;
+      };
+      const component = (mark) => one((value) => typeof value === "function" && String(value).includes(mark));
+      const parts = {
+        Shell: component("data-right-panel-tabbar"),
+        PullView: component("pullRequest.copyNumber"),
+        IssueView: component("Could not load this issue"),
+        store: one((value) => {
+          const state = typeof value === "function" && typeof value.getState === "function" ? value.getState() : null;
+          return Boolean(state) && typeof value.subscribe === "function" && typeof state.byThreadKey === "object" &&
+            ["openIssue", "openPullRequest", "activateSurface", "closeSurface", "closeOtherSurfaces", "closeSurfacesToRight", "closeAllSurfaces"].every((name) => typeof state[name] === "function");
+        }),
+        ref: one((value) => value !== null && typeof value === "object" && value.environmentId === "issues-panel" && value.threadId === "issues-panel"),
+      };
+      return Object.values(parts).every(Boolean) ? { ...parts, broken: new Set() } : null;
+    })().catch(() => null);
+    return panelLoad;
+  }
+
+  function usePanelParts() {
+    const [parts, setParts] = React.useState(null);
+    React.useEffect(() => {
+      let live = true;
+      loadPanelParts().then((found) => live && setParts(found));
+      return () => {
+        live = false;
+      };
+    }, []);
+    return parts;
+  }
+
+  class PanelBoundary extends React.Component {
+    constructor(props) {
+      super(props);
+      this.state = { failed: false };
+    }
+    static getDerivedStateFromError() {
+      return { failed: true };
+    }
+    componentDidCatch(error) {
+      console.error("t3code-rtl-fix: the side panel on Home failed", error);
+      this.props.onFailed(this.props.kind);
+    }
+    render() {
+      return this.state.failed ? null : this.props.children;
+    }
+  }
+
+  function SidePanel({ parts, onFailed }) {
+    const { Shell, PullView, IssueView, store, ref } = parts;
+    const panel = React.useSyncExternalStore(store.subscribe, () => store.getState().byThreadKey[PANEL_KEY]);
+    const active = panel?.isOpen ? panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId) : null;
+    if (!active || !PANEL_KINDS.includes(active.kind) || parts.broken.has(active.kind)) return null;
+    const state = () => store.getState();
+    const environmentId = active.environmentId;
+    const getShortcutContext = () => ({
+      terminalFocus: false, terminalOpen: false, previewFocus: false, previewOpen: false, modelPickerOpen: false,
+      isWeb: !electron, isDesktop: Boolean(electron),
+    });
+    const host = active.host ? { host: active.host } : {};
+    const view = active.kind === "issue"
+      ? h(IssueView, {
+        key: `${environmentId}:${active.id}`, environmentId, listEntry: null,
+        reference: { projectId: active.projectId, tracker: active.tracker, ...host, scope: active.scope, key: active.key },
+        onSelectPullRequest: (pull) => state().openPullRequest(ref, {
+          projectId: pull.projectId, repository: pull.repository, number: pull.number, ...(pull.host === undefined ? {} : { host: pull.host }), environmentId,
+        }),
+      })
+      : h(PullView, {
+        key: active.id, getShortcutContext, shortcutsEnabled: false, environmentId,
+        reference: { projectId: active.projectId, repository: active.repository, number: active.number, ...host },
+      });
+    return h(PanelBoundary, { key: active.id, kind: active.kind, onFailed },
+      h(Shell, {
+        mode: "inline", open: true, keybindings: [], getShortcutContext,
+        widthStorageKey: "t3code:issue-panel-width", defaultWidth: Math.floor(innerWidth / 2),
+        surfaces: panel.surfaces, environmentId, activeSurfaceId: active.id,
+        pendingSurfaceIds: NO_IDS, previewSessions: NONE, desktopByTabId: NONE, terminalLabelsById: NO_LABELS,
+        onActivate: (surface) => state().activateSurface(ref, surface.id),
+        onCloseSurface: (surface) => state().closeSurface(ref, surface.id),
+        onCloseOtherSurfaces: (surface) => state().closeOtherSurfaces(ref, surface.id),
+        onCloseSurfacesToRight: (surface) => state().closeSurfacesToRight(ref, surface.id),
+        onCloseAllSurfaces: () => state().closeAllSurfaces(ref),
+        onCopyFilePath: nothing, onAddBrowser: nothing, onAddBrowserInProfile: nothing, onAddTerminal: nothing, onAddDiff: nothing,
+        onAddFiles: nothing, onAddPullRequest: nothing, onAddPullRequests: nothing, onAddDevice: nothing,
+        browserAvailable: false, terminalAvailable: false, diffAvailable: false, filesAvailable: false,
+        pullRequestAvailable: false, pullRequestsAvailable: false, deviceAvailable: false,
+      }, view));
+  }
+
   // Facts come from the launcher, through the fix's own script in this page,
   // also while Home is closed.
   let github = null;
@@ -748,23 +858,45 @@ function homeView({
     const chosen = useChosen(router);
     const [failed, setFailed] = React.useState(false);
     const tips = useTips();
+    const parts = usePanelParts();
     const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
     const factsOf = (entry) => (entry.repository && github ? github.repositories[entry.repository] ?? null : null);
+    const showsIssues = (project) =>
+      environments.find((item) => item.environmentId === project.environmentId)?.serverConfig?.environment?.capabilities?.issues === true;
+    const openInPanel = (event, project, repository, kind, number, url) => {
+      const panelKind = kind === "pull" ? "pull-request" : "issue";
+      if (!parts || parts.broken.has(panelKind)) return false;
+      const surface = kind === "pull"
+        ? { environmentId: project.environmentId, projectId: project.id, host: "github.com", repository, number: Number(number), url }
+        : { environmentId: project.environmentId, projectId: project.id, tracker: "github", host: "github.com", scope: repository, key: number, url };
+      try {
+        parts.store.getState()[kind === "pull" ? "openPullRequest" : "openIssue"](parts.ref, surface);
+      } catch (error) {
+        console.error("t3code-rtl-fix: the side panel on Home could not open", error);
+        return false;
+      }
+      event.preventDefault();
+      return true;
+    };
     const actions = {
-      openPull,
       tips,
       openMap: () => router.navigate({ to: "/" }),
-      openIssue: (event, repository, key) => {
-        const project = entries.find((item) => item.repository === repository)?.project;
-        const environment = project && environments.find((item) => item.environmentId === project.environmentId);
-        if (environment?.serverConfig?.environment?.capabilities?.issues !== true) return;
-        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        router.navigate({
-          to: "/issues",
-          search: { selectedEnvironmentId: project.environmentId, selectedProjectId: project.id, selectedHost: "github.com", tracker: "github", scope: repository, key },
-        });
+      openLink: (event, url) => {
+        const link = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(url);
+        const project = link && entries.find((item) => item.repository === link[1])?.project;
+        if (!project || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const [, repository, kind, number] = link;
+        if (showsIssues(project) && openInPanel(event, project, repository, kind, number, url)) return;
+        if (kind === "pull") {
+          openPull?.(event, url);
+        } else if (showsIssues(project)) {
+          event.preventDefault();
+          router.navigate({
+            to: "/issues",
+            search: { selectedEnvironmentId: project.environmentId, selectedProjectId: project.id, selectedHost: "github.com", tracker: "github", scope: repository, key: number },
+          });
+        }
       },
       openProject: (entry) => router.navigate({ to: "/", search: { project: entry.key } }),
       openThread: (thread) => router.navigate({ to: "/$environmentId/$threadId", params: { environmentId: thread.environmentId, threadId: thread.id } }),
@@ -784,13 +916,20 @@ function homeView({
       github?.problem === "github-failed" && "GitHub could not be read. Check that gh is signed in.",
       stale.length > 0 && `Some GitHub data is from ${ago(now - Math.min(...stale))} ago.`,
     ].filter(Boolean);
+    const panelFailed = (kind) => {
+      parts.broken.add(kind);
+      router.navigate({ to: "/issues" });
+    };
     return h(Frame, { ...focusProps("home", 1, "Home"), role: "main", className: frameClass },
       h("style", null, css),
-      h(Header, { electron }, text(entry ? entry.project.title : "Home", "t3h-header")),
-      h("div", { className: "t3h", key: entry ? entry.key : "map" },
-        h("div", { className: "t3h-page" },
-          notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
-          entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions }))),
+      h("div", { className: "t3h-split" },
+        h("div", { className: "t3h-main" },
+          h(Header, { electron }, text(entry ? entry.project.title : "Home", "t3h-header")),
+          h("div", { className: "t3h", key: entry ? entry.key : "map" },
+            h("div", { className: "t3h-page" },
+              notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
+              entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
+        parts ? h(SidePanel, { parts, onFailed: panelFailed }) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 
@@ -822,6 +961,8 @@ function homeView({
 
 const HOME_CSS = `
 .t3h, .t3h-tip { --t3h-red: #e5484d; --t3h-blue: #3b82f6; }
+.t3h-split { position: relative; display: flex; flex: 1; min-height: 0; }
+.t3h-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .t3h { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; color: var(--foreground); font-size: .875rem; line-height: 1.45; direction: ltr; }
 :root[data-t3-rtl-app="on"] .t3h { direction: rtl; }
 .t3h [dir] { text-align: -webkit-match-parent; text-align: match-parent; }

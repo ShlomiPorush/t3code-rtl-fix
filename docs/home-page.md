@@ -66,16 +66,33 @@ answered 0.
 Rest the pointer on a count, or move to it with Tab, to see its list, as in the
 thread details card: the issues and pull requests updated last, and the
 security alerts of each source, the most severe first. Move the pointer into the
-list, or press the Down arrow, to reach its items. A pull request opens on T3
-Code's Pull requests page and an issue on its Issues page, as their links in a
-thread do. Security alerts open on GitHub. Escape closes the list.
+list, or press the Down arrow, to reach its items. Security alerts open on
+GitHub. Escape closes the list.
+
+## Side panel
+
+A pull request or an issue that you click on Home opens in T3 Code's own side
+panel, beside the cards, as it does in a thread. That covers the pull request
+rows, the pull request numbers under threads, and the items in the lists of the
+counts. Hold Ctrl, or click with the middle button, to open GitHub instead.
+
+The panel shares its tabs with T3 Code's Issues page, so a tab opened on Home
+also shows there, and the other way around. It shows only for a project whose
+T3 Code server can show issues.
+
+The panel is T3 Code's own, and Home finds it in T3 Code's code when it opens.
+When a T3 Code update changes it so that Home cannot find or show it, a click
+opens T3 Code's Pull requests or Issues page instead, as before. A click in
+the first moment after Home opens does the same.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.
 "Read in part" means that GitHub did not give everything about the project, or
 that it has more than the 30 pull requests that were read last.
 
-Home does not change anything on GitHub.
+Home itself does not change anything on GitHub. The side panel has T3 Code's
+own actions, such as merging a pull request, and the cards show their result
+when Home reads the repository again.
 
 ## Where the data comes from
 

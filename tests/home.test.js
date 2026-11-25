@@ -574,7 +574,7 @@ test("a list of many repositories fits, and other messages keep their small limi
 
 // Just enough of React to render the component to text: state keeps its first
 // value, effects do not run, and refs given by the test stay between renders.
-function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [] } = {}) {
+function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [], main = {} } = {}) {
   const calls = [];
   let nextRef = 0;
   let receive = null;
@@ -608,7 +608,7 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     useRouter: () => ({ state: { location: { search } }, navigate: (to) => calls.push(["go", to]) }),
     useEnvironments: () => ({ environments: connected.map((environmentId) => ({ environmentId, connection: { phase: "connected" } })) }),
     projectReference: (environmentId, projectId) => ({ environmentId, projectId }),
-    Frame: ({ children }) => children, focusProps: () => ({}), Header: ({ children }) => children, electron: true, main: {}, frameClass: "", css: "",
+    Frame: ({ children }) => children, focusProps: () => ({}), Header: ({ children }) => children, electron: true, main, frameClass: "", css: "",
   });
   if (github) receive({ detail: JSON.stringify(github) });
   const buttons = [];
@@ -808,6 +808,26 @@ test("a count with a list opens it on hover, and the others keep their plain too
   assert.deepEqual([issues.props["aria-haspopup"], issues.props.title, typeof issues.props.onPointerEnter], ["dialog", undefined, "function"]);
   assert.deepEqual([pulls.props["aria-haspopup"], pulls.props.title], [undefined, "0 pull requests"]);
   assert.equal(page.having("t3h-tip")[0], "", "the popover is closed until a count is hovered");
+});
+
+test("until T3 Code's side panel is found, a pull request goes to T3 Code's own link handler, and a modified click to GitHub", () => {
+  const opened = [];
+  const main = {
+    useOpenPullRequestLink() {
+      "instanceof HTMLAnchorElement stopPropagation threadRef:";
+      return (event, url) => opened.push(url);
+    },
+  };
+  const page = renderHome({
+    projects: [project("app", "o/app")], threads: [thread()], main,
+    github: answered({ "o/app": facts({ pulls: [pullFact(4)], openPulls: 1 }) }),
+  });
+  const row = page.links.find((item) => item.href === "https://github.com/o/app/pull/4");
+  const click = (overrides) => ({ button: 0, preventDefault() {}, ...overrides });
+  row.props.onClick(click({}));
+  assert.deepEqual(opened, ["https://github.com/o/app/pull/4"]);
+  for (const modified of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) row.props.onClick(click(modified));
+  assert.equal(opened.length, 1, "the browser opens GitHub");
 });
 
 test("a project has no open work only when its pull requests were read, and otherwise says why not", () => {
