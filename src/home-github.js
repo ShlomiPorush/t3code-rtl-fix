@@ -19,7 +19,7 @@ const FRESH_MS = 15 * 60 * 1000;
 const BACKGROUND_MS = 60 * 60 * 1000;
 const CHECK_MS = 5 * 60 * 1000;
 const KEPT_MS = 7 * 24 * 60 * 60 * 1000;
-const FORMAT = 2;
+const FORMAT = 3;
 
 const REPOSITORY = /^[A-Za-z0-9_-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
 
@@ -174,7 +174,10 @@ function summarizeAlerts(parts) {
   const all = parts.flatMap(({ alerts }) => alerts);
   const having = (severity) => all.filter((alert) => alert.severity === severity).length;
   const lists = Object.fromEntries(parts.map(({ key, alerts }) => [key, { value: alerts.length, capped: false, alerts: [...alerts].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, LISTED_ALERTS) }]));
-  return { total: all.length, critical: having("critical"), high: having("high"), sources: parts.map(({ source }) => source), lists };
+  return {
+    total: all.length, critical: having("critical"), high: having("high"), medium: having("medium"), low: having("low"),
+    sources: parts.map(({ source }) => source), lists,
+  };
 }
 
 function readAlerts(results) {
@@ -272,7 +275,7 @@ function createHomeGithub({ run = runFile, log = () => {}, now = Date.now, file 
 
   function factsOf({ readAt, failed, alerts, facts }) {
     const { issueItems, ...shown } = facts;
-    const summary = alerts && { total: alerts.total, critical: alerts.critical, high: alerts.high, sources: alerts.sources };
+    const summary = alerts && { total: alerts.total, critical: alerts.critical, high: alerts.high, medium: alerts.medium, low: alerts.low, sources: alerts.sources };
     return { status: "read", readAt, stale: failed, alerts: summary, ...shown, details: detailsOf(facts, alerts) };
   }
 

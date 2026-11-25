@@ -298,7 +298,7 @@ test("alerts leave gh with only the fields shown, secrets stay hidden, and alert
     await settle();
     return got.at(-1).repositories["o/one"];
   };
-  assert.deepEqual((await read()).alerts, { total: 2, critical: 1, high: 0, sources: ["Dependabot", "code scanning", "secret scanning"] });
+  assert.deepEqual((await read()).alerts, { total: 2, critical: 1, high: 0, medium: 0, low: 1, sources: ["Dependabot", "code scanning", "secret scanning"] });
   assert.equal(alertCalls.length, 3);
   assert.ok(alertCalls.every((args) => args.includes("github.com") && args.includes("-q") && args.some((arg) => arg.startsWith("repos/o/one/"))));
   const secrets = alertCalls.find((args) => args.join(" ").includes("secret-scanning"));
@@ -451,7 +451,7 @@ test("the thread details card's counts update Home, keep what they do not say, a
   assert.deepEqual(facts.pulls.map(({ number, title, update, stage, note }) => [number, title, update, stage, note]), [
     [8, "New 8", true, "open", "merge state unknown"], [9, "New 9", false, "open", "draft"], [7, "New 7", false, "ready", ""],
   ]);
-  assert.deepEqual(facts.alerts, { total: 3, critical: 0, high: 2, sources: ["Dependabot", "code scanning", "secret scanning"] });
+  assert.deepEqual(facts.alerts, { total: 3, critical: 0, high: 2, medium: 0, low: 1, sources: ["Dependabot", "code scanning", "secret scanning"] });
   assert.equal(facts.release.tag, "v1");
   service.note("o/one", { ...counts, pulls: { value: 1, items: [item(7, "someone", true)] } });
   assert.equal(got.at(-1).pulls[0].note, "draft", "a ready one that went back to draft");
@@ -784,14 +784,17 @@ test("a card counts issues, pull requests, and alerts, and leaves out what GitHu
   const counts = (overrides) => renderHome({
     projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }),
   }).links.filter((item) => item.label).map((item) => [item.label, item.name.trim(), item.href.slice(24)]);
-  const alerts = (total, critical, high) => ({ total, critical, high, sources: ["Dependabot"] });
-  assert.deepEqual(counts({ issues: 2, openPulls: 3, pulls: [pullFact(1), pullFact(2, { update: true })], alerts: alerts(45, 4, 11) }), [
+  const alerts = (total, critical, high, medium = 0, low = 0) => ({ total, critical, high, medium, low, sources: ["Dependabot"] });
+  assert.deepEqual(counts({ issues: 2, openPulls: 3, pulls: [pullFact(1), pullFact(2, { update: true })], alerts: alerts(45, 4, 11, 22, 8) }), [
     ["2 issues", "2", "/issues"],
     ["3 pull requests: 3, 1 update", "3", "/pulls"],
-    ["45 security alerts in Dependabot: 45, 4 critical", "45", "/security"],
+    ["45 security alerts in Dependabot: 45, 4 critical, 11 high, 22 medium, 8 low", "4\n11\n22\n8", "/security"],
   ]);
-  assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[0]), ["0 issues", "2 pull requests: 2 updates", "1 security alert in Dependabot: 1 high"]);
+  assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[0]), ["0 issues", "2 pull requests: 2 updates", "1 security alert in Dependabot: 1, 1 high"]);
   assert.deepEqual(counts({ alerts: alerts(0, 0, 0) }).map((item) => item[0]), ["0 issues", "0 pull requests", "0 security alerts in Dependabot"]);
+  assert.deepEqual(counts({ alerts: alerts(5, 0, 0, 2) })[2].slice(0, 2), ["5 security alerts in Dependabot: 5, 2 medium, 3 without a severity", "2\n3"], "secrets have no severity");
+  const parts = renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts({ alerts: alerts(12, 1, 0, 0, 11) }) }) }).having("t3h-severity");
+  assert.deepEqual(parts, ["1", "11"]);
   assert.deepEqual(counts({ issues: null, openPulls: null }), []);
   assert.deepEqual(counts({ openPulls: 40, cut: true, pulls: [pullFact(1, { update: true })] })[1][0], "40 pull requests", "a part of the list does not count the updates");
 });

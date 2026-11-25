@@ -239,7 +239,10 @@ function homeView({
     if (!isRead(facts)) return [];
     const updates = facts.pulls.filter((pull) => pull.update).length;
     const alerts = facts.alerts;
-    const graded = !alerts ? "" : alerts.critical ? share(alerts.total, alerts.critical, "critical") : share(alerts.total, alerts.high, "high");
+    const graded = !alerts ? [] : [
+      ["critical", alerts.critical], ["high", alerts.high], ["medium", alerts.medium], ["low", alerts.low],
+      ["other", alerts.total - alerts.critical - alerts.high - alerts.medium - alerts.low],
+    ].filter(([, number]) => number > 0);
     const url = `https://github.com/${entry.repository}`;
     return [
       facts.issues === null ? null : { key: "issue", number: facts.issues, name: count(facts.issues, "issue"), href: `${url}/issues` },
@@ -249,12 +252,16 @@ function homeView({
       },
       !alerts ? null : {
         key: "shield", number: alerts.total, name: `${count(alerts.total, "security alert")} in ${alerts.sources.join(", ")}`, href: `${url}/security`,
-        extra: graded, tone: alerts.critical || alerts.high ? "bad" : alerts.total ? "warn" : "",
+        severities: graded, extra: graded.map(([severity, number]) => `, ${number} ${severity === "other" ? "without a severity" : severity}`).join(""),
+        tone: alerts.critical || alerts.high ? "bad" : alerts.total ? "warn" : "",
       },
     ].filter(Boolean);
   }
 
   const nameOf = ({ name, number, extra }) => (extra ? `${name}: ${number}${extra}` : name);
+  const shownNumber = (item) => (item.severities?.length
+    ? item.severities.map(([severity, number]) => h("span", { key: severity, className: `t3h-severity t3h-sev-${severity}` }, number))
+    : item.number);
 
   function Counts({ entry, facts, now, actions }) {
     const counts = countsOf(entry, facts);
@@ -267,7 +274,7 @@ function homeView({
           key: item.key, ...outward, href: item.href, "aria-label": nameOf(item),
           ...(detail ? actions.tips.anchor(entry.repository, item.key) : { title: item.name }),
           className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
-        }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number));
+        }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, shownNumber(item)));
       }),
       reason ? small(reason, "t3h-cut") : null,
       releaseOf(facts) ? h("span", { className: "t3h-release" }, h(ReleaseTag, { entry, facts, now })) : null);
@@ -607,7 +614,7 @@ function homeView({
     const details = [
       ...countsOf(entry, facts).filter((item) => item.number > 0).map((item) =>
         h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
-          h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number))),
+          h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, shownNumber(item)))),
       reason ? small(reason) : null,
       releaseOf(facts) ? h("span", { key: "release", className: "t3h-release" }, h(ReleaseTag, { entry, facts, now, linked: false })) : null,
     ];
@@ -1030,6 +1037,9 @@ const HOME_CSS = `
 .t3h-counts { display: flex; align-items: center; gap: 1rem; white-space: nowrap; margin-top: .75rem; padding-top: .65rem; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent); }
 .t3h .t3h-count { display: inline-flex; align-items: center; gap: .32rem; font-size: .82rem; font-weight: 550; color: var(--t3h-k, color-mix(in srgb, var(--foreground) 82%, transparent)); }
 .t3h a.t3h-count:hover { text-decoration: underline; text-underline-offset: 3px; }
+.t3h-severity + .t3h-severity { margin-left: .35rem; }
+.t3h .t3h-sev-critical { color: var(--t3h-red); } .t3h .t3h-sev-high { color: #ea580c; } .t3h .t3h-sev-medium { color: var(--warning, #d97706); }
+.t3h .t3h-sev-low, .t3h .t3h-sev-other { color: var(--muted-foreground); }
 .t3h .t3h-zero { font-weight: 400; color: color-mix(in srgb, var(--muted-foreground) 70%, transparent); }
 
 .t3h-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: .1rem .9rem; }
