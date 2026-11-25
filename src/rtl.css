@@ -302,22 +302,15 @@ form[data-v2-item-type="secret_request"] > div:first-child > :is(label, p) {
   text-align: start !important;
 }
 
-/* The placeholder of the empty composer, which can show a predicted next
-   prompt, sits on the side where its text starts. The Tab key hint after the
-   prediction keeps its gap from the text on the side where the text ends. */
-div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
+div.pointer-events-none.leading-relaxed.text-placeholder {
   text-align: start !important;
 }
 
-/* In the right-to-left layout an empty composer starts on the right, so its
-   placeholder sits there too, in its own reading order. */
-:root[data-t3-rtl-app="on"]
-  div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder {
+:root[data-t3-rtl-app="on"] div.pointer-events-none.leading-relaxed.text-placeholder {
   text-align: right !important;
 }
 
-div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder
-  > span.ml-2 {
+div.pointer-events-none.leading-relaxed.text-placeholder > :is(span, button).ml-2 {
   margin-left: 0 !important;
   margin-inline-start: 0.5rem !important;
 }
