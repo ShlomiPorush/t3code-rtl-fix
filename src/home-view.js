@@ -501,7 +501,7 @@ function homeView({
     const linkTo = (link) => ({
       ...outward, href: url(link), tabIndex: -1,
       onClick: (event) => {
-        if (/^(pull|issues)\/\d+$/.test(link)) actions.openLink(event, url(link));
+        actions.openLink(event, url(link));
         tips.close();
       },
     });
@@ -710,7 +710,7 @@ function homeView({
         }),
         ref: one((value) => value !== null && typeof value === "object" && value.environmentId === "issues-panel" && value.threadId === "issues-panel"),
       };
-      return Object.values(parts).every(Boolean) ? { ...parts, broken: new Set() } : null;
+      return Object.values(parts).every(Boolean) ? { ...parts, broken: false } : null;
     })().catch(() => null);
     return panelLoad;
   }
@@ -737,18 +737,18 @@ function homeView({
     }
     componentDidCatch(error) {
       console.error("t3code-rtl-fix: the side panel on Home failed", error);
-      this.props.onFailed(this.props.kind);
+      this.props.onFailed();
     }
     render() {
       return this.state.failed ? null : this.props.children;
     }
   }
 
-  function SidePanel({ parts, onFailed }) {
+  function SidePanel({ parts }) {
     const { Shell, PullView, IssueView, store, ref } = parts;
     const panel = React.useSyncExternalStore(store.subscribe, () => store.getState().byThreadKey[PANEL_KEY]);
     const active = panel?.isOpen ? panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId) : null;
-    if (!active || !PANEL_KINDS.includes(active.kind) || parts.broken.has(active.kind)) return null;
+    if (!active || !PANEL_KINDS.includes(active.kind)) return null;
     const state = () => store.getState();
     const environmentId = active.environmentId;
     const getShortcutContext = () => ({
@@ -768,8 +768,7 @@ function homeView({
         key: active.id, getShortcutContext, shortcutsEnabled: false, environmentId,
         reference: { projectId: active.projectId, repository: active.repository, number: active.number, ...host },
       });
-    return h(PanelBoundary, { key: active.id, kind: active.kind, onFailed },
-      h(Shell, {
+    return h(Shell, {
         mode: "inline", open: true, keybindings: [], getShortcutContext,
         widthStorageKey: "t3code:issue-panel-width", defaultWidth: Math.floor(innerWidth / 2),
         surfaces: panel.surfaces, environmentId, activeSurfaceId: active.id,
@@ -783,7 +782,7 @@ function homeView({
         onAddFiles: nothing, onAddPullRequest: nothing, onAddPullRequests: nothing, onAddDevice: nothing,
         browserAvailable: false, terminalAvailable: false, diffAvailable: false, filesAvailable: false,
         pullRequestAvailable: false, pullRequestsAvailable: false, deviceAvailable: false,
-      }, view));
+      }, view);
   }
 
   // Facts come from the launcher, through the fix's own script in this page,
@@ -865,8 +864,7 @@ function homeView({
     const showsIssues = (project) =>
       environments.find((item) => item.environmentId === project.environmentId)?.serverConfig?.environment?.capabilities?.issues === true;
     const openInPanel = (event, project, repository, kind, number, url) => {
-      const panelKind = kind === "pull" ? "pull-request" : "issue";
-      if (!parts || parts.broken.has(panelKind)) return false;
+      if (!parts || parts.broken) return false;
       const surface = kind === "pull"
         ? { environmentId: project.environmentId, projectId: project.id, host: "github.com", repository, number: Number(number), url }
         : { environmentId: project.environmentId, projectId: project.id, tracker: "github", host: "github.com", scope: repository, key: number, url };
@@ -885,7 +883,7 @@ function homeView({
       openLink: (event, url) => {
         const link = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(url);
         const project = link && entries.find((item) => item.repository === link[1])?.project;
-        if (!project || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        if (!project || event.button !== 0 || event.ctrlKey || event.metaKey) return;
         const [, repository, kind, number] = link;
         if (showsIssues(project) && openInPanel(event, project, repository, kind, number, url)) return;
         if (kind === "pull") {
@@ -916,8 +914,8 @@ function homeView({
       github?.problem === "github-failed" && "GitHub could not be read. Check that gh is signed in.",
       stale.length > 0 && `Some GitHub data is from ${ago(now - Math.min(...stale))} ago.`,
     ].filter(Boolean);
-    const panelFailed = (kind) => {
-      parts.broken.add(kind);
+    const panelFailed = () => {
+      parts.broken = true;
       router.navigate({ to: "/issues" });
     };
     return h(Frame, { ...focusProps("home", 1, "Home"), role: "main", className: frameClass },
@@ -929,7 +927,7 @@ function homeView({
             h("div", { className: "t3h-page" },
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
-        parts ? h(SidePanel, { parts, onFailed: panelFailed }) : null),
+        parts && !parts.broken ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts })) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 

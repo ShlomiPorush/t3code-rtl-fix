@@ -572,8 +572,6 @@ test("a list of many repositories fits, and other messages keep their small limi
   assert.equal(asked.length, 1);
 });
 
-// Just enough of React to render the component to text: state keeps its first
-// value, effects do not run, and refs given by the test stay between renders.
 function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [], main = {} } = {}) {
   const calls = [];
   let nextRef = 0;
@@ -826,7 +824,7 @@ test("until T3 Code's side panel is found, a pull request goes to T3 Code's own 
   const click = (overrides) => ({ button: 0, preventDefault() {}, ...overrides });
   row.props.onClick(click({}));
   assert.deepEqual(opened, ["https://github.com/o/app/pull/4"]);
-  for (const modified of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) row.props.onClick(click(modified));
+  for (const modified of [{ ctrlKey: true }, { metaKey: true }, { button: 1 }]) row.props.onClick(click(modified));
   assert.equal(opened.length, 1, "the browser opens GitHub");
 });
 
