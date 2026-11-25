@@ -5,10 +5,22 @@ const path = require("node:path");
 
 const CHECK_MS = 15 * 1000;
 
-const OPEN_RUNS = "SELECT run_id AS id, parent_run_id AS parent, status FROM workflow_runs WHERE ended_at IS NULL";
+const RUNS = "SELECT run_id AS id, parent_run_id AS parent, status, ended_at IS NOT NULL AS ended FROM workflow_runs";
 const ASKING_RUNS = "SELECT run_id AS id FROM workflow_waits WHERE request_json IS NOT NULL AND signalled_at IS NULL";
+const AGENT_ANSWERS = `
+  SELECT s.run_id AS id, json_extract(t.payload_json, '$.lastVisitedAt') AS visitedAt, r.status, r.completed_at AS completedAt
+  FROM workflow_steps s
+  JOIN orchestration_v2_projection_threads t ON t.thread_id = s.thread_id AND t.archived_at IS NULL AND t.deleted_at IS NULL
+  JOIN orchestration_v2_projection_runs r ON r.run_id = (
+    SELECT run_id FROM orchestration_v2_projection_runs WHERE thread_id = s.thread_id ORDER BY ordinal DESC LIMIT 1
+  )
+  WHERE s.kind = 'agent'`;
+const ENDED_WITH_ANSWER = new Set(["completed", "stopped"]);
 
-function countWorkflowRuns(runs, askingIds) {
+const isUnread = ({ visitedAt, status, completedAt }) =>
+  status === "completed" && (!visitedAt || Date.parse(completedAt) > Date.parse(visitedAt));
+
+function countWorkflowRuns(runs, askingIds, unreadIds = []) {
   const byId = new Map(runs.map((run) => [run.id, run]));
   const asking = new Set(askingIds);
   const rootOf = (run) => {
@@ -18,16 +30,21 @@ function countWorkflowRuns(runs, askingIds) {
       current = byId.get(current.parent);
       seen.add(current.id);
     }
-    return current.id;
+    return current;
   };
-  const roots = new Set();
+  const open = new Set();
   const needed = new Set();
-  for (const run of runs) {
-    const root = rootOf(run);
-    roots.add(root);
+  for (const run of runs.filter((item) => !item.ended)) {
+    const root = rootOf(run).id;
+    open.add(root);
     if (run.status === "paused" || asking.has(run.id)) needed.add(root);
   }
-  return { running: roots.size - needed.size, needsYou: needed.size, open: runs.map((run) => run.id).sort() };
+  const finished = new Set();
+  for (const id of unreadIds) {
+    const root = byId.has(id) ? rootOf(byId.get(id)) : null;
+    if (root && !open.has(root.id) && ENDED_WITH_ANSWER.has(root.status)) finished.add(root.id);
+  }
+  return { running: open.size - needed.size, needsYou: needed.size, finished: finished.size };
 }
 
 function workflowsEnabled(userdata) {
@@ -43,8 +60,9 @@ function readWorkflowCounts(userdata, openDatabase) {
   const database = openDatabase(path.join(userdata, "statev2.sqlite"));
   try {
     return countWorkflowRuns(
-      database.prepare(OPEN_RUNS).all(),
+      database.prepare(RUNS).all(),
       database.prepare(ASKING_RUNS).all().map((row) => row.id),
+      database.prepare(AGENT_ANSWERS).all().filter(isUnread).map((row) => row.id),
     );
   } finally {
     database.close();
