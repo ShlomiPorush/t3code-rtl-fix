@@ -914,10 +914,12 @@ function homeView({
       github?.problem === "github-failed" && "GitHub could not be read. Check that gh is signed in.",
       stale.length > 0 && `Some GitHub data is from ${ago(now - Math.min(...stale))} ago.`,
     ].filter(Boolean);
+    const [, setPanelBroken] = React.useState(false);
     const panelFailed = () => {
       parts.broken = true;
-      router.navigate({ to: "/issues" });
+      setPanelBroken(true);
     };
+    const issuesEnvironmentId = environments.find((item) => item.serverConfig?.environment?.capabilities?.issues === true)?.environmentId;
     return h(Frame, { ...focusProps("home", 1, "Home"), role: "main", className: frameClass },
       h("style", null, css),
       h("div", { className: "t3h-split" },
@@ -927,7 +929,7 @@ function homeView({
             h("div", { className: "t3h-page" },
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
-        parts && !parts.broken ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId: environments.find((item) => item.serverConfig?.environment?.capabilities?.issues === true)?.environmentId })) : null),
+        parts && !parts.broken && issuesEnvironmentId ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 

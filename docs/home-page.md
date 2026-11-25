@@ -81,9 +81,10 @@ also shows there, and the other way around. It shows only for a project whose
 T3 Code server can show issues.
 
 The panel is T3 Code's own, and Home finds it in T3 Code's code when it opens.
-When a T3 Code update changes it so that Home cannot find or show it, a click
-opens T3 Code's Pull requests or Issues page instead, as before. A click in
-the first moment after Home opens does the same.
+When a T3 Code update changes it so that Home cannot find it, a click opens T3
+Code's Pull requests or Issues page instead, as before. A click in the first
+moment after Home opens does the same. When the panel fails to show, it closes,
+and the next click opens those pages.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.
