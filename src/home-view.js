@@ -362,7 +362,7 @@ function homeView({
     const focusInside = () => Boolean(box.current?.contains(document.activeElement));
     const scheduleHide = () => {
       clear();
-      if (held.tip) held.hide = setTimeout(() => focusInside() || hide(), TIP_HIDE_DELAY_MS);
+      if (held.tip) held.hide = setTimeout(() => focusInside() || held.tip?.anchor.matches(":focus-visible") || hide(), TIP_HIDE_DELAY_MS);
     };
     const links = () => [...(box.current?.querySelectorAll("a") || [])];
     const focusLink = (index) => {
@@ -421,14 +421,14 @@ function homeView({
         returnFocus();
       }
     };
+    const close = () => (focusInside() ? returnFocus() : hide());
     const escape = (event) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      if (focusInside()) returnFocus();
-      else hide();
+      close();
     };
-    return { tip, box, anchor, clear, hide, scheduleHide, keys, escape, focusLink, held };
+    return { tip, box, anchor, clear, hide, close, scheduleHide, keys, escape, focusLink, held };
   }
 
   function placeTip(node, anchor) {
@@ -485,14 +485,14 @@ function homeView({
     React.useEffect(() => {
       if (!open) return;
       const scrolled = (event) => {
-        if (!box.current?.contains(event.target)) tips.hide();
+        if (!box.current?.contains(event.target)) tips.close();
       };
       addEventListener("scroll", scrolled, true);
-      addEventListener("resize", tips.hide);
+      addEventListener("resize", tips.close);
       addEventListener("keydown", tips.escape, true);
       return () => {
         removeEventListener("scroll", scrolled, true);
-        removeEventListener("resize", tips.hide);
+        removeEventListener("resize", tips.close);
         removeEventListener("keydown", tips.escape, true);
       };
     }, [open]);
