@@ -362,14 +362,14 @@ async function run() {
     <div id="second-composer-editor" class="composer-tiptap" contenteditable="true">
       <p id="second-composer-paragraph">${rtlText}</p>
     </div>
-    <div style="position: relative; width: 400px; height: 40px">
-      <div id="rtl-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">${rtlText} PR<span id="rtl-placeholder-hint" class="ml-2 inline-flex align-[1px]" style="display: inline-flex; margin-left: 8px"><kbd id="rtl-placeholder-key">⇥ Tab</kbd></span></div>
+    <div style="position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 400px; height: 40px">
+      <div id="rtl-placeholder" class="pointer-events-none relative col-start-1 row-start-1 leading-relaxed text-placeholder" style="position: relative; grid-column: 1; grid-row: 1">${rtlText} PR<button id="rtl-placeholder-hint" type="button" class="pointer-events-auto ml-2 inline-flex cursor-pointer rounded align-[1px]" style="display: inline-flex; margin-left: 8px; padding: 0; border: 0; background: none; font: inherit"><kbd id="rtl-placeholder-key">⇥ Tab</kbd></button></div>
     </div>
-    <div style="position: relative; width: 400px; height: 40px">
-      <div id="english-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">Run the tests<span id="english-placeholder-hint" class="ml-2 inline-flex align-[1px]" style="display: inline-flex; margin-left: 8px"><kbd>⇥ Tab</kbd></span></div>
+    <div style="position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 400px; height: 40px">
+      <div id="english-placeholder" class="pointer-events-none relative col-start-1 row-start-1 leading-relaxed text-placeholder" style="position: relative; grid-column: 1; grid-row: 1">Run the tests<button id="english-placeholder-hint" type="button" class="pointer-events-auto ml-2 inline-flex cursor-pointer rounded align-[1px]" style="display: inline-flex; margin-left: 8px; padding: 0; border: 0; background: none; font: inherit"><kbd>⇥ Tab</kbd></button></div>
     </div>
-    <div style="position: relative; width: 400px; height: 40px">
-      <div id="updated-placeholder" class="pointer-events-none absolute inset-0 leading-relaxed text-placeholder" style="position: absolute; inset: 0">Ask anything. @ files, $ skills, / commands</div>
+    <div style="position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 400px; height: 40px">
+      <div id="updated-placeholder" class="pointer-events-none relative col-start-1 row-start-1 leading-relaxed text-placeholder" style="position: relative; grid-column: 1; grid-row: 1">Ask anything. @ files, $ skills, / commands</div>
     </div>
     <div id="composer-banners" style="width: 360px">
       <div data-slot="composer-banner">

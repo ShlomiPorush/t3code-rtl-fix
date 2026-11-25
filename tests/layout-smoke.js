@@ -81,6 +81,7 @@ const PAGE = `<!doctype html><html><head>
   <div id="floating-northeast" data-preview-mini-player-resize="northeast" class="right-0 cursor-nesw-resize" style="position: absolute; top: 0; width: 8px; height: 8px;"></div>
 </section>
 </div>
+<div id="sidebar" data-slot="sidebar-container" class="left-0" style="position: fixed; top: 600px; width: 50px; height: 20px;"></div>
 <div data-chat-canvas style="position: fixed; left: 0; top: 520px; width: 400px; height: 60px;">
   <div id="find-bar" data-thread-find-bar class="right-0" style="position: absolute; top: 0; width: 100px; height: 20px;"></div>
 </div>
@@ -232,6 +233,33 @@ async function run(port) {
   const original = await evaluate(measure);
   check(original.mlLeft === "16px" && original.copies === 0 && original.disabled === 0, `Off state is not T3 Code's own: ${JSON.stringify(original)}`);
 
+  const slideSidebar = `(() => {
+    const sidebar = document.getElementById("sidebar");
+    const edges = () => {
+      const rect = sidebar.getBoundingClientRect();
+      return [Math.round(rect.left), Math.round(rect.right)];
+    };
+    const resting = edges();
+    sidebar.style.left = "-50px";
+    const hidden = edges();
+    const written = sidebar.style.left;
+    sidebar.style.left = "0px";
+    const shown = edges();
+    sidebar.style.removeProperty("left");
+    return { width: document.documentElement.clientWidth, resting, hidden, written, shown, after: edges(), style: sidebar.getAttribute("style") };
+  })()`;
+  const sidebarSlidesLeft = (slide) =>
+    JSON.stringify([slide.resting, slide.hidden, slide.shown, slide.after]) === JSON.stringify([[0, 50], [-50, 0], [0, 50], [0, 50]]) &&
+    slide.written === "-50px";
+  const sidebarSlidesRight = (slide) => {
+    const w = slide.width;
+    return JSON.stringify([slide.resting, slide.hidden, slide.shown, slide.after]) ===
+      JSON.stringify([[w - 50, w], [w, w + 50], [w - 50, w], [w - 50, w]]) &&
+      slide.written === "-50px" && !/\b(left|right):/.test(slide.style);
+  };
+  const ownSlide = await evaluate(slideSidebar);
+  check(sidebarSlidesLeft(ownSlide), `The sidebar did not slide from the left in T3 Code's own layout: ${JSON.stringify(ownSlide)}`);
+
   // T3 Code measures the floating preview again on a scroll, so it is told
   // when the preview moves to the other side.
   await evaluate(`window.__previewScrolls = 0; window.addEventListener("scroll", (event) => {
@@ -295,6 +323,8 @@ async function run(port) {
   check(on.findBarShown === 0 && on.findBarPresented === 300,
     `The find bar's place was not presented mirrored: ${JSON.stringify(on)}`);
   check(on.pageOffset === 0, `The previewed page left its viewport: ${on.pageOffset}px`);
+  const mirroredSlide = await evaluate(slideSidebar);
+  check(sidebarSlidesRight(mirroredSlide), `The sidebar did not slide from the right in the mirrored layout: ${JSON.stringify(mirroredSlide)}`);
   // Only the grip and the viewport keep their side. The rest of the floating
   // preview and the device toolbar over a page are laid out with the app.
   check(JSON.stringify(on.floatingDirs) === JSON.stringify([":rtl", "ltr:ltr", ":rtl", "ltr:ltr", "rtl:rtl"]),
@@ -395,6 +425,8 @@ async function run(port) {
   const again = await evaluate(measure);
   check(again.dir === "rtl" && again.copies === 2 && again.disabled === 2, `A second injection did not take over: ${JSON.stringify(again)}`);
   check(again.findBarPresented === 300, `A second injection lost the find bar's mirrored place: ${again.findBarPresented}`);
+  const slideAgain = await evaluate(slideSidebar);
+  check(sidebarSlidesRight(slideAgain), `A second injection lost the sidebar's mirrored slide: ${JSON.stringify(slideAgain)}`);
 
   // Off again gives back the exact original values.
   await evaluate("globalThis.__t3RtlLayout.set(false)");
@@ -405,6 +437,8 @@ async function run(port) {
       `Off did not restore ${key}: ${JSON.stringify(off[key])} instead of ${JSON.stringify(original[key])}`);
   }
   check(off.inlineRight === "11px", `Off did not restore the changed inline style: ${JSON.stringify(off)}`);
+  const slideOff = await evaluate(slideSidebar);
+  check(sidebarSlidesLeft(slideOff), `The sidebar did not slide from the left again once the layout was off: ${JSON.stringify(slideOff)}`);
   check(await evaluate("window.__previewScrolls") >= 5, "The floating preview was not measured again when the layout turned off");
 
   // A new document starts in the saved layout.

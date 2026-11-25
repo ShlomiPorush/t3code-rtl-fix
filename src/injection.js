@@ -107,12 +107,7 @@ const CITATION_CARD_TEXT_SELECTOR = [
   `${CITATION_CARD_SELECTOR} > ${CITATION_CARD_TEXT_BOX_SELECTOR} > :is(blockquote, p)`,
   `${CITATION_CARD_SELECTOR} > :not(${CITATION_CARD_TEXT_BOX_SELECTOR})`,
 ].join(", ");
-// The placeholder of the empty composer. With prompt suggestions on, it shows
-// the predicted next prompt followed by a Tab key hint, so it follows the
-// message rule and the key hint keeps its own direction. The class combination
-// is unique to this placeholder in T3 Code's markup.
-const COMPOSER_PLACEHOLDER_SELECTOR =
-  "div.pointer-events-none.absolute.inset-0.leading-relaxed.text-placeholder";
+const COMPOSER_PLACEHOLDER_SELECTOR = "div.pointer-events-none.leading-relaxed.text-placeholder";
 // The notices above the composer show a title and a one-line description.
 // While a reply to quoted text is drafted, the notice titled Replying to
 // shows the quoted text as its description, so each description follows the

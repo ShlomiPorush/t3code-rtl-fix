@@ -345,6 +345,7 @@ function buildLayoutSource({ enabled }) {
       reported: new Set(),
       islands: [],
       findBars: new WeakSet(),
+      sidebarContainers: new WeakSet(),
       listeners: [],
     };
 
@@ -613,6 +614,34 @@ function buildLayoutSource({ enabled }) {
       }
     };
 
+    const sidebarContainerSelector = '[data-slot="sidebar-container"]';
+    const nativeStyle = CSSStyleDeclaration.prototype;
+    const fixSidebarSlide = (scope) => {
+      const found = scope.matches(sidebarContainerSelector) ? [scope] : [];
+      found.push(...scope.querySelectorAll(sidebarContainerSelector));
+      for (const container of found) {
+        if (state.sidebarContainers.has(container)) continue;
+        state.sidebarContainers.add(container);
+        const side = () => (state.applied === true ? "right" : "left");
+        Object.defineProperty(container.style, "left", {
+          configurable: true,
+          get() {
+            return nativeStyle.getPropertyValue.call(this, side());
+          },
+          set(value) {
+            nativeStyle.setProperty.call(this, side(), value);
+          },
+        });
+        Object.defineProperty(container.style, "removeProperty", {
+          configurable: true,
+          value(name) {
+            if (name === "left") nativeStyle.removeProperty.call(this, "right");
+            return nativeStyle.removeProperty.call(this, name);
+          },
+        });
+      }
+    };
+
     const clearIslands = () => {
       const marks = [["data-t3-rtl-island", "ltr"], ["data-t3-rtl-return", "rtl"]];
       const marked = new Set(document.querySelectorAll("[data-t3-rtl-island], [data-t3-rtl-return]"));
@@ -782,6 +811,7 @@ function buildLayoutSource({ enabled }) {
         markIslands(scope);
         fixTabScroll(scope);
         fixFindBar(scope);
+        fixSidebarSlide(scope);
         markPlaceholders(scope);
         mirrorCards(scope);
       }
