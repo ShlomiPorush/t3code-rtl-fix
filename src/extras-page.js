@@ -1028,6 +1028,10 @@ function pageMain(config) {
       document.dispatchEvent(new CustomEvent("t3-rtl-home:facts", { detail: JSON.stringify(data.github) }));
       return true;
     }
+    if (data.kind === "homeWorkflows") {
+      document.dispatchEvent(new CustomEvent("t3-rtl-home:workflows", { detail: JSON.stringify(data.workflows) }));
+      return true;
+    }
     if (data.settings) state.settings = data.settings;
     if (Array.isArray(data.accounts)) state.accounts = data.accounts;
     if (typeof data.repoStatusAvailable === "boolean") state.repoStatusAvailable = data.repoStatusAvailable;
@@ -1060,8 +1064,6 @@ function pageMain(config) {
     homeReady();
   }
 
-  // The Home page is in T3 Code's world. It asks for repositories only, and
-  // its other calls have no way here.
   function homeReady() {
     document.dispatchEvent(new CustomEvent("t3-rtl-home:ready"));
   }
@@ -1073,6 +1075,9 @@ function pageMain(config) {
       return;
     }
     notify({ type: "home", repositories: repositories });
+  });
+  document.addEventListener("t3-rtl-home:ask-workflows", function () {
+    notify({ type: "homeWorkflows" });
   });
 
   register(config.receiver);

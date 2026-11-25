@@ -834,6 +834,47 @@ function homeView({
     return repositories.length > 0 ? current : null;
   }
 
+  let workflowCounts = null;
+  const workflowSubscribers = new Set();
+  document.addEventListener("t3-rtl-home:workflows", (event) => {
+    workflowCounts = JSON.parse(event.detail);
+    for (const changed of workflowSubscribers) changed();
+  });
+  function subscribeToWorkflows(changed) {
+    workflowSubscribers.add(changed);
+    return () => workflowSubscribers.delete(changed);
+  }
+
+  function useWorkflowCounts() {
+    const current = React.useSyncExternalStore(subscribeToWorkflows, () => workflowCounts);
+    React.useEffect(() => {
+      const ask = () => {
+        if (document.visibilityState === "visible") document.dispatchEvent(new CustomEvent("t3-rtl-home:ask-workflows"));
+      };
+      document.addEventListener("t3-rtl-home:ready", ask);
+      document.addEventListener("visibilitychange", ask);
+      ask();
+      return () => {
+        document.removeEventListener("t3-rtl-home:ready", ask);
+        document.removeEventListener("visibilitychange", ask);
+      };
+    }, []);
+    return current;
+  }
+
+  function WorkflowRuns({ counts, actions }) {
+    if (!counts || counts.running + counts.needsYou + counts.finished === 0) return null;
+    const parts = [
+      counts.needsYou > 0 && { state: "ask", text: `${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} you` },
+      counts.running > 0 && { state: "run", text: `${counts.running} running` },
+      counts.finished > 0 && { state: "done", text: `${counts.finished} finished` },
+    ].filter(Boolean);
+    return h("button", { type: "button", className: "t3h-workflows", onClick: actions.openWorkflows, dir: "ltr" },
+      h("span", { className: "t3h-workflows-name" }, "Workflows"),
+      parts.map((part) => h("span", { key: part.state, className: `t3h-workflows-count t3h-workflows-${part.state}` },
+        h("span", { className: `t3h-state t3h-is-${part.state}` }), part.text)));
+  }
+
   function useNow() {
     const [now, setNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -869,6 +910,7 @@ function homeView({
     const parts = usePanelParts();
     const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
+    const workflows = useWorkflowCounts();
     const factsOf = (entry) => (entry.repository && github ? github.repositories[entry.repository] ?? null : null);
     const showsIssues = (project) =>
       environments.find((item) => item.environmentId === project.environmentId)?.serverConfig?.environment?.capabilities?.issues === true;
@@ -889,6 +931,7 @@ function homeView({
     const actions = {
       tips,
       openMap: () => router.navigate({ to: "/" }),
+      openWorkflows: () => router.navigate({ to: "/workflows" }),
       openLink: (event, url) => {
         const link = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(url);
         const project = link && entries.find((item) => item.repository === link[1])?.project;
@@ -937,6 +980,7 @@ function homeView({
           h("div", { className: "t3h", key: entry ? entry.key : "map" },
             h("div", { className: "t3h-page" },
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
+              entry ? null : h(WorkflowRuns, { counts: workflows, actions }),
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
         parts && !parts.broken && issuesEnvironmentId ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
@@ -989,6 +1033,11 @@ const HOME_CSS = `
 .t3h-notes { margin-bottom: 1rem; padding: .7rem .9rem; border-radius: .7rem; border: 1px solid var(--border); color: var(--muted-foreground); }
 .t3h-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t3h-none { padding: 1rem 0; font-size: 1.15rem; color: var(--muted-foreground); }
+.t3h .t3h-workflows { display: inline-flex; align-items: center; gap: .9rem; margin: .4rem 0 .6rem; padding: .45rem .85rem; border-radius: .7rem; box-shadow: inset 0 0 0 1px var(--border); }
+.t3h .t3h-workflows:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.t3h-workflows-name { font-weight: 650; }
+.t3h-workflows-count { display: inline-flex; align-items: center; gap: .45rem; font-weight: 550; font-variant-numeric: tabular-nums; }
+.t3h-workflows-ask { color: var(--warning); }
 .t3h .t3h-section { display: flex; align-items: baseline; gap: .55rem; margin: 2rem 0 .9rem; font-size: 1.35rem; font-weight: 700; letter-spacing: -.015em; }
 .t3h section:first-child > .t3h-section { margin-top: .4rem; }
 .t3h-section small { font-size: .85rem; font-weight: 500; letter-spacing: 0; color: var(--muted-foreground); }
