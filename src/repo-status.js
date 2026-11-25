@@ -82,7 +82,11 @@ const SEVERITIES = ["critical", "high", "medium", "low"];
 const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
 // GitHub names severities differently for each kind of alert.
 const SEVERITY_ALIASES = { moderate: "medium", error: "high", warning: "medium", note: "low" };
-const ENVIRONMENT_PAGE_SIZE = 50;
+const ENVIRONMENT_PAGE_SIZE = 100;
+const ENVIRONMENT_PAGES = 5;
+const RECENT_DEPLOYMENTS = 20;
+const ENVIRONMENTS_SHOWN = 50;
+const STATUSES_PER_DEPLOYMENT = 5;
 const DEPLOYMENTS_PER_ENVIRONMENT = 10;
 const DEPLOYMENT_STATES = {
   ACTIVE: { text: "Active", tone: "success" },
@@ -134,9 +138,13 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-const ENVIRONMENTS_QUERY = `query($owner: String!, $name: String!) {
+const ENVIRONMENTS_QUERY = `query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
-    environments(first: ${ENVIRONMENT_PAGE_SIZE}) { nodes { name } }
+    environments(first: ${ENVIRONMENT_PAGE_SIZE}, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { name latestCompletedDeployment { createdAt } }
+    }
+    deployments(first: ${RECENT_DEPLOYMENTS}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { environment } }
   }
 }`;
 
@@ -145,7 +153,7 @@ function deploymentsQuery(count) {
   const variables = indexes.map((index) => `, $e${index}: String!`).join("");
   const fields = indexes.map((index) => `
     e${index}: deployments(environments: [$e${index}], first: ${DEPLOYMENTS_PER_ENVIRONMENT}, orderBy: { field: CREATED_AT, direction: DESC }) {
-      nodes { state createdAt commitOid ref { name } creator { login } latestStatus { environmentUrl } }
+      nodes { state createdAt commitOid ref { name } creator { login } statuses(first: ${STATUSES_PER_DEPLOYMENT}) { nodes { environmentUrl } } }
     }`).join("");
   return `query($owner: String!, $name: String!${variables}) {
   repository(owner: $owner, name: $name) {${fields}
@@ -946,15 +954,43 @@ async function fetchDeployments(run, repo, now) {
       `name=${repo.name}`,
       ...variables,
     ]);
-  const listed = parseJson((await graphql(ENVIRONMENTS_QUERY, [])).stdout)?.data?.repository?.environments;
-  if (!listed) return null;
-  const names = nodesOf(listed)
-    .map((environment) => environment.name)
-    .filter((name) => typeof name === "string" && name !== "");
+  const listed = [];
+  let recent = null;
+  let after = null;
+  for (let page = 0; page < ENVIRONMENT_PAGES; page += 1) {
+    const repository = parseJson((await graphql(ENVIRONMENTS_QUERY, after ? ["-f", `after=${after}`] : [])).stdout)?.data?.repository;
+    const environments = repository?.environments;
+    if (!environments) return null;
+    recent ??= nodesOf(repository.deployments).map((deployment) => deployment.environment);
+    listed.push(...nodesOf(environments));
+    const { hasNextPage, endCursor } = environments.pageInfo || {};
+    if (!hasNextPage || typeof endCursor !== "string") break;
+    after = endCursor;
+  }
+  const names = recentEnvironmentNames(listed, recent, now);
   if (names.length === 0) return [];
   const variables = names.flatMap((name, index) => ["-f", `e${index}=${name}`]);
   const answer = parseJson((await graphql(deploymentsQuery(names.length), variables)).stdout)?.data?.repository;
   return answer ? readEnvironments(names, answer, now) : null;
+}
+
+function recentEnvironmentNames(listed, recent, now) {
+  const recentSince = now - STALE_DAYS * DAY_MS;
+  const byName = new Map();
+  for (const environment of listed) {
+    if (typeof environment.name === "string" && environment.name !== "") byName.set(environment.name.toLowerCase(), environment);
+  }
+  const picked = new Set();
+  for (const name of recent) {
+    const environment = typeof name === "string" ? byName.get(name.toLowerCase()) : null;
+    if (environment) picked.add(environment.name);
+  }
+  const completed = (environment) => timeOf(environment.latestCompletedDeployment?.createdAt);
+  const recentlyCompleted = [...byName.values()]
+    .filter((environment) => completed(environment) >= recentSince)
+    .sort((a, b) => completed(b) - completed(a));
+  for (const environment of recentlyCompleted) picked.add(environment.name);
+  return [...picked].slice(0, ENVIRONMENTS_SHOWN);
 }
 
 function readEnvironments(names, answer, now) {
@@ -972,7 +1008,7 @@ function readDeployment(node) {
     ref: text(node.ref?.name, 255),
     commit: /^[0-9a-f]{40}$/.test(node.commitOid ?? "") ? node.commitOid.slice(0, 7) : "",
     creator: text(node.creator?.login, 100),
-    url: siteUrl(node.latestStatus?.environmentUrl),
+    url: siteUrl(nodesOf(node.statuses).map((status) => status.environmentUrl).find((address) => typeof address === "string" && address !== "")),
   };
 }
 
@@ -1856,8 +1892,6 @@ function buildRepoStatusPageSource() {
     return node;
   };
 
-  // The address is for the link's role only. A click asks the launcher to
-  // open the link, and the launcher builds the address itself.
   const linkTo = (node, link) => {
     node.href = link.startsWith("https://") ? link : "https://github.com/" + tipRepo + "/" + link;
     node.dataset.link = link;
@@ -1872,7 +1906,6 @@ function buildRepoStatusPageSource() {
     const linked = target !== "";
     const node = make(linked ? "a" : "div", "t3-rtl-tip-item");
     if (linked) linkTo(node, target);
-    // An item dragged into the composer quotes it, with its address.
     node.draggable = true;
     node.tabIndex = -1;
     node.dataset.quote = [item.lead, item.text, githubLinked ? node.href : ""]

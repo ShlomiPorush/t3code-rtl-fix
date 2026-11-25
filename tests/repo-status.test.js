@@ -238,10 +238,23 @@ test("the thread folder comes from T3 Code's database", (t) => {
   assert.equal(lookupProjectFolder(directory, "p3"), null);
 });
 
-function deploymentAnswer(environments, args) {
+function deploymentAnswer(environments, args, { pageSize = 100, recent = [] } = {}) {
   const asked = args.map((argument) => /^e(\d+)=(.*)$/s.exec(argument)).filter(Boolean);
   if (asked.length === 0) {
-    return { data: { repository: { environments: { nodes: environments.map(({ name }) => ({ name })) } } } };
+    const start = Number(args.find((argument) => argument.startsWith("after="))?.slice(6) || 0);
+    const page = environments.slice(start, start + pageSize);
+    const completed = (deployments) => deployments.find((deployment) => !["IN_PROGRESS", "QUEUED", "PENDING", "WAITING"].includes(deployment.state));
+    return {
+      data: {
+        repository: {
+          environments: {
+            pageInfo: { hasNextPage: start + pageSize < environments.length, endCursor: String(start + pageSize) },
+            nodes: page.map(({ name, deployments }) => ({ name, latestCompletedDeployment: completed(deployments) || null })),
+          },
+          deployments: { nodes: recent.map((environment) => ({ environment })) },
+        },
+      },
+    };
   }
   const repository = {};
   for (const [, index, name] of asked) {
@@ -285,7 +298,7 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     if (args[3] === "graphql" && args[5].includes("environments")) {
       state.deploymentCalls += 1;
       if (!state.environments) return { error: new Error("exit 1"), stdout: "", stderr: "no permission" };
-      return { error: null, stdout: JSON.stringify(deploymentAnswer(state.environments, args)), stderr: "" };
+      return { error: null, stdout: JSON.stringify(deploymentAnswer(state.environments, args, state.deploymentPaging)), stderr: "" };
     }
     if (args[3] === "graphql") {
       state.graphqlCalls += 1;
@@ -1303,15 +1316,16 @@ function deployment(hoursAgo, state, extra = {}) {
     commitOid: "3c4e630d2ddaa46bb428b8d32411c51eeb1f0ebd",
     ref: { name: "main" },
     creator: { login: "dev" },
-    latestStatus: null,
+    statuses: { nodes: [] },
     ...extra,
   };
 }
 
-function deploymentHarness(environments) {
+function deploymentHarness(environments, paging) {
   const harness = createHarness();
   harness.state.time = NOW;
   harness.state.environments = environments;
+  harness.state.deploymentPaging = paging;
   return harness;
 }
 
@@ -1323,7 +1337,7 @@ test("deployments show each live environment deployed in the last 30 days, newes
     { name: "old", deployments: [deployment(31 * 24, "ACTIVE")] },
     { name: "pr-12", deployments: [deployment(5, "DESTROYED")] },
     { name: "copilot", deployments: [] },
-  ]);
+  ], { recent: ["preview", "deleted-env"] });
   await check();
   const rows = last().rows.filter((row) => row.group === "deployments");
   assert.deepEqual(rows.map((row) => [row.label, row.count, row.tone, row.time, row.link]), [
@@ -1339,7 +1353,7 @@ test("deployments show each live environment deployed in the last 30 days, newes
 });
 
 test("a deployment links only to an https site without credentials", async () => {
-  const site = (environmentUrl) => deployment(1, "ACTIVE", { latestStatus: { environmentUrl } });
+  const site = (environmentUrl) => deployment(1, "ACTIVE", { statuses: { nodes: [{ environmentUrl }] } });
   const { service, state, check, last } = deploymentHarness([
     {
       name: "Production",
@@ -1348,7 +1362,7 @@ test("a deployment links only to an https site without credentials", async () =>
         site("http://insecure.example/"),
         site("file:///C:/Windows/System32/calc.exe"),
         site("javascript:alert(1)"),
-        site("\\host\share"),
+        site("\\\\host\\share"),
         site("https://user:secret@site.example/"),
         site("not a url"),
       ],
@@ -1364,7 +1378,7 @@ test("a deployment links only to an https site without credentials", async () =>
     "https://site.example/a b?x=1#top",
     "http://insecure.example/",
     "file:///C:/Windows/System32/calc.exe",
-    "\\host\share",
+    "\\\\host\\share",
     "https://other.example/",
     "https://site.example/a%20b?x=1#top",
     "deployments/activity_log?environments_filter=Production",
@@ -1382,4 +1396,32 @@ test("deployments that cannot be read leave out only their group", async () => {
   await check();
   assert.deepEqual(last().rows.map((row) => row.kind), ["issues"]);
   assert.equal(state.deploymentCalls, 1);
+});
+
+test("an environment past the first page of many old ones still shows", async () => {
+  const old = Array.from({ length: 5 }, (_, index) => ({ name: `pr-${index}`, deployments: [deployment(40 * 24, "INACTIVE")] }));
+  const { state, check, last } = deploymentHarness(
+    [...old, { name: "Production", deployments: [deployment(2, "ACTIVE")] }, { name: "Preview", deployments: [deployment(1, "IN_PROGRESS")] }],
+    { pageSize: 2, recent: ["Preview"] },
+  );
+  await check();
+  assert.deepEqual(last().rows.filter((row) => row.group === "deployments").map((row) => [row.label, row.count]), [
+    ["Preview", "In progress"],
+    ["Production", "Active"],
+  ]);
+  assert.equal(state.deploymentCalls, 5);
+});
+
+test("a deployment keeps the site of an earlier status that had one", async () => {
+  const { check, last } = deploymentHarness([
+    {
+      name: "github-pages",
+      deployments: [
+        deployment(1, "INACTIVE", { statuses: { nodes: [{ environmentUrl: null }, { environmentUrl: "https://pages.example/" }, { environmentUrl: null }] } }),
+      ],
+    },
+  ]);
+  await check();
+  const [row] = last().rows.filter((candidate) => candidate.group === "deployments");
+  assert.equal(row.detail.sections[0].items[0].url, "https://pages.example/");
 });
