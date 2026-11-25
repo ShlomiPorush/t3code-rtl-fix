@@ -38,6 +38,9 @@ const QUERY = `query($owner: String!, $name: String!) {
       }
     }
     latestRelease { tagName publishedAt tag { compare(headRef: "HEAD") { aheadBy } } }
+    latestTag: refs(refPrefix: "refs/tags/", first: 1, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+      nodes { name compare(headRef: "HEAD") { aheadBy } target { ... on Commit { committedDate } ... on Tag { target { ... on Commit { committedDate } } } } }
+    }
     defaultBranchRef { target { ... on Commit { statusCheckRollup { state } } } }
   }
 }`;
@@ -103,7 +106,19 @@ function readPull(node) {
 }
 
 // The release has three answers: one, none (null), and unknown (undefined).
-function readRelease(release, failedField) {
+function readTag(node) {
+  const ahead = node.compare?.aheadBy;
+  return {
+    tag: String(node.name).slice(0, 100),
+    at: Date.parse(node.target?.committedDate ?? node.target?.target?.committedDate) || null,
+    ahead: Number.isInteger(ahead) ? ahead : null,
+    tagOnly: true,
+  };
+}
+
+function readRelease(release, failedField, tags) {
+  const tag = tags?.nodes?.[0];
+  if (!release && typeof tag?.name === "string" && tag.name) return readTag(tag);
   if (!release) return failedField ? undefined : null;
   const ahead = release.tag?.compare?.aheadBy;
   return {
@@ -121,7 +136,7 @@ function readRepository(node, failedField) {
     openPulls,
     issues: Number.isInteger(node.issues?.totalCount) ? node.issues.totalCount : null,
     issueItems: readIssues(node.issues)?.items ?? [],
-    release: readRelease(node.latestRelease, failedField),
+    release: readRelease(node.latestRelease, failedField, node.latestTag),
     mainFails: isFailure(node.defaultBranchRef?.target?.statusCheckRollup?.state),
     failedField,
     cut: pulls.length !== openPulls,

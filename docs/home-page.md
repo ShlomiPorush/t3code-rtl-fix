@@ -42,9 +42,9 @@ weeks come last, in a weaker color. A card shows five rows, and its button shows
 the others.
 
 The tag at the end of a project's line of counts is its latest release on
-GitHub. When the default branch has commits that are not in it, the tag says
-how many, such as `v1.4.0 +3`. Click the tag to see the release, or the commits
-since it.
+GitHub, or its newest tag when it has no releases. When the default branch has
+commits that are not in it, the tag says how many, such as `v1.4.0 +3`. Click
+the tag to see the release, or the commits since it.
 
 Click a project's name to open its own page, which also lists its dependency
 updates.

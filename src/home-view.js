@@ -270,7 +270,7 @@ function homeView({
         }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra));
       }),
       reason ? small(reason) : null,
-      h(ReleaseTag, { entry, facts, now }));
+      releaseOf(facts) ? h("span", { className: "t3h-release" }, h(ReleaseTag, { entry, facts, now })) : null);
   }
 
   const releaseOf = (facts) => (isRead(facts) && facts.release?.tag ? facts.release : null);
@@ -288,7 +288,7 @@ function homeView({
     ];
     const shared = { className: "t3h-tag", dir: "ltr", title: label, "aria-label": label };
     if (!linked) return h("span", shared, ...content);
-    const href = ahead ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : `${url}/releases`;
+    const href = ahead ? `${url}/compare/${encodeURIComponent(release.tag)}...HEAD` : release.tagOnly ? `${url}/releases/tag/${encodeURIComponent(release.tag)}` : `${url}/releases`;
     return h("a", { ...shared, ...outward, href }, ...content);
   }
 
@@ -611,7 +611,7 @@ function homeView({
         h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
           h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number, item.extra))),
       reason ? small(reason) : null,
-      h(ReleaseTag, { key: "release", entry, facts, now, linked: false }),
+      releaseOf(facts) ? h("span", { key: "release", className: "t3h-release" }, h(ReleaseTag, { entry, facts, now, linked: false })) : null,
     ];
     return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
       h(Picture, { project: entry.project, className: "t3h-icon-small" }),
@@ -834,7 +834,7 @@ const HOME_CSS = `
 .t3h-page { padding: .6rem 2.75rem 4rem; }
 .t3h .t3h-small { font-size: .8rem; color: var(--t3h-k, var(--muted-foreground)); }
 .t3h a.t3h-small:hover { text-decoration: underline; text-underline-offset: 3px; }
-.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--destructive); } .t3h-warn { --t3h-k: var(--warning); } .t3h-run { --t3h-k: var(--primary); }
+.t3h-ok { --t3h-k: var(--success); } .t3h-bad { --t3h-k: var(--destructive); } .t3h-warn { --t3h-k: var(--warning); } .t3h-run { --t3h-k: var(--foreground); }
 .t3h-notes { margin-bottom: 1rem; padding: .7rem .9rem; border-radius: .7rem; border: 1px solid var(--border); color: var(--muted-foreground); }
 .t3h-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t3h-none { padding: 1rem 0; font-size: 1.15rem; color: var(--muted-foreground); }
@@ -852,12 +852,12 @@ const HOME_CSS = `
 .t3h-names > .t3h-small:is(.t3h-run, .t3h-warn, .t3h-ok, .t3h-bad) { font-weight: 600; }
 .t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
-.t3h .t3h-name:hover { color: var(--primary); }
+.t3h .t3h-name:hover { text-decoration: underline; text-underline-offset: 4px; }
 .t3h-pin { color: var(--muted-foreground); }
 .t3h .t3h-tag { display: inline-flex; align-items: center; gap: .3rem; flex: none; min-width: 0; max-width: 9rem; padding: .08rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--foreground) 80%, transparent); background: color-mix(in srgb, var(--foreground) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 11%, transparent); }
 .t3h a.t3h-tag:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 12%, transparent); }
 .t3h-tag-ahead { color: var(--muted-foreground); }
-.t3h-counts .t3h-tag { margin-inline-start: auto; }
+.t3h-release { display: flex; min-width: 0; margin-inline-start: auto; }
 .t3h-icon { width: 2.1rem; height: 2.1rem; flex: none; }
 .t3h-icon-small { width: 1.5rem; height: 1.5rem; flex: none; }
 .t3h-icon-large { width: 3rem; height: 3rem; flex: none; }
@@ -869,7 +869,7 @@ const HOME_CSS = `
 .t3h-row { display: grid; grid-template-columns: 1.05rem minmax(0, 1fr) auto; column-gap: .6rem; align-items: baseline; padding: .34rem 0; }
 .t3h-mark { display: grid; place-items: center; align-self: start; height: 1.35em; font-size: .92rem; color: var(--t3h-k, var(--muted-foreground)); }
 .t3h .t3h-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: .92rem; line-height: 1.35; }
-.t3h .t3h-text:hover { color: var(--primary); }
+.t3h .t3h-text:hover { text-decoration: underline; text-underline-offset: 3px; }
 .t3h-old .t3h-text { color: var(--muted-foreground); }
 .t3h-age { white-space: nowrap; }
 .t3h-row-notes { grid-column: 2 / -1; display: flex; flex-wrap: wrap; column-gap: .7rem; line-height: 1.4; }
@@ -891,7 +891,7 @@ const HOME_CSS = `
 .t3h-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: .1rem .9rem; }
 .t3h .t3h-tile { display: flex; align-items: center; gap: .65rem; min-width: 0; padding: .5rem .4rem; border-radius: .6rem; }
 .t3h .t3h-tile:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
-.t3h-tile-text { display: grid; min-width: 0; }
+.t3h-tile-text { flex: 1; display: grid; min-width: 0; }
 .t3h-tile-name { font-size: .95rem; font-weight: 600; }
 .t3h-tile-details { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .9rem; }
 

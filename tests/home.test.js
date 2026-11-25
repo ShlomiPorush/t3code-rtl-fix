@@ -205,6 +205,17 @@ const lines = (...list) => ({ error: null, stdout: list.map((item) => `${JSON.st
 const words = (...severities) => lines(...severities.map((severity, index) => ({ number: index + 1, severity, package: `p${index}` })));
 const summary = (alerts) => alerts && { total: alerts.total, critical: alerts.critical, high: alerts.high, sources: alerts.sources };
 
+test("a repository without releases has its newest tag as its version, and one with releases keeps its latest release", () => {
+  const latestTag = { nodes: [{ name: "v2.4.2", compare: { aheadBy: 56 }, target: { committedDate: "2026-09-17T13:29:22Z" } }] };
+  assert.deepEqual(readAnswer(answer(repository({ latestRelease: null, latestTag }))).release, { tag: "v2.4.2", at: Date.parse("2026-09-17T13:29:22Z"), ahead: 56, tagOnly: true });
+  const annotated = { nodes: [{ name: "v1", compare: null, target: { target: { committedDate: "2026-01-01T00:00:00Z" } } }] };
+  assert.deepEqual(readAnswer(answer(repository({ latestRelease: null, latestTag: annotated }))).release, { tag: "v1", at: Date.parse("2026-01-01T00:00:00Z"), ahead: null, tagOnly: true });
+  assert.equal(readAnswer(answer(repository({ latestTag }))).release.tag, "v1");
+  assert.equal(readAnswer(answer(repository({ latestRelease: null, latestTag: { nodes: [] } }))).release, null);
+  const page = renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts({ release: { tag: "v2", at: Date.now(), ahead: 0, tagOnly: true } }) }) });
+  assert.equal(page.links.find((item) => item.label?.startsWith("Version")).href, "https://github.com/o/app/releases/tag/v2");
+});
+
 test("alerts are counted from the sources that answer, and unknown when one failed", () => {
   const failed = (stderr) => ({ error: new Error("exit 1"), stdout: '{"message":"critical"}', stderr });
   const off = failed("gh: Dependabot alerts are disabled for this repository. (HTTP 403)");
