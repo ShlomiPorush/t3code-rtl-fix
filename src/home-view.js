@@ -323,7 +323,7 @@ function homeView({
       className: "t3h-tip-item", ...(item.link ? linkTo(item.link) : {}),
       "data-lead": item.lead ? "" : undefined, "data-inline": !item.lead && !meta && badges.length ? "" : undefined,
     },
-    item.lead ? h("span", { className: "t3h-tip-lead" }, item.lead) : null,
+    item.lead ? h("span", { className: "t3h-tip-lead", dir: "auto" }, item.lead) : null,
     h("span", { className: "t3h-tip-text", dir: "auto" }, item.text),
     meta || badges.length
       ? h("div", { className: "t3h-tip-sub" },
@@ -337,10 +337,10 @@ function homeView({
     const lined = section.more > 0 || (section.link && (section.partial || items.length > LIST_LINE_MIN));
     const line = section.more > 0 ? `and ${section.more} more` : section.partial ? "View all on GitHub" : `View all ${items.length} on GitHub`;
     return h("div", { className: "t3h-tip-section" },
-      section.title ? h("div", { className: "t3h-tip-section-title" }, section.title) : null,
+      section.title ? h("div", { className: "t3h-tip-section-title", dir: "auto" }, section.title) : null,
       section.chips?.length ? h("div", { className: "t3h-tip-chips" }, section.chips.map((chip, index) => h(Badge, { key: index, badge: chip }))) : null,
       items.map((item, index) => h(TipItem, { key: item.link || index, item, now, linkTo })),
-      lined ? h(section.link ? "a" : "div", { className: "t3h-tip-more", ...(section.link ? linkTo(section.link) : {}) }, line) : null);
+      lined ? h(section.link ? "a" : "div", { className: "t3h-tip-more", dir: "auto", ...(section.link ? linkTo(section.link) : {}) }, line) : null);
   }
 
   const TIP_DELAY_MS = 250;
@@ -513,7 +513,7 @@ function homeView({
       },
     });
     return h("div", {
-      ref: box, className: "t3h-tip", role: "dialog", dir: "ltr",
+      ref: box, className: "t3h-tip", role: "dialog",
       "aria-label": open ? detail.title : undefined, "data-open": open ? "" : undefined,
       onPointerEnter: tips.clear, onPointerLeave: tips.scheduleHide, onKeyDown: tips.keys,
       onMouseDown: (event) => event.target.closest?.("a") || event.preventDefault(),
@@ -522,9 +522,9 @@ function homeView({
       },
     }, open
       ? [
-        h("div", { key: "head", className: "t3h-tip-head" }, h("span", { className: "t3h-tip-title" }, detail.title), h("span", { className: "t3h-tip-summary" }, detail.summary)),
+        h("div", { key: "head", className: "t3h-tip-head" }, h("span", { className: "t3h-tip-title", dir: "auto" }, detail.title), h("span", { className: "t3h-tip-summary", dir: "auto" }, detail.summary)),
         ...(detail.sections || []).map((section, index) => h(TipSection, { key: index, section, now, linkTo })),
-        detail.note ? h("div", { key: "note", className: "t3h-tip-note" }, detail.note) : null,
+        detail.note ? h("div", { key: "note", className: "t3h-tip-note", dir: "auto" }, detail.note) : null,
       ]
       : null);
   }
@@ -1066,7 +1066,7 @@ const HOME_CSS = `
   --t3h-tip-critical: var(--t3h-red); --t3h-tip-high: #ea580c; --t3h-tip-medium: var(--warning, #d97706);
   --t3h-tip-low: var(--muted-foreground, #71717a); --t3h-tip-muted: var(--muted-foreground, #71717a);
   --t3h-tip-success: var(--success, #16a34a); --t3h-tip-info: var(--info, #2563eb);
-  position: fixed; inset: auto; top: 0; left: 0; z-index: 2147483647; box-sizing: border-box;
+  position: fixed; inset: auto; z-index: 2147483647; box-sizing: border-box;
   width: max-content; min-width: 240px; max-width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
   margin: 0; padding: 0; overflow: hidden auto; scrollbar-width: thin;
   border: 1px solid var(--border, rgb(0 0 0 / .12)); border-radius: 10px;
@@ -1076,6 +1076,8 @@ const HOME_CSS = `
   pointer-events: none; opacity: 0; transform: translateY(3px); transition: opacity 120ms ease-out, transform 120ms ease-out;
 }
 .t3h-tip:not([data-open]) { display: none; }
+:root[data-t3-rtl-app="on"] .t3h-tip { direction: rtl; }
+.t3h-tip [dir] { text-align: -webkit-match-parent; text-align: match-parent; }
 .t3h-tip[data-shown] { opacity: 1; transform: none; pointer-events: auto; }
 .t3h-tip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 12px 8px; border-bottom: 1px solid var(--border, rgb(0 0 0 / .12)); }
 .t3h-tip-title { font-size: 13px; font-weight: 600; }
