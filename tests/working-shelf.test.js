@@ -98,6 +98,16 @@ test("the patch shows the Working section with project folders and keeps T3 Code
   assert.equal(patched.gK(hookInput(null)).workingShelfEnabled, false);
 });
 
+test("the gate is found when T3 Code declares other names before it, as T3 Code 0.1.12 does", () => {
+  const declaredFirst = FIXTURE.replace("=e,f=dp(DK)&&u===null,", "=e,o=l===d?null:l,f=dp(DK)&&u===null,");
+  const result = patchSidebarChunk(declaredFirst, WORKING);
+  assert.equal(result.applied, true, result.problem);
+  const patched = load(result.source);
+  assert.equal(patched.gK(hookInput([{ threads: ["a1"] }])).workingShelfEnabled, true);
+  patched.setWorking(false);
+  assert.equal(patched.gK(hookInput([{ threads: ["a1"] }])).workingShelfEnabled, false);
+});
+
 test("with project folders, Working comes first in the keyboard order; without, the order is T3 Code's", () => {
   const { source } = patchSidebarChunk(FIXTURE, WORKING);
   const original = load(FIXTURE);
@@ -602,7 +612,7 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
-  assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,[\\w$]+=[\\w$]+\\(${setting}\\),`));
+  assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,(?:[\\w$]+=[^,;{}()]*,)*?[\\w$]+=[\\w$]+\\(${setting}\\),`));
   assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 7, "the flag is set once and read at the six added places");
   assert.equal(
     (result.source.match(/`shelf:pinned`\]\.includes\([\w$]+\.navigationParent\)/g) || []).length,

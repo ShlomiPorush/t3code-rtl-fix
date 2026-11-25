@@ -253,7 +253,7 @@ function patchSidebarChunk(source, sections) {
   // folder groups are the boring sidebar's project folders.
   const gate = single(
     source,
-    new RegExp(`folderGroups:(${ID})(?:,${ID}:${ID})*\\}=e,(${ID})=${ID}\\(${setting}\\)(&&(${ID})===null),`),
+    new RegExp(`folderGroups:(${ID})(?:,${ID}:${ID})*\\}=e,(?:${ID}=[^,;{}()]*,)*?(${ID})=${ID}\\(${setting}\\)(&&(${ID})===null),`),
     "gate",
   );
   if (gate.problem) return unchanged(gate.problem);
