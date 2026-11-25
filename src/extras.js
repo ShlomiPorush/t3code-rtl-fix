@@ -28,6 +28,7 @@ function createExtrasService({
   repoStatusAvailable = () => false,
   updates = null,
   homeGithub = null,
+  homeWorkflows = null,
   protocol = "t3code:",
 } = {}) {
   const sessions = new Map();
@@ -200,6 +201,11 @@ function createExtrasService({
       homeGithub.read(sessionId, repositories, (github) => void push(sessionId, current, () => ({ kind: "home", github })));
       return;
     }
+    if (message.type === "homeWorkflows") {
+      if (!homeWorkflows || !store.get().homePage) return;
+      homeWorkflows.read(sessionId, (workflows) => void push(sessionId, current, () => ({ kind: "homeWorkflows", workflows })));
+      return;
+    }
     if (size > MAX_MESSAGE_BYTES) return;
     if (message.type === "check") {
       await sendState(sessionId, current);
@@ -225,6 +231,7 @@ function createExtrasService({
   function forget(sessionId) {
     sessions.delete(sessionId);
     homeGithub?.forget(sessionId);
+    homeWorkflows?.forget(sessionId);
   }
 
   return { attach, navigated, handle, forget };

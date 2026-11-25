@@ -49,6 +49,17 @@ the tag to see the release, or the commits since it.
 Click a project's name to open its own page, which also lists its dependency
 updates.
 
+## Workflow runs
+
+When T3 Code's Workflows are on, in its Labs settings, a line above the cards
+says how many workflow runs need you and how many run. A run needs you when it
+waits for an answer to its question, or when it is paused. A run and the runs
+that it started count as one. Click the line to open T3 Code's Workflows page.
+The line is hidden when no run is open.
+
+The line covers the T3 Code server on this computer only. It is read from T3
+Code's database every 15 seconds, so a change can take that long to show.
+
 ## Counts
 
 | Count | What it counts |
@@ -126,3 +137,6 @@ read.
 When a T3 Code update changes the code of the start page, T3 Code shows its own
 start page, and the launcher writes one line to `launcher.log`. T3 Code's own
 start page also shows when Home fails, and when there are no projects.
+
+When a T3 Code update changes how it keeps workflow runs, the workflow line is
+hidden, and the launcher writes one line to `launcher.log`.

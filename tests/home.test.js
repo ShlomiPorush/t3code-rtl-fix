@@ -529,6 +529,7 @@ test("facts from before a failed read stay, marked as old, and one failure is no
 function extras({ homePage = true } = {}) {
   const asked = [];
   const evaluated = [];
+  const watched = [];
   const service = createExtrasService({
     send: async (method, params) => {
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
@@ -539,8 +540,9 @@ function extras({ homePage = true } = {}) {
     store: { get: () => ({ homePage }), reload() {}, change: async () => ({ ok: true }) },
     reader: { read: async () => ({ accounts: [], problem: null }) },
     homeGithub: { read: (key, names, deliver) => (asked.push([key, names]), deliver({ problem: null, repositories: {} })), forget: (key) => asked.push(["forget", key]) },
+    homeWorkflows: { read: (key, deliver) => (watched.push(key), deliver({ running: 1, needsYou: 0 })), forget: (key) => watched.push(["forget", key]) },
   });
-  return { asked, evaluated, service };
+  return { asked, evaluated, watched, service };
 }
 
 test("only the fix's own world can ask, only for repositories, and only while Home is on", async () => {
@@ -562,6 +564,24 @@ test("only the fix's own world can ask, only for repositories, and only while Ho
   assert.deepEqual(off.asked, []);
 });
 
+test("only the fix's own world can ask for workflow runs, and only while Home is on", async () => {
+  const on = extras();
+  await on.service.attach("s");
+  const message = JSON.stringify({ type: "homeWorkflows" });
+  await on.service.handle("s", 6, message);
+  assert.deepEqual(on.watched, []);
+  await on.service.handle("s", 5, message);
+  assert.deepEqual(on.watched, ["s"]);
+  assert.match(on.evaluated.at(-1), /"kind":"homeWorkflows","workflows":{"running":1,"needsYou":0}/);
+  on.service.forget("s");
+  assert.deepEqual(on.watched.at(-1), ["forget", "s"]);
+
+  const off = extras({ homePage: false });
+  await off.service.attach("s");
+  await off.service.handle("s", 5, message);
+  assert.deepEqual(off.watched, []);
+});
+
 test("a list of many repositories fits, and other messages keep their small limit", async () => {
   const { asked, service } = extras();
   await service.attach("s");
@@ -572,11 +592,11 @@ test("a list of many repositories fits, and other messages keep their small limi
   assert.equal(asked.length, 1);
 });
 
-function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, fail = false, opened = [], refs = [], main = {} } = {}) {
+function renderHome({ projects = [], threads = [], bootstrapped = true, connected = ["local"], search = {}, github = null, workflows = null, fail = false, opened = [], refs = [], main = {} } = {}) {
   const calls = [];
   let nextRef = 0;
-  let receive = null;
-  globalThis.document = { addEventListener: (type, listener) => (receive = listener) };
+  const listeners = {};
+  globalThis.document = { addEventListener: (type, listener) => (listeners[type] = listener) };
   const React = {
     Component: class { constructor(props) { this.props = props; } },
     Fragment: ({ children }) => children,
@@ -608,7 +628,8 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     projectReference: (environmentId, projectId) => ({ environmentId, projectId }),
     Frame: ({ children }) => children, focusProps: () => ({}), Header: ({ children }) => children, electron: true, main, frameClass: "", css: "",
   });
-  if (github) receive({ detail: JSON.stringify(github) });
+  if (github) listeners["t3-rtl-home:facts"]({ detail: JSON.stringify(github) });
+  if (workflows !== null) listeners["t3-rtl-home:workflows"]({ detail: JSON.stringify(workflows) });
   const buttons = [];
   const links = [];
   const classes = [];
@@ -904,6 +925,20 @@ test("a project's page says that nothing is in the middle only when its pull req
     assert.doesNotMatch(page({ "o/app": unread }), /Nothing is in the middle/);
     assert.match(page({ "o/app": unread }), reason);
   }
+});
+
+test("Home says how many workflow runs need you and how many run, and opens T3 Code's Workflows page", () => {
+  const projects = [project("app")];
+  const line = (workflows) => renderHome({ projects, workflows }).having("t3h-workflows")[0] ?? null;
+  assert.equal(line(null), null);
+  assert.equal(line({ running: 0, needsYou: 0 }), null);
+  assert.equal(line({ running: 2, needsYou: 1 }), "Workflows\n1 needs you\n2 running");
+  assert.equal(line({ running: 1, needsYou: 0 }), "Workflows\n1 running");
+  assert.equal(line({ running: 0, needsYou: 3 }), "Workflows\n3 need you");
+  const { buttons, calls } = renderHome({ projects, workflows: { running: 1, needsYou: 0 } });
+  buttons.find((button) => button.name.startsWith("Workflows")).click();
+  assert.deepEqual(calls, [["go", { to: "/workflows" }]]);
+  assert.equal(renderHome({ projects, workflows: { running: 1, needsYou: 1 }, search: { project: "local:app" } }).having("t3h-workflows").length, 0);
 });
 
 test("the page's styles stay inside the page", () => {

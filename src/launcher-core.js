@@ -153,6 +153,7 @@ function prepareCore({ send, log, rootDirectory }) {
       const { createUsageReader } = require("./usage-limits");
       const { EXTRAS_BINDING, createExtrasService } = require("./extras");
       const { createHomeGithub } = require("./home-github");
+      const { createHomeWorkflows } = require("./home-workflows");
       extrasBinding = EXTRAS_BINDING;
       homeGithub = createHomeGithub({ log, file: path.join(rootDirectory, "home-cache.json"), isOn: () => settingsStore.get().homePage });
       extras = createExtrasService({
@@ -163,6 +164,9 @@ function prepareCore({ send, log, rootDirectory }) {
         repoStatusAvailable: () => !!repoStatus && repoStatusRuns,
         updates,
         homeGithub,
+        homeWorkflows: repoStatusRuns
+          ? createHomeWorkflows({ userdata: path.join(t3Home, "userdata"), log, isOn: () => settingsStore.get().homePage })
+          : null,
       });
     } catch (error) {
       log(`Extras are off: ${error.message}`);
