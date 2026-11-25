@@ -203,6 +203,9 @@ get when you drag a pull request from T3 Code's panel.
 - **Stale**: branches that are not dead and have no commit in the last 30
   days, locally or on GitHub.
 
+A **Deployments** group shows the state of the latest deployment of each
+environment deployed in the last 30 days. See [Deployments](docs/deployments.md).
+
 The section reads at most 100 branches from GitHub. With more, the Dead and
 Stale counts end with `+`, and local branches are not marked as deleted.
 
