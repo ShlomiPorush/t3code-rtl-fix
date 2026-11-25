@@ -633,6 +633,7 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
   const buttons = [];
   const links = [];
   const classes = [];
+  const items = [];
   const text = (node) => {
     if (node == null || node === false || node === true) return "";
     if (Array.isArray(node)) return node.map(text).join("");
@@ -650,13 +651,14 @@ function renderHome({ projects = [], threads = [], bootstrapped = true, connecte
     }
     const inner = text(props.children);
     if (props.className) classes.push([props.className, inner]);
-    if (type === "button") buttons.push({ name: inner || props["aria-label"], label: props["aria-label"], click: props.onClick });
+    if (type === "button") buttons.push({ name: inner || props["aria-label"], label: props["aria-label"], click: props.onClick, props });
     if (type === "a") links.push({ name: inner, label: props["aria-label"], href: props.href, props });
+    if (type === "li") items.push({ name: inner, props });
     return inner + (type === "i" ? "" : "\n");
   };
   const shown = text(React.createElement(Home, { native: () => "T3 Code's own page" })).replace(/\n+/g, "\n");
   const having = (name) => classes.filter(([className]) => className.split(" ").includes(name)).map(([, inner]) => inner.replace(/\n+/g, "\n").trim());
-  return { shown, buttons, links, calls, having, cards: having("t3h-card"), tiles: having("t3h-tile") };
+  return { shown, buttons, links, items, calls, having, cards: having("t3h-card"), tiles: having("t3h-tile") };
 }
 
 const HOUR = 60 * 60 * 1000;
@@ -865,6 +867,39 @@ test("until T3 Code's side panel is found, a pull request goes to T3 Code's own 
   assert.deepEqual(opened, ["https://github.com/o/app/pull/4"]);
   for (const modified of [{ ctrlKey: true }, { metaKey: true }, { button: 1 }]) row.props.onClick(click(modified));
   assert.equal(opened.length, 1, "the browser opens GitHub");
+});
+
+test("a right click on a thread is handed to T3 Code's thread menu, and a pull request keeps the browser's own", () => {
+  const asked = [];
+  const main = {
+    useThreadActionsMenu(options) {
+      "openMenu: readMenu: contextMenu.show(";
+      asked.push(options);
+      return { openMenu() {} };
+    },
+  };
+  const projects = [project("app", "o/app", { workspaceRoot: "C:/app" })];
+  const threads = [thread({ pullRequests: [{ host: "github.com", repository: "o/app", number: 4, linkedAt: before(9), snapshot: { state: "open" } }] })];
+  const github = answered({ "o/app": facts({ pulls: [pullFact(4), pullFact(5)], openPulls: 2 }) });
+  const page = renderHome({ projects, threads, main, github });
+  const [threadRow, pullRow] = page.items;
+  assert.match(threadRow.name.trim(), /^A thread/);
+  assert.equal(pullRow.props.onContextMenu, undefined);
+  const prevented = [];
+  const click = (inside) => ({ target: { closest: (selector) => (selector === "a" && inside ? {} : null) }, clientX: 10, clientY: 20, preventDefault: () => prevented.push(inside) });
+  threadRow.props.onContextMenu(click(false));
+  threadRow.props.onContextMenu(click(true));
+  assert.deepEqual(prevented, [false], "a pull request link on the thread's row keeps the browser's menu");
+  assert.deepEqual(asked, [{ threadRef: null, projectCwd: undefined, canShareWithGuest: false }], "the menu is T3 Code's, asked once for the page");
+  assert.equal(renderHome({ projects, threads }).items[0].props.onContextMenu, undefined, "without T3 Code's menu the row keeps the browser's");
+});
+
+test("a project's name keeps the browser's menu until T3 Code's project menu parts are found", () => {
+  const main = { useSidebarProjectGroups() { "sidebarProjectGroupingMode sidebarProjectSortOrder"; return []; } };
+  const page = renderHome({ projects: [project("app", "o/app"), project("idle")], threads: [thread()], main });
+  const named = page.buttons.filter((button) => /\bt3h-(name|tile)\b/.test(button.props.className));
+  assert.equal(named.length, 2);
+  for (const button of named) assert.equal(button.props.onContextMenu, undefined);
 });
 
 test("a project has no open work only when its pull requests were read, and otherwise says why not", () => {

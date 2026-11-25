@@ -37,6 +37,16 @@ working, finished, and error. The card takes the color of that state. A waiting
 or working card is lit, and a finished or failed card has a colored edge. Rest
 the pointer on a dot to see the state of its thread.
 
+Right-click a thread, or press Shift+F10 on it, to open T3 Code's own thread
+menu, as in the sidebar, with settle, snooze, pin, mark unread, copy, archive,
+and delete. Rename the thread, filter by its project, or share it with a guest
+in the sidebar or in the thread itself.
+
+Right-click a project's name, or press Shift+F10 on it, to open the project's
+menu, as in the sidebar: new thread, copy path, pin or unpin the project, and
+project settings. This works on its card, in the list of projects without open
+work, and on its own page.
+
 A pull request is on the row of the thread it is linked to, or has a row of its
 own. "Ready to merge" means that GitHub can merge it now. In a repository
 without checks, the row says "no checks". Threads that had no activity for two
@@ -144,3 +154,7 @@ start page also shows when Home fails, and when there are no projects.
 
 When a T3 Code update changes how it keeps workflow runs, the workflow line is
 hidden, and the launcher writes one line to `launcher.log`.
+
+When a T3 Code update changes its thread menu or the parts of its project menu
+so that Home cannot find them, a right click on a thread or a project's name on
+Home opens no menu.

@@ -16,8 +16,6 @@ function homeView({
   const ROWS = 5;
   const COLUMN_REM = 19.25;
 
-  // T3 Code's project icon and its click handler for pull request links. Its
-  // main script exports both under names that change with every build.
   let parts = null;
   function mainParts() {
     if (parts) return parts;
@@ -29,6 +27,10 @@ function homeView({
     parts = {
       Icon: only("projectIcon?.kind===`monogram`", "projectIcon?.kind===`emoji`"),
       useOpenPull: only("instanceof HTMLAnchorElement", "stopPropagation", "threadRef:") || (() => null),
+      useThreadMenu: only("openMenu:", "readMenu:", "contextMenu.show("),
+      useProjectGroups: only("sidebarProjectGroupingMode", "sidebarProjectSortOrder"),
+      menuKey: only("`ContextMenu`", "`F10`", "dispatchEvent"),
+      inputMode: only("`keyboard`:`mouse`"),
     };
     return parts;
   }
@@ -214,12 +216,13 @@ function homeView({
   function Row({ row, now, actions }) {
     const title = { className: "t3h-text", dir: directionOf(row.text) };
     const openPull = (url) => ({ ...outward, href: url, onClick: (event) => actions.openLink(event, url) });
-    return h("li", { className: `t3h-row${row.old && row.state === "idle" ? " t3h-old" : ""}` },
+    const menu = row.thread ? actions.threadMenu(row.thread) : null;
+    return h("li", { className: `t3h-row${row.old && row.state === "idle" ? " t3h-old" : ""}`, onContextMenu: menu?.open },
       row.thread
         ? h("span", { className: "t3h-mark", role: "img", title: STATES[row.state].text, "aria-label": STATES[row.state].text }, h("i", { className: `t3h-state t3h-is-${row.state}` }))
         : h("span", { className: `t3h-mark ${toneOf(row.tone)}` }, h(Glyph, { size: 14 }, GLYPHS.pull)),
       row.thread
-        ? h("button", { ...title, type: "button", onClick: () => actions.openThread(row.thread) }, row.text)
+        ? h("button", { ...title, type: "button", onClick: () => actions.openThread(row.thread), onKeyDown: menu?.key }, row.text)
         : h("a", { ...title, ...openPull(row.link) }, row.text),
       row.at ? small(ago(now - row.at), "t3h-age") : null,
       row.notes.length
@@ -552,7 +555,7 @@ function homeView({
         h("div", { className: "t3h-names" },
           h("h3", null,
             entry.pinned ? h("span", { className: "t3h-pin", title: "Pinned", role: "img", "aria-label": "Pinned" }, h(Glyph, { size: 15 }, GLYPHS.pin)) : null,
-            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title)),
+            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry), ...actions.projectMenu(entry) }, title)),
           h(Headline, { entry, now })),
         h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
       rowList(shown, now, actions),
@@ -620,7 +623,7 @@ function homeView({
       reason ? small(reason) : null,
       releaseOf(facts) ? h("span", { key: "release", className: "t3h-release" }, h(ReleaseTag, { entry, facts, now, linked: false })) : null,
     ];
-    return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
+    return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry), ...actions.projectMenu(entry) },
       h(Picture, { project: entry.project, className: "t3h-icon-small" }),
       h("span", { className: "t3h-tile-text" },
         text(entry.project.title, "t3h-cut t3h-tile-name"),
@@ -672,7 +675,7 @@ function homeView({
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
         h(Picture, { project: entry.project, className: "t3h-icon-large" }),
-        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title)),
+        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title), ...actions.projectMenu(entry) }, entry.project.title)),
       h("div", { className: "t3h-actions" },
         h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, null, GLYPHS.plus), "New thread"),
         entry.repository ? h("a", { ...outward, className: "t3h-button", href: `https://github.com/${entry.repository}`, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.out), "GitHub") : null),
@@ -690,24 +693,28 @@ function homeView({
   const NONE = {};
   const nothing = () => {};
 
+  async function finderOf(wanted) {
+    const urls = [...new Set([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.href).filter((href) => wanted.test(href)))];
+    const modules = await Promise.all(urls.map((url) => import(url).catch(() => null)));
+    const values = [...new Set(modules.filter(Boolean).flatMap((module) => Object.values(module)))];
+    const one = (test) => {
+      const found = values.filter((value) => {
+        try {
+          return test(value);
+        } catch {
+          return false;
+        }
+      });
+      return found.length === 1 ? found[0] : null;
+    };
+    const component = (...marks) => one((value) => typeof value === "function" && marks.every((mark) => String(value).includes(mark)));
+    return { one, component };
+  }
+
   let panelLoad = null;
   function loadPanelParts() {
     panelLoad ||= (async () => {
-      const wanted = /\/(PanelLayoutControls|IssueDetailPanel|rightPanelStore)-[\w-]+\.js$/;
-      const urls = [...new Set([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.href).filter((href) => wanted.test(href)))];
-      const modules = await Promise.all(urls.map((url) => import(url).catch(() => null)));
-      const values = [...new Set(modules.filter(Boolean).flatMap((module) => Object.values(module)))];
-      const one = (test) => {
-        const found = values.filter((value) => {
-          try {
-            return test(value);
-          } catch {
-            return false;
-          }
-        });
-        return found.length === 1 ? found[0] : null;
-      };
-      const component = (mark) => one((value) => typeof value === "function" && String(value).includes(mark));
+      const { one, component } = await finderOf(/\/(PanelLayoutControls|IssueDetailPanel|rightPanelStore)-[\w-]+\.js$/);
       const parts = {
         Shell: component("data-right-panel-tabbar"),
         PullView: component("pullRequest.copyNumber"),
@@ -724,11 +731,25 @@ function homeView({
     return panelLoad;
   }
 
-  function usePanelParts() {
+  let projectMenuLoad = null;
+  function loadProjectMenuParts() {
+    projectMenuLoad ||= (async () => {
+      const { component } = await finderOf(/\/(toast|worktreeLayoutApproval)-[\w-]+\.js$/);
+      const parts = {
+        localApi: component("Local API not found"),
+        useProjectPin: component("canPinProjectGroup:", "setProjectGroupPinned:"),
+        useCopy: component("copyToClipboard:", "isCopied:"),
+      };
+      return Object.values(parts).every(Boolean) ? parts : null;
+    })().catch(() => null);
+    return projectMenuLoad;
+  }
+
+  function useLoaded(load) {
     const [parts, setParts] = React.useState(null);
     React.useEffect(() => {
       let live = true;
-      loadPanelParts().then((found) => live && setParts(found));
+      load().then((found) => live && setParts(found));
       return () => {
         live = false;
       };
@@ -736,7 +757,7 @@ function homeView({
     return parts;
   }
 
-  class PanelBoundary extends React.Component {
+  class PartBoundary extends React.Component {
     constructor(props) {
       super(props);
       this.state = { failed: false };
@@ -745,12 +766,46 @@ function homeView({
       return { failed: true };
     }
     componentDidCatch(error) {
-      console.error("t3code-rtl-fix: the side panel on Home failed", error);
+      console.error(`t3code-rtl-fix: ${this.props.part} on Home failed`, error);
       this.props.onFailed();
     }
     render() {
       return this.state.failed ? null : this.props.children;
     }
+  }
+
+  function ThreadMenu({ useThreadMenu, menu }) {
+    const { openMenu } = useThreadMenu({ threadRef: menu?.ref ?? null, projectCwd: menu?.cwd, canShareWithGuest: false });
+    React.useEffect(() => {
+      if (menu) openMenu(menu.position, menu.mode);
+    }, [menu]);
+    return null;
+  }
+
+  function ProjectMenu({ parts, useProjectGroups, menu, actions }) {
+    const groups = useProjectGroups(NO_LABELS);
+    const { canPinProjectGroup, setProjectGroupPinned } = parts.useProjectPin();
+    const { copyToClipboard } = parts.useCopy();
+    React.useEffect(() => {
+      if (!menu) return;
+      const { project } = menu.entry;
+      const group = groups.find((item) => item.memberProjectRefs.some((ref) => ref.environmentId === project.environmentId && ref.projectId === project.id));
+      if (!group) return;
+      const items = [
+        { id: "new-thread", label: "New thread" },
+        { id: "copy-path", label: "Copy path" },
+        ...(canPinProjectGroup(group) ? [group.pinned ? { id: "unpin", label: "Unpin project", icon: "pin-off" } : { id: "pin", label: "Pin project", icon: "pin" }] : []),
+        { id: "project-settings", label: "Project settings", icon: "settings" },
+      ];
+      (async () => {
+        const choice = await parts.localApi().contextMenu.show(items, menu.position, menu.mode);
+        if (choice === "new-thread") actions.startThread(menu.entry);
+        if (choice === "copy-path") copyToClipboard(group.workspaceRoot, { path: group.workspaceRoot });
+        if (choice === "pin" || choice === "unpin") setProjectGroupPinned(group, choice === "pin");
+        if (choice === "project-settings") actions.openProjectSettings(group.projectKey);
+      })().catch((error) => console.error("t3code-rtl-fix: the project menu on Home failed", error));
+    }, [menu]);
+    return null;
   }
 
   function SidePanel({ parts, issuesEnvironmentId }) {
@@ -897,7 +952,7 @@ function homeView({
   }
 
   function Page({ projects, complete }) {
-    const { useOpenPull } = mainParts();
+    const { useOpenPull, useThreadMenu, useProjectGroups, menuKey, inputMode } = mainParts();
     const threads = useThreads();
     const { environments } = useEnvironments();
     const router = useRouter();
@@ -906,8 +961,15 @@ function homeView({
     const now = useNow();
     const chosen = useChosen(router);
     const [failed, setFailed] = React.useState(false);
+    const [menu, setMenu] = React.useState(null);
+    const [menuBroken, setMenuBroken] = React.useState(false);
+    const hasMenu = Boolean(useThreadMenu) && !menuBroken;
+    const projectMenuParts = useLoaded(loadProjectMenuParts);
+    const [projectMenu, setProjectMenu] = React.useState(null);
+    const [projectMenuBroken, setProjectMenuBroken] = React.useState(false);
+    const hasProjectMenu = Boolean(projectMenuParts && useProjectGroups) && !projectMenuBroken;
     const tips = useTips();
-    const parts = usePanelParts();
+    const parts = useLoaded(loadPanelParts);
     const entries = entriesOf(projects, threads, environments, now);
     const github = useGithub(entries.map((entry) => entry.repository).filter(Boolean).sort());
     const workflows = useWorkflowCounts();
@@ -950,6 +1012,27 @@ function homeView({
       },
       openProject: (entry) => router.navigate({ to: "/", search: { project: entry.key } }),
       openThread: (thread) => router.navigate({ to: "/$environmentId/$threadId", params: { environmentId: thread.environmentId, threadId: thread.id } }),
+      threadMenu: (thread) => (hasMenu ? {
+        open: (event) => {
+          if (event.target.closest?.("a")) return;
+          event.preventDefault();
+          setMenu({
+            ref: { environmentId: thread.environmentId, threadId: thread.id },
+            cwd: projects.find((project) => project.environmentId === thread.environmentId && project.id === thread.projectId)?.workspaceRoot,
+            position: { x: event.clientX, y: event.clientY },
+            mode: inputMode ? inputMode(event) : "mouse",
+          });
+        },
+        key: menuKey ?? undefined,
+      } : null),
+      projectMenu: (entry) => (hasProjectMenu ? {
+        onContextMenu: (event) => {
+          event.preventDefault();
+          setProjectMenu({ entry, position: { x: event.clientX, y: event.clientY }, mode: inputMode ? inputMode(event) : "mouse" });
+        },
+        onKeyDown: menuKey ?? undefined,
+      } : null),
+      openProjectSettings: (projectKey) => router.navigate({ to: "/projects/$projectKey", params: { projectKey } }),
       startThread: (entry) => {
         setFailed(false);
         newThread(projectReference(entry.project.environmentId, entry.project.id)).then(
@@ -982,7 +1065,9 @@ function homeView({
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
               entry ? null : h(WorkflowRuns, { counts: workflows, actions }),
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
-        parts && !parts.broken && issuesEnvironmentId ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
+        parts && !parts.broken && issuesEnvironmentId ? h(PartBoundary, { part: "the side panel", onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
+      hasMenu ? h(PartBoundary, { part: "the thread menu", onFailed: () => setMenuBroken(true) }, h(ThreadMenu, { useThreadMenu, menu })) : null,
+      hasProjectMenu ? h(PartBoundary, { part: "the project menu", onFailed: () => setProjectMenuBroken(true) }, h(ProjectMenu, { parts: projectMenuParts, useProjectGroups, menu: projectMenu, actions })) : null,
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 
