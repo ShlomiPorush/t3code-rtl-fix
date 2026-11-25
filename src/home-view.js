@@ -744,13 +744,13 @@ function homeView({
     }
   }
 
-  function SidePanel({ parts }) {
+  function SidePanel({ parts, issuesEnvironmentId }) {
     const { Shell, PullView, IssueView, store, ref } = parts;
     const panel = React.useSyncExternalStore(store.subscribe, () => store.getState().byThreadKey[PANEL_KEY]);
     const active = panel?.isOpen ? panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId) : null;
     if (!active || !PANEL_KINDS.includes(active.kind)) return null;
     const state = () => store.getState();
-    const environmentId = active.environmentId;
+    const environmentId = active.environmentId ?? issuesEnvironmentId;
     const getShortcutContext = () => ({
       terminalFocus: false, terminalOpen: false, previewFocus: false, previewOpen: false, modelPickerOpen: false,
       isWeb: !electron, isDesktop: Boolean(electron),
@@ -927,7 +927,7 @@ function homeView({
             h("div", { className: "t3h-page" },
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
-        parts && !parts.broken ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts })) : null),
+        parts && !parts.broken ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId: environments.find((item) => item.serverConfig?.environment?.capabilities?.issues === true)?.environmentId })) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));
   }
 
