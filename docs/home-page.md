@@ -26,14 +26,16 @@ open Home.
 
 | Mark | What it says |
 |---|---|
-| Dot that pulses | An agent works, in a connected computer. The card is lit. |
+| Dot that pulses | An agent works, in a connected computer. |
 | Amber dot | The thread waits for your answer or approval. |
 | Green dot | The agent finished, and you did not open the thread since. |
 | Red dot | The last run stopped on an error. |
 | Ring | An open thread that nobody works on. |
 
-The head of a card says these states in words. Rest the pointer on a dot to see
-the state of its thread.
+The head of a card names the most urgent state of its threads: waiting, then
+working, finished, and error. The card takes the color of that state. A waiting
+or working card is lit, and a finished or failed card has a colored edge. Rest
+the pointer on a dot to see the state of its thread.
 
 A pull request is on the row of the thread it is linked to, or has a row of its
 own. "Ready to merge" means that GitHub can merge it now. In a repository

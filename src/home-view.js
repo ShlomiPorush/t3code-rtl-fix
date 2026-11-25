@@ -529,8 +529,10 @@ function homeView({
       : null);
   }
 
+  const urgentState = (entry) => ["ask", "run", "done", "fail"].find((item) => has(entry, item));
+
   function Headline({ entry, now }) {
-    const state = ["ask", "run", "done", "fail"].find((item) => has(entry, item));
+    const state = urgentState(entry);
     if (!state) return small(entry.latest ? `${ago(now - entry.latest)} ago` : "\u00a0");
     const { thread } = entry.threads.find((item) => item.state === state);
     const { text: word, tone } = STATES[state];
@@ -540,7 +542,7 @@ function homeView({
   const shownRows = (rows, opened) => (opened ? rows : rows.slice(0, ROWS));
 
   function Card({ entry, facts, rows, now, actions, opened, toggle }) {
-    const lit = ["ask", "run"].find((state) => has(entry, state));
+    const lit = urgentState(entry);
     const shown = shownRows(rows, opened);
     const more = rows.length - shownRows(rows, false).length;
     const { title } = entry.project;
@@ -996,6 +998,8 @@ const HOME_CSS = `
 .t3h-card { --t3h-edge: color-mix(in srgb, var(--foreground) 9%, transparent); min-width: 0; padding: 1rem 1.05rem .9rem; border-radius: 1rem; background: var(--card); box-shadow: inset 0 0 0 1px var(--t3h-edge); }
 .t3h-card-run { --t3h-edge: var(--t3h-blue); background: color-mix(in srgb, var(--t3h-blue) 9%, var(--card)); }
 .t3h-card-ask { --t3h-edge: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--card)); }
+.t3h-card-done { --t3h-edge: var(--success); }
+.t3h-card-fail { --t3h-edge: var(--t3h-red); }
 .t3h-head { display: flex; align-items: center; gap: .7rem; }
 .t3h-names { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: .1rem; line-height: 1.3; }
 .t3h-names > .t3h-small:is(.t3h-run, .t3h-warn, .t3h-ok, .t3h-bad) { font-weight: 600; }

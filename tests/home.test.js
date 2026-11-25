@@ -717,6 +717,21 @@ test("a card says what its agent does, and a computer that is not connected has 
   assert.doesNotMatch(card({ latestRun: { status: "interrupted", completedAt: before(1) }, lastVisitedAt: before(2) }), /Finished/);
 });
 
+test("a card is colored by its most urgent thread, the same one its headline names", () => {
+  const color = (...list) => {
+    const page = renderHome({ projects: [project("app")], threads: list.map((overrides, index) => thread({ id: `t${index}`, ...overrides })) });
+    return ["ask", "run", "done", "fail"].filter((state) => page.having(`t3h-card-${state}`).length);
+  };
+  const done = { latestRun: { status: "completed", completedAt: before(1) }, lastVisitedAt: before(2) };
+  const failed = { latestRun: { status: "failed", completedAt: before(1) } };
+  assert.deepEqual(color({}), []);
+  assert.deepEqual(color(done), ["done"]);
+  assert.deepEqual(color(failed), ["fail"]);
+  assert.deepEqual(color(failed, done), ["done"]);
+  assert.deepEqual(color(done, running), ["run"]);
+  assert.deepEqual(color(running, { hasPendingApprovals: true }), ["ask"]);
+});
+
 test("pinned projects come first, then working ones, then the latest, and a pinned one always has a card", () => {
   const projects = [project("quiet"), project("new"), project("works"), project("pinned", null, { pinnedAt: before(1) }), project("old")];
   const threads = [
