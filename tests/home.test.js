@@ -838,7 +838,7 @@ test("a project has no open work only when its pull requests were read, and othe
   const [known, unknown] = shown.split("GitHub is not read");
   assert.match(known, /No open work\n2 projects/);
   assert.match(known, /read[\s\S]*local/);
-  assert.match(unknown, /cut[\s\S]*waiting\nReading GitHub…[\s\S]*failed\nGitHub is not available/);
+  assert.match(unknown, /cut[\s\S]*waiting\nFetching from GitHub…[\s\S]*failed\nGitHub is not available/);
   const update = answered({ "o/read": facts({ pulls: [pullFact(1, { update: true })], openPulls: 1 }) });
   assert.equal(renderHome({ projects: [project("read", "o/read")], github: update }).tiles.length, 1, "updates alone are not open work");
 });
@@ -894,13 +894,13 @@ test("the first answers wait for each other, unless some came from the cache", (
   const projects = [project("a", "o/a"), project("b", "o/b")];
   const show = (repositories) => renderHome({ projects, github: answered(repositories) }).shown;
   assert.match(show({ "o/a": facts(), "o/b": { status: "waiting" } }), /No open work\n1 project/);
-  assert.match(show({ "o/a": { status: "unavailable" }, "o/b": { status: "waiting" } }), /Reading GitHub…[\s\S]*Reading GitHub…/);
+  assert.match(show({ "o/a": { status: "unavailable" }, "o/b": { status: "waiting" } }), /Fetching from GitHub…[\s\S]*Fetching from GitHub…/);
 });
 
 test("a project's page says that nothing is in the middle only when its pull requests were read", () => {
   const page = (repositories) => renderHome({ projects: [project("app", "o/app")], github: answered(repositories), search: { project: "o/app" } }).shown;
   assert.match(page({ "o/app": facts() }), /Nothing is in the middle/);
-  for (const [unread, reason] of [[{ status: "waiting" }, /Reading GitHub…/], [{ status: "unavailable" }, /GitHub is not available/], [facts({ cut: true }), /Read in part/]]) {
+  for (const [unread, reason] of [[{ status: "waiting" }, /Fetching from GitHub…/], [{ status: "unavailable" }, /GitHub is not available/], [facts({ cut: true }), /Read in part/]]) {
     assert.doesNotMatch(page({ "o/app": unread }), /Nothing is in the middle/);
     assert.match(page({ "o/app": unread }), reason);
   }
