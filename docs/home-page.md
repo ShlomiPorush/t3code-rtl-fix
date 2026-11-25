@@ -52,10 +52,12 @@ updates.
 ## Workflow runs
 
 When T3 Code's Workflows are on, in its Labs settings, a line above the cards
-says how many workflow runs need you and how many run. A run needs you when it
-waits for an answer to its question, or when it is paused. A run and the runs
-that it started count as one. Click the line to open T3 Code's Workflows page.
-The line is hidden when no run is open.
+says how many workflow runs need you, how many run, and how many finished. A
+run needs you when it waits for an answer to its question, or when it is
+paused. A run and the runs that it started count as one. A run that ended counts
+as finished until you open the thread of its agent, as the green dot of that
+thread on its project's card does. Click the line to open T3 Code's Workflows
+page. The line is hidden when there is none of these.
 
 The line covers the T3 Code server on this computer only. It is read from T3
 Code's database every 15 seconds, so a change can take that long to show.

@@ -18,14 +18,15 @@ test("a run counts once with the runs it invoked, and needs you when it or one b
     run("grandchild", { parent: "child", status: "paused" }),
     run("orphan", { parent: "ended-parent" }),
   ];
-  assert.deepEqual(countWorkflowRuns(runs, ["asks"]), { running: 2, needsYou: 2 });
-  assert.deepEqual(countWorkflowRuns(runs, ["asks", "asks", "orphan"]), { running: 1, needsYou: 3 });
-  assert.deepEqual(countWorkflowRuns([], []), { running: 0, needsYou: 0 });
+  const open = ["asks", "child", "grandchild", "orphan", "parent", "plain"];
+  assert.deepEqual(countWorkflowRuns(runs, ["asks"]), { running: 2, needsYou: 2, open });
+  assert.deepEqual(countWorkflowRuns(runs, ["asks", "asks", "orphan"]), { running: 1, needsYou: 3, open });
+  assert.deepEqual(countWorkflowRuns([], []), { running: 0, needsYou: 0, open: [] });
 });
 
 test("runs that name each other as parents are still counted", () => {
   const runs = [run("a", { parent: "b" }), run("b", { parent: "a" })];
-  assert.deepEqual(countWorkflowRuns(runs, []), { running: 2, needsYou: 0 });
+  assert.deepEqual(countWorkflowRuns(runs, []), { running: 2, needsYou: 0, open: ["a", "b"] });
 });
 
 function userdata({ enabled = true } = {}) {
@@ -64,7 +65,7 @@ test("open runs are read from T3 Code's database, and a question counts only whi
   const DatabaseSync = sqliteOrSkip(t);
   if (!DatabaseSync) return;
   const directory = userdata();
-  assert.deepEqual(readWorkflowCounts(directory, database(DatabaseSync, directory, SCHEMA)), { running: 3, needsYou: 1 });
+  assert.deepEqual(readWorkflowCounts(directory, database(DatabaseSync, directory, SCHEMA)), { running: 3, needsYou: 1, open: ["answered", "asks", "busy", "sleeps"] });
 });
 
 test("nothing is read while workflows are off in T3 Code", () => {
@@ -94,8 +95,10 @@ test("a window gets the counts at once, then only when they change, until it is 
   counts = { running: 0, needsYou: 0 };
   service.check();
   service.forget("b");
-  assert.deepEqual(first, [{ running: 1, needsYou: 0 }, { running: 1, needsYou: 1 }]);
-  assert.deepEqual(second, [{ running: 1, needsYou: 0 }, { running: 1, needsYou: 1 }, { running: 0, needsYou: 0 }]);
+  const one = { running: 1, needsYou: 0, open: ["r0"] };
+  const two = { running: 1, needsYou: 1, open: ["r0", "r1"] };
+  assert.deepEqual(first, [one, two]);
+  assert.deepEqual(second, [one, two, { running: 0, needsYou: 0, open: [] }]);
 });
 
 test("a database T3 Code changed hides the line and is logged once", (t) => {

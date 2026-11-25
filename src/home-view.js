@@ -860,11 +860,22 @@ function homeView({
     return current;
   }
 
-  function WorkflowRuns({ counts, actions }) {
-    if (!counts || counts.running + counts.needsYou === 0) return null;
+  function finishedRuns(threads, environments, open) {
+    const connected = new Set(environments.filter((item) => item.connection?.phase === "connected").map((item) => item.environmentId));
+    const shown = new Set(open);
+    const runs = threads
+      .filter((thread) => thread.workflowRun?.runId && thread.archivedAt == null && stateOf(thread, connected) === "done")
+      .map((thread) => thread.workflowRun.runId)
+      .filter((runId) => !shown.has(runId));
+    return new Set(runs).size;
+  }
+
+  function WorkflowRuns({ counts, finished, actions }) {
+    if (!counts || counts.running + counts.needsYou + finished === 0) return null;
     const parts = [
       counts.needsYou > 0 && { state: "ask", text: `${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} you` },
       counts.running > 0 && { state: "run", text: `${counts.running} running` },
+      finished > 0 && { state: "done", text: `${finished} finished` },
     ].filter(Boolean);
     return h("button", { type: "button", className: "t3h-workflows", onClick: actions.openWorkflows, dir: "ltr" },
       h("span", { className: "t3h-workflows-name" }, "Workflows"),
@@ -977,7 +988,7 @@ function homeView({
           h("div", { className: "t3h", key: entry ? entry.key : "map" },
             h("div", { className: "t3h-page" },
               notes.length ? h("div", { className: "t3h-notes", role: "status" }, notes.map((note) => h("p", { key: note, dir: "ltr" }, note))) : null,
-              entry ? null : h(WorkflowRuns, { counts: workflows, actions }),
+              entry ? null : h(WorkflowRuns, { counts: workflows, finished: workflows ? finishedRuns(threads, environments, workflows.open) : 0, actions }),
               entry ? h(Project, { entry, facts: factsOf(entry), now, actions }) : h(Overview, { entries, factsOf, complete, now, actions })))),
         parts && !parts.broken && issuesEnvironmentId ? h(PanelBoundary, { onFailed: panelFailed }, h(SidePanel, { parts, issuesEnvironmentId })) : null),
       h(Tip, { tips, detail: tips.tip && github ? github.repositories[tips.tip.repository]?.details?.[tips.tip.kind] ?? null : null, now, actions }));

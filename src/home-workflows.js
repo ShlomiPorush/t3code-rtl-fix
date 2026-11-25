@@ -27,7 +27,7 @@ function countWorkflowRuns(runs, askingIds) {
     roots.add(root);
     if (run.status === "paused" || asking.has(run.id)) needed.add(root);
   }
-  return { running: roots.size - needed.size, needsYou: needed.size };
+  return { running: roots.size - needed.size, needsYou: needed.size, open: runs.map((run) => run.id).sort() };
 }
 
 function workflowsEnabled(userdata) {

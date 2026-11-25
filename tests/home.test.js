@@ -929,16 +929,32 @@ test("a project's page says that nothing is in the middle only when its pull req
 
 test("Home says how many workflow runs need you and how many run, and opens T3 Code's Workflows page", () => {
   const projects = [project("app")];
-  const line = (workflows) => renderHome({ projects, workflows }).having("t3h-workflows")[0] ?? null;
+  const line = (workflows, threads = []) => renderHome({ projects, threads, workflows }).having("t3h-workflows")[0] ?? null;
   assert.equal(line(null), null);
-  assert.equal(line({ running: 0, needsYou: 0 }), null);
-  assert.equal(line({ running: 2, needsYou: 1 }), "Workflows\n1 needs you\n2 running");
-  assert.equal(line({ running: 1, needsYou: 0 }), "Workflows\n1 running");
-  assert.equal(line({ running: 0, needsYou: 3 }), "Workflows\n3 need you");
-  const { buttons, calls } = renderHome({ projects, workflows: { running: 1, needsYou: 0 } });
+  assert.equal(line({ running: 0, needsYou: 0, open: [] }), null);
+  assert.equal(line({ running: 2, needsYou: 1, open: ["a", "b", "c"] }), "Workflows\n1 needs you\n2 running");
+  assert.equal(line({ running: 1, needsYou: 0, open: ["a"] }), "Workflows\n1 running");
+  assert.equal(line({ running: 0, needsYou: 3, open: ["a", "b", "c"] }), "Workflows\n3 need you");
+  const { buttons, calls } = renderHome({ projects, workflows: { running: 1, needsYou: 0, open: ["a"] } });
   buttons.find((button) => button.name.startsWith("Workflows")).click();
   assert.deepEqual(calls, [["go", { to: "/workflows" }]]);
-  assert.equal(renderHome({ projects, workflows: { running: 1, needsYou: 1 }, search: { project: "local:app" } }).having("t3h-workflows").length, 0);
+  assert.equal(renderHome({ projects, workflows: { running: 1, needsYou: 1, open: ["a", "b"] }, search: { project: "local:app" } }).having("t3h-workflows").length, 0);
+});
+
+test("a workflow run counts as finished until its agent's answer is read, and not while it is open", () => {
+  const projects = [project("app")];
+  const step = (id, runId, overrides = {}) => thread({
+    id, workflowRun: { environmentId: "local", runId, workflow: "w", step: id },
+    lineage: { relationshipToParent: null, workflowStep: true },
+    lastVisitedAt: before(3), latestRun: { status: "completed", completedAt: before(1) }, ...overrides,
+  });
+  const line = (workflows, threads) => renderHome({ projects, threads, workflows }).having("t3h-workflows")[0] ?? null;
+  const ended = [step("a1", "a"), step("a2", "a"), step("b1", "b")];
+  assert.equal(line({ running: 0, needsYou: 0, open: [] }, ended), "Workflows\n2 finished");
+  assert.equal(line({ running: 1, needsYou: 0, open: ["b"] }, ended), "Workflows\n1 running\n1 finished");
+  assert.equal(line({ running: 0, needsYou: 0, open: [] }, [step("a1", "a", { lastVisitedAt: before(0.5) })]), null);
+  assert.equal(line({ running: 0, needsYou: 0, open: [] }, [step("a1", "a", { archivedAt: before(0.5) })]), null);
+  assert.equal(line(null, ended), null);
 });
 
 test("the page's styles stay inside the page", () => {
