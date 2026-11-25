@@ -1064,8 +1064,6 @@ function pageMain(config) {
     homeReady();
   }
 
-  // The Home page is in T3 Code's world. It asks for repositories only, and
-  // its other calls have no way here.
   function homeReady() {
     document.dispatchEvent(new CustomEvent("t3-rtl-home:ready"));
   }

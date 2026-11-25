@@ -6,7 +6,7 @@ const path = require("node:path");
 const CHECK_MS = 15 * 1000;
 
 const OPEN_RUNS = "SELECT run_id AS id, parent_run_id AS parent, status FROM workflow_runs WHERE ended_at IS NULL";
-const ASKING_RUNS = "SELECT DISTINCT run_id AS id FROM workflow_waits WHERE request_json IS NOT NULL AND signalled_at IS NULL";
+const ASKING_RUNS = "SELECT run_id AS id FROM workflow_waits WHERE request_json IS NOT NULL AND signalled_at IS NULL";
 
 function countWorkflowRuns(runs, askingIds) {
   const byId = new Map(runs.map((run) => [run.id, run]));
@@ -56,7 +56,7 @@ function openReadOnly(file) {
   return new DatabaseSync(file, { readOnly: true });
 }
 
-function createHomeWorkflows({ userdata, log = () => {}, isOn = () => true, openDatabase = openReadOnly, checkMs = CHECK_MS } = {}) {
+function createHomeWorkflows({ userdata, log = () => {}, isOn = () => true, openDatabase = openReadOnly } = {}) {
   const windows = new Map();
   let timer = null;
   let last = null;
@@ -89,7 +89,7 @@ function createHomeWorkflows({ userdata, log = () => {}, isOn = () => true, open
   function read(key, deliver) {
     windows.set(key, deliver);
     check(deliver);
-    timer ||= setInterval(check, checkMs);
+    timer ||= setInterval(check, CHECK_MS);
     timer.unref?.();
   }
 
@@ -103,4 +103,4 @@ function createHomeWorkflows({ userdata, log = () => {}, isOn = () => true, open
   return { read, forget, check };
 }
 
-module.exports = { CHECK_MS, countWorkflowRuns, createHomeWorkflows, readWorkflowCounts };
+module.exports = { countWorkflowRuns, createHomeWorkflows, readWorkflowCounts };
