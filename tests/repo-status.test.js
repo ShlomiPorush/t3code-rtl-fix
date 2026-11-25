@@ -15,6 +15,7 @@ const {
   fetchCounts,
   lookupProjectFolder,
   lookupThreadFolder,
+  openExternal,
   opensSqliteReadOnly,
   parseGitHubRemote,
   parseThreadLocation,
@@ -1430,4 +1431,11 @@ test("a deployment keeps the site of an earlier status that had one", async () =
   await check();
   const [row] = last().rows.filter((candidate) => candidate.group === "deployments");
   assert.equal(row.detail.sections[0].items[0].url, "https://pages.example/");
+});
+
+test("Windows opens a link with its query through the URL handler", { skip: process.platform !== "win32" }, async () => {
+  const calls = [];
+  const url = "https://github.com/o/r/deployments/activity_log?environments_filter=Preview%20%E2%80%93%20ui";
+  await openExternal(async (file, args) => calls.push([path.basename(file).toLowerCase(), ...args]), url);
+  assert.deepEqual(calls, [["rundll32.exe", "url.dll,FileProtocolHandler", url]]);
 });

@@ -1093,8 +1093,7 @@ function lookupProjectFolder(databaseDirectory, projectId) {
 
 function openExternal(run, url) {
   if (process.platform === "win32") {
-    // explorer.exe hands a URL to the default browser and exits with code 1.
-    return run(path.join(process.env.SystemRoot || "C:\\Windows", "explorer.exe"), [url]);
+    return run(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "rundll32.exe"), ["url.dll,FileProtocolHandler", url]);
   }
   return run(process.platform === "darwin" ? "open" : "xdg-open", [url]);
 }
@@ -2677,6 +2676,7 @@ module.exports = {
   issueDetail,
   lookupProjectFolder,
   lookupThreadFolder,
+  openExternal,
   opensSqliteReadOnly,
   parseGitHubRemote,
   parseThreadLocation,
