@@ -82,6 +82,22 @@ const SEVERITIES = ["critical", "high", "medium", "low"];
 const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
 // GitHub names severities differently for each kind of alert.
 const SEVERITY_ALIASES = { moderate: "medium", error: "high", warning: "medium", note: "low" };
+const ENVIRONMENT_PAGE_SIZE = 50;
+const DEPLOYMENTS_PER_ENVIRONMENT = 10;
+const DEPLOYMENT_STATES = {
+  ACTIVE: { text: "Active", tone: "success" },
+  SUCCESS: { text: "Deployed", tone: "success" },
+  FAILURE: { text: "Failed", tone: "critical" },
+  ERROR: { text: "Error", tone: "critical" },
+  IN_PROGRESS: { text: "In progress", tone: "info" },
+  QUEUED: { text: "Queued", tone: "info" },
+  PENDING: { text: "Pending", tone: "info" },
+  WAITING: { text: "Waiting", tone: "medium" },
+  INACTIVE: { text: "Inactive", tone: "muted" },
+  ABANDONED: { text: "Abandoned", tone: "muted" },
+  DESTROYED: { text: "Destroyed", tone: "muted" },
+};
+const UNKNOWN_DEPLOYMENT_STATE = { text: "Unknown", tone: "muted" };
 const REVIEW_BADGES = {
   APPROVED: { text: "Approved", tone: "success" },
   CHANGES_REQUESTED: { text: "Changes requested", tone: "critical" },
@@ -117,6 +133,25 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
     }
   }
 }`;
+
+const ENVIRONMENTS_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    environments(first: ${ENVIRONMENT_PAGE_SIZE}) { nodes { name } }
+  }
+}`;
+
+function deploymentsQuery(count) {
+  const indexes = Array.from({ length: count }, (_, index) => index);
+  const variables = indexes.map((index) => `, $e${index}: String!`).join("");
+  const fields = indexes.map((index) => `
+    e${index}: deployments(environments: [$e${index}], first: ${DEPLOYMENTS_PER_ENVIRONMENT}, orderBy: { field: CREATED_AT, direction: DESC }) {
+      nodes { state createdAt commitOid ref { name } creator { login } latestStatus { environmentUrl } }
+    }`).join("");
+  return `query($owner: String!, $name: String!${variables}) {
+  repository(owner: $owner, name: $name) {${fields}
+  }
+}`;
+}
 
 // T3 Code routes a thread as /<environmentId>/<threadId>, and a new thread
 // before its first message as /draft/<draftId>.
@@ -185,6 +220,29 @@ function branchLink(name) {
   }
 }
 
+function environmentLink(name) {
+  try {
+    return `deployments/activity_log?environments_filter=${encodeURIComponent(name)}`;
+  } catch {
+    return null;
+  }
+}
+
+function siteUrl(value) {
+  if (typeof value !== "string") return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+}
+
+function isSiteUrl(link) {
+  return link.startsWith("https://");
+}
+
 function withLink(item, link) {
   return link ? { ...item, link } : item;
 }
@@ -192,10 +250,12 @@ function withLink(item, link) {
 function linksOf(rows) {
   const links = new Set();
   for (const row of rows) {
+    if (row.link) links.add(row.link);
     for (const section of row.detail?.sections || []) {
       if (section.link) links.add(section.link);
       for (const item of section.items || []) {
         if (item.link) links.add(item.link);
+        if (item.url) links.add(item.url);
       }
     }
   }
@@ -450,6 +510,41 @@ function securityDetail(total, { dependabot, codeScanning, secretScanning }) {
   return detail;
 }
 
+function deploymentState(deployment) {
+  return Object.hasOwn(DEPLOYMENT_STATES, deployment.state ?? "") ? DEPLOYMENT_STATES[deployment.state] : UNKNOWN_DEPLOYMENT_STATE;
+}
+
+function deploymentItem(deployment) {
+  const item = {
+    text: deployment.ref || deployment.commit || "Unknown commit",
+    meta: compact([deployment.creator, deployment.ref ? deployment.commit : ""]),
+    time: deployment.time,
+    badges: [deploymentState(deployment)],
+  };
+  return deployment.url ? { ...item, url: deployment.url } : item;
+}
+
+function deploymentRow(environment) {
+  const [latest] = environment.deployments;
+  const state = deploymentState(latest);
+  const row = {
+    group: "deployments",
+    kind: "deployment",
+    key: `deployment:${environment.name}`,
+    label: environment.name,
+    count: state.text,
+    tone: state.tone,
+    time: latest.time,
+    detail: {
+      title: environment.name,
+      summary: "Latest deployments",
+      sections: [listSection(environment.deployments, environment.deployments.length, deploymentItem)],
+    },
+  };
+  const link = environmentLink(environment.name);
+  return link ? { ...row, link } : row;
+}
+
 function localBadge(branch) {
   if (branch.deleted) return { text: "Deleted on GitHub", tone: "critical" };
   if (!branch.tracking) return { text: "No upstream", tone: "muted" };
@@ -580,6 +675,9 @@ function buildRows(status) {
         rows.push({ group, kind: `branches-${key}`, label, count: countText(count), detail: details[key] });
       }
     }
+  }
+  for (const environment of status.deployments || []) {
+    rows.push(deploymentRow(environment));
   }
   return rows;
 }
@@ -807,11 +905,12 @@ async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
         alerts: list.map(ALERT_READERS[kind]),
       };
     });
-  const [graphqlResult, codeScanning, secretScanning, local] = await Promise.all([
+  const [graphqlResult, codeScanning, secretScanning, local, deployments] = await Promise.all([
     graphql,
     alerts("code-scanning"),
     alerts("secret-scanning"),
     readLocalBranches(run, folder),
+    fetchDeployments(run, repo, now),
   ]);
   if (graphqlResult.error?.code === "ENOENT") {
     throw new Error("the gh command was not found");
@@ -828,6 +927,52 @@ async function fetchCounts(run, repo, { folder, now = Date.now() } = {}) {
     codeScanning,
     secretScanning,
     branches: readBranches(repository, local, now),
+    deployments,
+  };
+}
+
+async function fetchDeployments(run, repo, now) {
+  const graphql = (query, variables) =>
+    run("gh", [
+      "api",
+      "--hostname",
+      "github.com",
+      "graphql",
+      "-f",
+      `query=${query}`,
+      "-f",
+      `owner=${repo.owner}`,
+      "-f",
+      `name=${repo.name}`,
+      ...variables,
+    ]);
+  const listed = parseJson((await graphql(ENVIRONMENTS_QUERY, [])).stdout)?.data?.repository?.environments;
+  if (!listed) return null;
+  const names = nodesOf(listed)
+    .map((environment) => environment.name)
+    .filter((name) => typeof name === "string" && name !== "");
+  if (names.length === 0) return [];
+  const variables = names.flatMap((name, index) => ["-f", `e${index}=${name}`]);
+  const answer = parseJson((await graphql(deploymentsQuery(names.length), variables)).stdout)?.data?.repository;
+  return answer ? readEnvironments(names, answer, now) : null;
+}
+
+function readEnvironments(names, answer, now) {
+  const recentSince = now - STALE_DAYS * DAY_MS;
+  return names
+    .map((name, index) => ({ name: text(name, 255), deployments: nodesOf(answer[`e${index}`]).map(readDeployment) }))
+    .filter(({ deployments: [latest] }) => latest && latest.time >= recentSince && latest.state !== "DESTROYED")
+    .sort((a, b) => b.deployments[0].time - a.deployments[0].time);
+}
+
+function readDeployment(node) {
+  return {
+    state: typeof node.state === "string" ? node.state : null,
+    time: timeOf(node.createdAt),
+    ref: text(node.ref?.name, 255),
+    commit: /^[0-9a-f]{40}$/.test(node.commitOid ?? "") ? node.commitOid.slice(0, 7) : "",
+    creator: text(node.creator?.login, 100),
+    url: siteUrl(node.latestStatus?.environmentUrl),
   };
 }
 
@@ -1102,7 +1247,7 @@ function createRepoStatusService({
       if (!session?.repo || message.repo !== session.repo.slug) return;
       // A link is opened only when it is one of the links sent to the page.
       const url = typeof message.link === "string"
-        ? session.links.has(message.link) ? linkUrl(session.repo, message.link) : null
+        ? session.links.has(message.link) ? isSiteUrl(message.link) ? message.link : linkUrl(session.repo, message.link) : null
         : repositoryUrl(session.repo, message.kind);
       if (url && enabled) await open(url);
     }
@@ -1193,9 +1338,15 @@ const ICONS = {
     ["circle", { cx: "12", cy: "12", r: "10" }],
     ["path", { d: "M12 6v6l4 2" }],
   ],
+  deployment: [
+    ["path", { d: "M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" }],
+    ["path", { d: "m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" }],
+    ["path", { d: "M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" }],
+    ["path", { d: "M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" }],
+  ],
 };
 
-const GROUP_TITLES = { branches: "Branches" };
+const GROUP_TITLES = { branches: "Branches", deployments: "Deployments" };
 
 const PAGE_CSS = `
 [${SECTION_ATTRIBUTE}] {
@@ -1263,8 +1414,37 @@ const PAGE_CSS = `
   font-weight: 600;
 }
 [${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] .t3-rtl-repo-status-count,
-[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] svg {
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="warning"] svg,
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="medium"] .t3-rtl-repo-status-count {
   color: var(--warning, #d97706);
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="success"] .t3-rtl-repo-status-count {
+  color: var(--success, #16a34a);
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="critical"] .t3-rtl-repo-status-count {
+  color: var(--destructive, #dc2626);
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="info"] .t3-rtl-repo-status-count {
+  color: var(--info, #2563eb);
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-row[data-tone="muted"] .t3-rtl-repo-status-count {
+  opacity: 0.6;
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-age {
+  flex: none;
+  margin-inline-start: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+}
+[${SECTION_ATTRIBUTE}] .t3-rtl-repo-status-age + .t3-rtl-repo-status-count {
+  margin-inline-start: 0;
 }
 [${SECTION_ATTRIBUTE}] div.t3-rtl-repo-status-row:focus-visible {
   background: color-mix(in srgb, currentColor 8%, transparent);
@@ -1655,6 +1835,16 @@ function buildRepoStatusPageSource() {
     return unit(Math.floor(days / 365), "year");
   };
 
+  const shortAgo = (time) => {
+    if (typeof time !== "number" || !Number.isFinite(time)) return "";
+    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
+    if (minutes < 1) return "now";
+    if (minutes < 60) return minutes + "m";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + "h";
+    return Math.floor(hours / 24) + "d";
+  };
+
   const badge = (data) => {
     const node = make("span", "t3-rtl-tip-badge", data.text);
     node.dir = "auto";
@@ -1669,7 +1859,7 @@ function buildRepoStatusPageSource() {
   // The address is for the link's role only. A click asks the launcher to
   // open the link, and the launcher builds the address itself.
   const linkTo = (node, link) => {
-    node.href = "https://github.com/" + tipRepo + "/" + link;
+    node.href = link.startsWith("https://") ? link : "https://github.com/" + tipRepo + "/" + link;
     node.dataset.link = link;
     node.dataset.repo = tipRepo;
     // The arrow keys move between the links, so Tab skips them.
@@ -1677,20 +1867,22 @@ function buildRepoStatusPageSource() {
   };
 
   const tipItem = (item) => {
-    const linked = typeof item.link === "string" && item.link !== "";
+    const githubLinked = typeof item.link === "string" && item.link !== "";
+    const target = githubLinked ? item.link : typeof item.url === "string" && item.url.startsWith("https://") ? item.url : "";
+    const linked = target !== "";
     const node = make(linked ? "a" : "div", "t3-rtl-tip-item");
-    if (linked) linkTo(node, item.link);
+    if (linked) linkTo(node, target);
     // An item dragged into the composer quotes it, with its address.
     node.draggable = true;
     node.tabIndex = -1;
-    node.dataset.quote = [item.lead, item.text, linked ? node.href : ""]
+    node.dataset.quote = [item.lead, item.text, githubLinked ? node.href : ""]
       .map((part) => (part == null ? "" : String(part).trim()))
       .filter(Boolean)
       .join(" ");
     // A pull request also carries T3 Code's pull request reference, in the
     // format of T3 Code's own pull request rows.
     const pull = item.pull;
-    if (linked && pull && Number.isInteger(pull.number) && typeof pull.headBranch === "string" && typeof pull.baseBranch === "string") {
+    if (githubLinked && pull && Number.isInteger(pull.number) && typeof pull.headBranch === "string" && typeof pull.baseBranch === "string") {
       node.dataset.pull = JSON.stringify({
         number: pull.number,
         title: String(pull.title).slice(0, 2048),
@@ -2281,20 +2473,30 @@ function buildRepoStatusPageSource() {
       group = row.group;
       rowsBefore += 1;
       // A row without a GitHub page, such as local branches, is not a button.
-      const linked = linkKinds.includes(row.kind);
+      const linked = linkKinds.includes(row.kind) || (typeof row.link === "string" && row.link !== "");
       const element = document.createElement(linked ? "button" : "div");
       element.className = "t3-rtl-repo-status-row";
       if (linked) element.type = "button";
       element.dataset.kind = row.kind;
+      element.dataset.key = row.key || row.kind;
       element.dataset.repo = data.repo || "";
       if (row.tone) element.dataset.tone = row.tone;
       element.appendChild(icon(row.kind));
       const label = document.createElement("span");
+      label.className = "t3-rtl-repo-status-label";
       label.textContent = row.label;
+      element.appendChild(label);
+      if (typeof row.time === "number") {
+        const age = document.createElement("span");
+        age.className = "t3-rtl-repo-status-age";
+        age.dataset.time = String(row.time);
+        age.textContent = shortAgo(row.time);
+        element.appendChild(age);
+      }
       const count = document.createElement("span");
       count.className = "t3-rtl-repo-status-count";
       count.textContent = row.count;
-      element.append(label, count);
+      element.appendChild(count);
       if (row.detail) {
         // The keyboard reaches a row that is not a button for its tooltip.
         if (!linked) element.tabIndex = 0;
@@ -2304,7 +2506,7 @@ function buildRepoStatusPageSource() {
         element.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          notify({ type: "open", kind: row.kind, repo: data.repo });
+          notify({ type: "open", kind: row.kind, repo: data.repo, link: row.link });
         });
       }
       section.appendChild(element);
@@ -2314,8 +2516,8 @@ function buildRepoStatusPageSource() {
 
   const render = () => {
     renderQueued = false;
-    const focusedKind = tipAnchor && tip && tip.contains(document.activeElement) ? tipAnchor.dataset.kind : null;
-    const focusedCard = focusedKind ? tip.closest("[data-thread-details-card]") : null;
+    const focusedKey = tipAnchor && tip && tip.contains(document.activeElement) ? tipAnchor.dataset.key : null;
+    const focusedCard = focusedKey ? tip.closest("[data-thread-details-card]") : null;
     if (current && current.project != null && current.project !== draftProject()) {
       current = null;
       request("navigate");
@@ -2339,13 +2541,17 @@ function buildRepoStatusPageSource() {
     for (const section of document.querySelectorAll("[" + attribute + "]")) {
       if (!keep.has(section)) section.remove();
     }
+    for (const age of document.querySelectorAll("[" + attribute + "] .t3-rtl-repo-status-age")) {
+      const text = shortAgo(Number(age.dataset.time));
+      if (age.textContent !== text) age.textContent = text;
+    }
     // A rebuilt or removed section takes the row of an open tooltip with it.
     if (tipAnchor && !tipAnchor.isConnected && !dragging) {
       hideTip();
       // The same row, or the first one when the refresh removed it.
       const scope = focusedCard && focusedCard.isConnected ? focusedCard : document;
-      const row = focusedKind && (
-        scope.querySelector("[" + attribute + "] [data-kind=" + JSON.stringify(focusedKind) + "]") ||
+      const row = focusedKey && (
+        scope.querySelector("[" + attribute + "] [data-key=" + JSON.stringify(focusedKey) + "]") ||
         scope.querySelector("[" + attribute + "] button.t3-rtl-repo-status-row, [" + attribute + "] .t3-rtl-repo-status-row[tabindex]")
       );
       if (row) {

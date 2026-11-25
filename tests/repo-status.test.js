@@ -154,6 +154,7 @@ test("counts are read from a GraphQL answer that also carries errors", async () 
     dependabot: null,
     codeScanning: null,
     secretScanning: { ...count(2), alerts: [{ number: null, type: "" }, { number: null, type: "" }] },
+    deployments: null,
   });
   assert.ok(calls.every(([file]) => file === "gh"));
   assert.ok(calls.every((call) => call[2] === "--hostname" && call[3] === "github.com"));
@@ -237,6 +238,19 @@ test("the thread folder comes from T3 Code's database", (t) => {
   assert.equal(lookupProjectFolder(directory, "p3"), null);
 });
 
+function deploymentAnswer(environments, args) {
+  const asked = args.map((argument) => /^e(\d+)=(.*)$/s.exec(argument)).filter(Boolean);
+  if (asked.length === 0) {
+    return { data: { repository: { environments: { nodes: environments.map(({ name }) => ({ name })) } } } };
+  }
+  const repository = {};
+  for (const [, index, name] of asked) {
+    const environment = environments.find((candidate) => candidate.name === name);
+    repository[`e${index}`] = { nodes: environment ? environment.deployments : [] };
+  }
+  return { data: { repository } };
+}
+
 function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.git" } = {}) {
   const state = {
     time: 1_000_000,
@@ -257,6 +271,8 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
     sent: [],
     localBranches: "",
     refs: null,
+    environments: [],
+    deploymentCalls: 0,
   };
   const hold = () => new Promise((resolve) => state.releases.push(resolve));
   const run = async (file, args) => {
@@ -265,6 +281,11 @@ function createHarness({ folder = "C:\\repo", remote = "https://github.com/o/r.g
       if (args[2] === "for-each-ref") return { error: null, stdout: state.localBranches, stderr: "" };
       if (state.holdGit) await hold();
       return { error: null, stdout: `${state.remotes[args[1]] || remote}\n`, stderr: "" };
+    }
+    if (args[3] === "graphql" && args[5].includes("environments")) {
+      state.deploymentCalls += 1;
+      if (!state.environments) return { error: new Error("exit 1"), stdout: "", stderr: "no permission" };
+      return { error: null, stdout: JSON.stringify(deploymentAnswer(state.environments, args)), stderr: "" };
     }
     if (args[3] === "graphql") {
       state.graphqlCalls += 1;
@@ -1273,4 +1294,92 @@ test("repository status commands run without a shell", () => {
   const source = fs.readFileSync(path.join(root, "src", "repo-status.js"), "utf8");
   assert.match(source, /execFile\(/);
   assert.doesNotMatch(source, /shell:\s*true|(?<![.\w])exec\(|\bspawn\(|execSync|child_process"\)\.exec\b/);
+});
+
+function deployment(hoursAgo, state, extra = {}) {
+  return {
+    state,
+    createdAt: new Date(NOW - hoursAgo * 60 * 60 * 1000).toISOString(),
+    commitOid: "3c4e630d2ddaa46bb428b8d32411c51eeb1f0ebd",
+    ref: { name: "main" },
+    creator: { login: "dev" },
+    latestStatus: null,
+    ...extra,
+  };
+}
+
+function deploymentHarness(environments) {
+  const harness = createHarness();
+  harness.state.time = NOW;
+  harness.state.environments = environments;
+  return harness;
+}
+
+test("deployments show each live environment deployed in the last 30 days, newest first", async () => {
+  const { check, last } = deploymentHarness([
+    { name: "Production – ui", deployments: [deployment(2, "ACTIVE"), deployment(30, "FAILURE")] },
+    { name: "Preview", deployments: [deployment(1, "WAITING", { ref: null })] },
+    { name: "staging", deployments: [deployment(3, "SOMETHING_NEW"), deployment(4, null)] },
+    { name: "old", deployments: [deployment(31 * 24, "ACTIVE")] },
+    { name: "pr-12", deployments: [deployment(5, "DESTROYED")] },
+    { name: "copilot", deployments: [] },
+  ]);
+  await check();
+  const rows = last().rows.filter((row) => row.group === "deployments");
+  assert.deepEqual(rows.map((row) => [row.label, row.count, row.tone, row.time, row.link]), [
+    ["Preview", "Waiting", "medium", NOW - 60 * 60 * 1000, "deployments/activity_log?environments_filter=Preview"],
+    ["Production – ui", "Active", "success", NOW - 2 * 60 * 60 * 1000, "deployments/activity_log?environments_filter=Production%20%E2%80%93%20ui"],
+    ["staging", "Unknown", "muted", NOW - 3 * 60 * 60 * 1000, "deployments/activity_log?environments_filter=staging"],
+  ]);
+  assert.deepEqual(rows.map((row) => row.key), ["deployment:Preview", "deployment:Production – ui", "deployment:staging"]);
+  const items = (row) => row.detail.sections[0].items.map((item) => [item.text, item.meta, item.badges[0].text]);
+  assert.deepEqual(items(rows[0]), [["3c4e630", ["dev"], "Waiting"]]);
+  assert.deepEqual(items(rows[1]), [["main", ["dev", "3c4e630"], "Active"], ["main", ["dev", "3c4e630"], "Failed"]]);
+  assert.deepEqual(items(rows[2]).map((item) => item[2]), ["Unknown", "Unknown"]);
+});
+
+test("a deployment links only to an https site without credentials", async () => {
+  const site = (environmentUrl) => deployment(1, "ACTIVE", { latestStatus: { environmentUrl } });
+  const { service, state, check, last } = deploymentHarness([
+    {
+      name: "Production",
+      deployments: [
+        site("https://site.example/a b?x=1#top"),
+        site("http://insecure.example/"),
+        site("file:///C:/Windows/System32/calc.exe"),
+        site("javascript:alert(1)"),
+        site("\\host\share"),
+        site("https://user:secret@site.example/"),
+        site("not a url"),
+      ],
+    },
+  ]);
+  await check();
+  const [row] = last().rows.filter((candidate) => candidate.group === "deployments");
+  const urls = row.detail.sections[0].items.map((item) => item.url || null);
+  assert.deepEqual(urls, ["https://site.example/a%20b?x=1#top", null, null, null, null, null, null]);
+  assert.ok(row.detail.sections[0].items.every((item) => !item.link));
+  const open = (link) => service.handle("s1", JSON.stringify({ type: "open", link, repo: "o/r" }));
+  for (const link of [
+    "https://site.example/a b?x=1#top",
+    "http://insecure.example/",
+    "file:///C:/Windows/System32/calc.exe",
+    "\\host\share",
+    "https://other.example/",
+    "https://site.example/a%20b?x=1#top",
+    "deployments/activity_log?environments_filter=Production",
+  ]) {
+    await open(link);
+  }
+  assert.deepEqual(state.opened, [
+    "https://site.example/a%20b?x=1#top",
+    "https://github.com/o/r/deployments/activity_log?environments_filter=Production",
+  ]);
+});
+
+test("deployments that cannot be read leave out only their group", async () => {
+  const { state, check, last } = deploymentHarness(null);
+  await check();
+  assert.deepEqual(last().rows.map((row) => row.kind), ["issues"]);
+  assert.equal(state.deploymentCalls, 1);
 });
