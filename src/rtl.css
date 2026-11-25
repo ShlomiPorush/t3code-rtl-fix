@@ -310,7 +310,7 @@ div.pointer-events-none.leading-relaxed.text-placeholder {
   text-align: right !important;
 }
 
-div.pointer-events-none.leading-relaxed.text-placeholder > :is(span, button).ml-2 {
+div.pointer-events-none.leading-relaxed.text-placeholder > .ml-2 {
   margin-left: 0 !important;
   margin-inline-start: 0.5rem !important;
 }

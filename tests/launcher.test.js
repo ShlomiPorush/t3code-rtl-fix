@@ -126,7 +126,7 @@ test("the composer placeholder and its predicted prompt follow their text", () =
   assert.match(source, new RegExp(placeholder));
   assert.match(source, new RegExp(`${placeholder} kbd`));
   assert.match(css, new RegExp(`${placeholder}\\s*\\{[^}]*text-align: start`));
-  assert.match(css, new RegExp(`${placeholder}\\s*> :is\\(span, button\\)\\.ml-2\\s*\\{[^}]*margin-inline-start`));
+  assert.match(css, new RegExp(`${placeholder}\\s*> \\.ml-2\\s*\\{[^}]*margin-inline-start`));
 });
 
 test("composer notice descriptions such as the quoted text of a reply follow their text", () => {

@@ -622,8 +622,7 @@ function buildLayoutSource({ enabled }) {
       for (const container of found) {
         if (state.sidebarContainers.has(container)) continue;
         state.sidebarContainers.add(container);
-        const side = () =>
-          state.applied === true && getComputedStyle(container).direction === "rtl" ? "right" : "left";
+        const side = () => (state.applied === true ? "right" : "left");
         Object.defineProperty(container.style, "left", {
           configurable: true,
           get() {
