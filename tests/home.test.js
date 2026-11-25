@@ -811,20 +811,21 @@ test("a project has no open work only when its pull requests were read, and othe
   assert.equal(renderHome({ projects: [project("read", "o/read")], github: update }).tiles.length, 1, "updates alone are not open work");
 });
 
-test("the version is a tag beside the project's name, with the commits since it", () => {
+test("the version is a tag at the end of the line of counts, with the commits since it", () => {
   const page = (overrides, options = {}) => renderHome({ projects: [project("app", "o/app")], threads: [thread()], github: answered({ "o/app": facts(overrides) }), ...options });
   const card = (overrides) => page(overrides).cards[0];
   const at = Date.now() - 3 * HOUR;
-  assert.match(card({ release: { tag: "v1", at, ahead: 0 } }), /^AP\napp\nv1\n/);
+  assert.deepEqual(page({ release: { tag: "v1", at, ahead: 0 } }).having("t3h-counts"), ["0\n0\nv1"]);
   const ahead = page({ release: { tag: "v1.2", at, ahead: 3 } });
-  assert.match(ahead.cards[0], /^AP\napp\nv1.2\n\+3\n/);
+  assert.match(ahead.cards[0], /\nv1.2\n\+3$/);
+  assert.deepEqual(page({ issues: null, openPulls: null, release: { tag: "v1", at, ahead: 0 } }).having("t3h-counts"), ["v1"], "the tag alone still has its line");
   assert.deepEqual(ahead.links.filter((item) => item.label?.startsWith("Version")).map(({ label, href }) => [label, href]), [
     ["Version v1.2, 3 commits since", "https://github.com/o/app/compare/v1.2...HEAD"],
   ]);
   assert.equal(page({ release: { tag: "v1", at, ahead: 0 } }).links.find((item) => item.label?.startsWith("Version")).label, "Version v1, released 3h ago");
-  assert.match(page({ release: { tag: "v1", at, ahead: 0 } }, { search: { project: "o/app" } }).shown, /\napp\nv1\n/, "and on the project's page");
+  assert.match(page({ release: { tag: "v1", at, ahead: 0 } }, { search: { project: "o/app" } }).having("t3h-counts")[0], /\nv1$/, "and on the project's page");
   const tile = renderHome({ projects: [project("app", "o/app")], github: answered({ "o/app": facts({ release: { tag: "v1", at, ahead: 2 } }) }) });
-  assert.match(tile.tiles[0], /app\nv1\n\+2/);
+  assert.match(tile.tiles[0], /^AP\napp\nv1\n\+2$/);
   assert.equal(tile.links.length, 0, "a tile is one button, so its tag is no link");
   assert.match(card({ release: { tag: "v1", at, ahead: null } }), /Read in part/);
   assert.doesNotMatch(card({ release: null }), /v1/);

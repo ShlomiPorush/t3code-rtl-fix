@@ -41,9 +41,10 @@ without checks, the row says "no checks". Threads that had no activity for two
 weeks come last, in a weaker color. A card shows five rows, and its button shows
 the others.
 
-The tag beside a project's name is its latest release on GitHub. When the
-default branch has commits that are not in it, the tag says how many, such as
-`v1.4.0 +3`. Click the tag to see the release, or the commits since it.
+The tag at the end of a project's line of counts is its latest release on
+GitHub. When the default branch has commits that are not in it, the tag says
+how many, such as `v1.4.0 +3`. Click the tag to see the release, or the commits
+since it.
 
 Click a project's name to open its own page, which also lists its dependency
 updates.
@@ -64,8 +65,9 @@ answered 0.
 Rest the pointer on a count, or move to it with Tab, to see its list, as in the
 thread details card: the issues and pull requests updated last, and the
 security alerts of each source, the most severe first. Move the pointer into the
-list, or press the Down arrow, to reach its items. A pull request opens in T3 Code's
-panel, and the other items open on GitHub. Escape closes the list.
+list, or press the Down arrow, to reach its items. A pull request opens on T3
+Code's Pull requests page and an issue on its Issues page, as their links in a
+thread do. Security alerts open on GitHub. Escape closes the list.
 
 Projects without open work are listed below the cards. Projects whose pull
 requests GitHub did not give, or gave in part, have a list of their own.

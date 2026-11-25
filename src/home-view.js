@@ -256,10 +256,10 @@ function homeView({
 
   const nameOf = ({ name, number, extra }) => (extra ? `${name}: ${number}${extra}` : name);
 
-  function Counts({ entry, facts, actions }) {
+  function Counts({ entry, facts, now, actions }) {
     const counts = countsOf(entry, facts);
     const reason = unreadReason(entry, facts);
-    if (counts.length === 0 && !reason) return null;
+    if (counts.length === 0 && !reason && !releaseOf(facts)) return null;
     return h("div", { className: "t3h-counts" },
       counts.map((item) => {
         const detail = item.number > 0 ? facts.details?.[item.key] : null;
@@ -269,7 +269,8 @@ function homeView({
           className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
         }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra));
       }),
-      reason ? small(reason) : null);
+      reason ? small(reason) : null,
+      h(ReleaseTag, { entry, facts, now }));
   }
 
   const releaseOf = (facts) => (isRead(facts) && facts.release?.tag ? facts.release : null);
@@ -291,11 +292,11 @@ function homeView({
     return h("a", { ...shared, ...outward, href }, ...content);
   }
 
-  function Foot({ entry, facts, actions }) {
+  function Foot({ entry, facts, now, actions }) {
     const url = `https://github.com/${entry.repository}`;
     return h(React.Fragment, null,
       isRead(facts) && facts.mainFails ? h("div", { className: "t3h-foot" }, h("a", { ...outward, href: `${url}/commits`, className: "t3h-small t3h-bad", dir: "ltr" }, "The default branch fails its checks")) : null,
-      h(Counts, { entry, facts, actions }));
+      h(Counts, { entry, facts, now, actions }));
   }
 
   const LIST_LINE_MIN = 5;
@@ -500,7 +501,9 @@ function homeView({
     const linkTo = (link) => ({
       ...outward, href: url(link), tabIndex: -1,
       onClick: (event) => {
+        const issue = /^issues\/(\d+)$/.exec(link);
         if (/^pull\/\d+$/.test(link)) actions.openPull?.(event, url(link));
+        else if (issue) actions.openIssue(event, tip.repository, issue[1]);
         tips.hide();
       },
     });
@@ -542,13 +545,12 @@ function homeView({
         h("div", { className: "t3h-names" },
           h("h3", null,
             entry.pinned ? h("span", { className: "t3h-pin", title: "Pinned", role: "img", "aria-label": "Pinned" }, h(Glyph, { size: 15 }, GLYPHS.pin)) : null,
-            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title),
-            h(ReleaseTag, { entry, facts, now })),
+            h("button", { type: "button", className: "t3h-name t3h-cut", dir: directionOf(title), onClick: () => actions.openProject(entry) }, title)),
           h(Headline, { entry, now })),
         h("button", { type: "button", className: "t3h-add", title: "New thread", "aria-label": `New thread in ${title}`, onClick: () => actions.startThread(entry) }, h(Glyph, { size: 17 }, GLYPHS.plus))),
       rowList(shown, now, actions),
       more ? h("button", { type: "button", className: "t3h-more t3h-small", "aria-expanded": opened, "aria-label": opened ? `Show less of ${title}` : `${more} more in ${title}`, onClick: () => toggle(entry.key) }, text(opened ? "Show less" : `${more} more`)) : null,
-      h(Foot, { entry, facts, actions }));
+      h(Foot, { entry, facts, now, actions }));
   }
 
   function heightOf({ entry, rows }) {
@@ -609,11 +611,12 @@ function homeView({
         h("span", { key: item.key, title: item.name, className: `t3h-count ${toneOf(item.tone)}` },
           h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr", "aria-label": nameOf(item), role: "img" }, item.number, item.extra))),
       reason ? small(reason) : null,
+      h(ReleaseTag, { key: "release", entry, facts, now, linked: false }),
     ];
     return h("button", { type: "button", className: "t3h-tile", onClick: () => actions.openProject(entry) },
       h(Picture, { project: entry.project, className: "t3h-icon-small" }),
       h("span", { className: "t3h-tile-text" },
-        h("span", { className: "t3h-tile-top" }, text(entry.project.title, "t3h-cut t3h-tile-name"), h(ReleaseTag, { entry, facts, now, linked: false })),
+        text(entry.project.title, "t3h-cut t3h-tile-name"),
         h("span", { className: "t3h-tile-details" }, ...details)));
   }
 
@@ -662,8 +665,7 @@ function homeView({
       h("button", { type: "button", className: "t3h-back", onClick: actions.openMap, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.back), "Home"),
       h("div", { className: "t3h-title" },
         h(Picture, { project: entry.project, className: "t3h-icon-large" }),
-        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title),
-        h(ReleaseTag, { entry, facts, now })),
+        h("h1", { ref: heading, tabIndex: -1, dir: directionOf(entry.project.title) }, entry.project.title)),
       h("div", { className: "t3h-actions" },
         h("button", { type: "button", className: "t3h-button t3h-primary", onClick: () => actions.startThread(entry), dir: "ltr" }, h(Glyph, null, GLYPHS.plus), "New thread"),
         entry.repository ? h("a", { ...outward, className: "t3h-button", href: `https://github.com/${entry.repository}`, dir: "ltr" }, h(Glyph, { size: 15 }, GLYPHS.out), "GitHub") : null),
@@ -671,7 +673,7 @@ function homeView({
       rows.length === 0 && isKnown(entry, facts) ? h("p", { className: "t3h-none", dir: "ltr" }, "Nothing is in the middle.") : null,
       updates.length ? h("h2", { className: "t3h-section", dir: "ltr" }, "Dependency updates") : null,
       rowList(updates, now, actions),
-      h(Foot, { entry, facts, actions }));
+      h(Foot, { entry, facts, now, actions }));
   }
 
   // Facts come from the launcher, through the fix's own script in this page,
@@ -753,6 +755,17 @@ function homeView({
       openPull,
       tips,
       openMap: () => router.navigate({ to: "/" }),
+      openIssue: (event, repository, key) => {
+        const project = entries.find((item) => item.repository === repository)?.project;
+        const environment = project && environments.find((item) => item.environmentId === project.environmentId);
+        if (environment?.serverConfig?.environment?.capabilities?.issues !== true) return;
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        router.navigate({
+          to: "/issues",
+          search: { selectedEnvironmentId: project.environmentId, selectedProjectId: project.id, selectedHost: "github.com", tracker: "github", scope: repository, key },
+        });
+      },
       openProject: (entry) => router.navigate({ to: "/", search: { project: entry.key } }),
       openThread: (thread) => router.navigate({ to: "/$environmentId/$threadId", params: { environmentId: thread.environmentId, threadId: thread.id } }),
       startThread: (entry) => {
@@ -840,12 +853,11 @@ const HOME_CSS = `
 .t3h-names h3 { display: flex; align-items: center; gap: .4rem; }
 .t3h .t3h-name { font-size: 1.14rem; font-weight: 680; letter-spacing: -.012em; }
 .t3h .t3h-name:hover { color: var(--primary); }
-.t3h-pin { color: var(--primary); }
+.t3h-pin { color: var(--muted-foreground); }
 .t3h .t3h-tag { display: inline-flex; align-items: center; gap: .3rem; flex: none; min-width: 0; max-width: 9rem; padding: .08rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--foreground) 80%, transparent); background: color-mix(in srgb, var(--foreground) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 11%, transparent); }
 .t3h a.t3h-tag:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 12%, transparent); }
-.t3h-tag-ahead { color: var(--primary); }
-.t3h .t3h-title .t3h-tag { max-width: 12rem; padding: .2rem .7rem; font-size: .95rem; }
-.t3h-tile-top { display: flex; align-items: center; gap: .45rem; min-width: 0; }
+.t3h-tag-ahead { color: var(--muted-foreground); }
+.t3h-counts .t3h-tag { margin-inline-start: auto; }
 .t3h-icon { width: 2.1rem; height: 2.1rem; flex: none; }
 .t3h-icon-small { width: 1.5rem; height: 1.5rem; flex: none; }
 .t3h-icon-large { width: 3rem; height: 3rem; flex: none; }
