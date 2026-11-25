@@ -789,13 +789,13 @@ test("a card counts issues, pull requests, and alerts, and leaves out what GitHu
   const alerts = (total, critical, high) => ({ total, critical, high, sources: ["Dependabot"] });
   assert.deepEqual(counts({ issues: 2, openPulls: 3, pulls: [pullFact(1), pullFact(2, { update: true })], alerts: alerts(45, 4, 11) }), [
     ["2 issues", "2", "/issues"],
-    ["3 pull requests: 3, 1 update", "3, 1 update", "/pulls"],
-    ["45 security alerts in Dependabot: 45, 4 critical", "45, 4 critical", "/security"],
+    ["3 pull requests: 3, 1 update", "3", "/pulls"],
+    ["45 security alerts in Dependabot: 45, 4 critical", "45", "/security"],
   ]);
-  assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[1]), ["0", "2 updates", "1 high"]);
+  assert.deepEqual(counts({ openPulls: 2, pulls: [pullFact(1, { update: true }), pullFact(2, { update: true })], alerts: alerts(1, 0, 1) }).map((item) => item[0]), ["0 issues", "2 pull requests: 2 updates", "1 security alert in Dependabot: 1 high"]);
   assert.deepEqual(counts({ alerts: alerts(0, 0, 0) }).map((item) => item[0]), ["0 issues", "0 pull requests", "0 security alerts in Dependabot"]);
   assert.deepEqual(counts({ issues: null, openPulls: null }), []);
-  assert.deepEqual(counts({ openPulls: 40, cut: true, pulls: [pullFact(1, { update: true })] })[1][1], "40", "a part of the list does not count the updates");
+  assert.deepEqual(counts({ openPulls: 40, cut: true, pulls: [pullFact(1, { update: true })] })[1][0], "40 pull requests", "a part of the list does not count the updates");
 });
 
 test("a count with a list opens it on hover, and the others keep their plain tooltip", () => {

@@ -54,10 +54,11 @@ updates.
 | Count | What it counts |
 |---|---|
 | Issues | Open issues. |
-| Pull requests | Open pull requests, and how many of them are dependency updates. When there are more than 30, only the total. |
-| Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together, and how many are critical, or else high. |
+| Pull requests | Open pull requests, dependency updates among them. |
+| Security alerts | Open alerts of Dependabot, code scanning, and secret scanning together. |
 
-The security count is red when it has critical or high alerts. It covers only
+The counts and the version always fit on one line. The security count is red
+when it has critical or high alerts. It covers only
 the sources that are on in the repository and that your account may read. A
 count that GitHub does not give is left out, so 0 always means that GitHub
 answered 0.
