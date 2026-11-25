@@ -62,9 +62,9 @@ count that GitHub does not give is left out, so 0 always means that GitHub
 answered 0.
 
 Rest the pointer on a count, or move to it with Tab, to see its list, as in the
-thread details card: the 30 issues and the 30 pull requests updated last, and
-the security alerts of each source by severity. Move the pointer into the list,
-or press the Down arrow, to reach its items. A pull request opens in T3 Code's
+thread details card: the issues and pull requests updated last, and the
+security alerts of each source, the most severe first. Move the pointer into the
+list, or press the Down arrow, to reach its items. A pull request opens in T3 Code's
 panel, and the other items open on GitHub. Escape closes the list.
 
 Projects without open work are listed below the cards. Projects whose pull

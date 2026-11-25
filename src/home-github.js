@@ -152,10 +152,13 @@ function lineOf(line) {
   }
 }
 
+const SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+const rankOf = ({ severity }) => (SEVERITY_ORDER.includes(severity) ? SEVERITY_ORDER.indexOf(severity) : SEVERITY_ORDER.length);
+
 function summarizeAlerts(parts) {
   const all = parts.flatMap(({ alerts }) => alerts);
   const having = (severity) => all.filter((alert) => alert.severity === severity).length;
-  const lists = Object.fromEntries(parts.map(({ key, alerts }) => [key, { value: alerts.length, capped: false, alerts: alerts.slice(0, LISTED_ALERTS) }]));
+  const lists = Object.fromEntries(parts.map(({ key, alerts }) => [key, { value: alerts.length, capped: false, alerts: [...alerts].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, LISTED_ALERTS) }]));
   return { total: all.length, critical: having("critical"), high: having("high"), sources: parts.map(({ source }) => source), lists };
 }
 

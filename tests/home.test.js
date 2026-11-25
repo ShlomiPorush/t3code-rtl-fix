@@ -211,11 +211,13 @@ test("alerts are counted from the sources that answer, and unknown when one fail
   const absent = failed("gh: no analysis found (HTTP 404)");
   const read = readAlerts([words("critical", "high", "moderate", "high"), words("error", "note"), lines({ number: 4, type: "GitHub Token" })]);
   assert.deepEqual(summary(read), { total: 7, critical: 1, high: 3, sources: ["Dependabot", "code scanning", "secret scanning"] });
-  assert.deepEqual(read.lists.dependabot.alerts[2], { number: 3, severity: "medium", package: "p2" });
+  assert.deepEqual(read.lists.dependabot.alerts.find((alert) => alert.number === 3), { number: 3, severity: "medium", package: "p2" });
   assert.deepEqual(read.lists.secretScanning, { value: 1, capped: false, alerts: [{ number: 4, type: "GitHub Token" }] });
   assert.deepEqual(summary(readAlerts([words(), absent, off])), { total: 0, critical: 0, high: 0, sources: ["Dependabot"] });
   const many = readAlerts([words(...Array.from({ length: 130 }, () => "high")), absent, off]);
   assert.deepEqual([many.total, many.high, many.lists.dependabot.value, many.lists.dependabot.alerts.length], [130, 130, 130, 100], "a long list is kept in part, and counted in full");
+  const late = readAlerts([words(...Array.from({ length: 100 }, () => "low"), "critical"), absent, off]);
+  assert.deepEqual([late.critical, late.lists.dependabot.alerts[0].severity], [1, "critical"], "the part kept holds the most severe");
   assert.equal(readAlerts([lines("x", [1]), absent, off]).total, 2, "an alert that cannot be read still counts");
   assert.equal(readAlerts([off, absent, off]), null);
   assert.equal(readAlerts([words("high"), failed("gh: API rate limit exceeded for user ID 1. (HTTP 403)"), off]), null);

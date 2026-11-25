@@ -265,7 +265,7 @@ function homeView({
         const detail = item.number > 0 ? facts.details?.[item.key] : null;
         return h("a", {
           key: item.key, ...outward, href: item.href, "aria-label": nameOf(item),
-          ...(detail && actions.tips ? actions.tips.anchor(entry.repository, item.key) : { title: item.name }),
+          ...(detail ? actions.tips.anchor(entry.repository, item.key) : { title: item.name }),
           className: `t3h-count ${toneOf(item.tone)}${item.number ? "" : " t3h-zero"}`,
         }, h(Glyph, { size: 14 }, GLYPHS[item.key]), h("span", { dir: "ltr" }, item.number, item.extra));
       }),
@@ -398,40 +398,37 @@ function homeView({
       },
       onClick: hide,
       onKeyDown: (event) => {
-        if (event.key === "Escape" && held.tip) {
-          event.preventDefault();
-          event.stopPropagation();
-          hide();
-        } else if (event.key === "ArrowDown" && held.tip?.anchor === event.currentTarget) {
-          event.preventDefault();
+        if (event.key !== "ArrowDown") return;
+        event.preventDefault();
+        if (held.tip?.anchor === event.currentTarget) {
           focusLink(0);
+        } else {
+          held.enter = true;
+          show(event.currentTarget, repository, kind);
         }
       },
     });
     const keys = (event) => {
       const all = links();
       const index = all.indexOf(document.activeElement);
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        returnFocus();
-      } else if (index !== -1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      if (index !== -1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
         focusLink(index + (event.key === "ArrowDown" ? 1 : -1));
       } else if (index !== -1 && (event.key === "Home" || event.key === "End")) {
         event.preventDefault();
         focusLink(event.key === "Home" ? 0 : -1);
       } else if (event.key === "Tab") {
-        event.preventDefault();
-        const anchor = held.tip?.anchor;
-        const order = [...document.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]")]
-          .filter((node) => node.tabIndex >= 0 && node.getClientRects().length > 0 && !box.current?.contains(node));
         returnFocus();
-        const next = order[order.indexOf(anchor) + (event.shiftKey ? -1 : 1)];
-        next?.focus();
       }
     };
-    return { tip, box, anchor, clear, hide, scheduleHide, keys, held };
+    const escape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (focusInside()) returnFocus();
+      else hide();
+    };
+    return { tip, box, anchor, clear, hide, scheduleHide, keys, escape, focusLink, held };
   }
 
   function placeTip(node, anchor) {
@@ -478,19 +475,25 @@ function homeView({
         }
       }
       placeTip(node, tip.anchor);
+      if (tips.held.enter) {
+        tips.held.enter = false;
+        tips.focusLink(0);
+      }
       const frame = requestAnimationFrame(() => node.setAttribute("data-shown", ""));
       return () => cancelAnimationFrame(frame);
     }, [open, tip, detail]);
     React.useEffect(() => {
       if (!open) return;
-      const away = (event) => {
+      const scrolled = (event) => {
         if (!box.current?.contains(event.target)) tips.hide();
       };
-      addEventListener("scroll", away, true);
-      addEventListener("resize", away);
+      addEventListener("scroll", scrolled, true);
+      addEventListener("resize", tips.hide);
+      addEventListener("keydown", tips.escape, true);
       return () => {
-        removeEventListener("scroll", away, true);
-        removeEventListener("resize", away);
+        removeEventListener("scroll", scrolled, true);
+        removeEventListener("resize", tips.hide);
+        removeEventListener("keydown", tips.escape, true);
       };
     }, [open]);
     const url = (link) => `https://github.com/${tip.repository}/${link}`;
