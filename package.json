@@ -1,6 +1,6 @@
 {
   "name": "t3code-rtl-fix",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "private": true,
   "description": "T3 Code add-on: a right-to-left app layout, per-message RTL styling, repository status, and usage limits, on Windows and macOS",
   "license": "MIT",
