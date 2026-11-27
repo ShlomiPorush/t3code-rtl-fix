@@ -230,7 +230,7 @@ const fakeRun = async (file, args) => {
                 number: 7,
                 title: "תיקון כיוון בטבלאות",
                 updatedAt: recent,
-                author: { login: "dana" },
+                author: { login: "dana", avatarUrl: "https://avatars.githubusercontent.com/u/9?v=4" },
                 labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
               }],
             },
@@ -404,8 +404,11 @@ const TIP_STATE = `JSON.stringify((() => {
   if (!tip) return null;
   const box = tip.getBoundingClientRect();
   const anchor = row.getBoundingClientRect();
-  const text = tip.querySelector(".t3-rtl-tip-text");
-  const label = tip.querySelector(".t3-rtl-tip-badge[data-label]");
+  const item = tip.querySelector(".t3-rtl-tip-item[data-row]");
+  const text = item.querySelector(".t3-rtl-row-title");
+  const label = item.querySelector(".t3-rtl-tip-badge[data-label]");
+  const state = item.querySelector(".t3-rtl-row-state");
+  const stateBox = state.getBoundingClientRect();
   return {
     shown: tip.hasAttribute("data-shown"),
     topLayer: tip.matches(":popover-open"),
@@ -414,8 +417,14 @@ const TIP_STATE = `JSON.stringify((() => {
     head: [tip.querySelector(".t3-rtl-tip-title").textContent, tip.querySelector(".t3-rtl-tip-summary").textContent],
     text: text.textContent,
     textDirection: getComputedStyle(text).direction,
-    meta: tip.querySelector(".t3-rtl-tip-meta").textContent,
-    lead: tip.querySelector(".t3-rtl-tip-lead").textContent,
+    lead: item.querySelector(".t3-rtl-row-number").textContent,
+    state: [state.getAttribute("class"), state.children.length, Math.round(stateBox.width), Math.round(stateBox.height)],
+    author: item.querySelector(".t3-rtl-row-author").textContent,
+    avatar: item.querySelector(".t3-rtl-row-avatar")?.getAttribute("src") ?? null,
+    provider: item.querySelector(".t3-rtl-row-provider[aria-label='GitHub']") !== null,
+    repo: item.querySelector(".t3-rtl-row-repo").textContent,
+    time: item.querySelector(".t3-rtl-row-time").textContent,
+    rowLayout: [getComputedStyle(item).display, getComputedStyle(item).alignItems],
     label: label ? [label.textContent, label.style.getPropertyValue("--t3-rtl-tip-label")] : null,
     more: tip.querySelector(".t3-rtl-tip-more").textContent,
     inWindow: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
@@ -451,8 +460,14 @@ async function checkTooltip(sessionId) {
     head: ["Issues", "3 open"],
     text: "תיקון כיוון בטבלאות",
     textDirection: "rtl",
-    meta: "dana · just now",
     lead: "#7",
+    state: ["t3-rtl-row-state lucide text-emerald-600 dark:text-emerald-300/90", 2, 16, 16],
+    author: "dana",
+    avatar: "https://avatars.githubusercontent.com/u/9?v=4",
+    provider: true,
+    repo: "o/r",
+    time: "now",
+    rowLayout: ["flex", "center"],
     label: ["bug", "#d73a4a"],
     more: "and 2 more",
     inWindow: true,

@@ -487,7 +487,7 @@ test("each count above zero has the popover of the thread details card, from Hom
   assert.equal(issueItems, undefined, "the lists reach the page only as the popovers");
   assert.deepEqual([details.issue.title, details.issue.summary, details.issue.sections[0].more, details.issue.sections[0].link], ["Issues", "40 open", 38, "issues"]);
   assert.deepEqual(details.issue.sections[0].items[0], {
-    lead: "#5", text: "Issue 5", meta: ["someone"], time: Date.parse("2026-11-24T00:00:00Z"), badges: [{ text: "bug", color: "d73a4a" }], link: "issues/5",
+    lead: "#5", text: "Issue 5", meta: ["someone"], row: { icon: "issue-open", author: "someone", avatar: "" }, time: Date.parse("2026-11-24T00:00:00Z"), badges: [{ text: "bug", color: "d73a4a" }], link: "issues/5",
   });
   assert.deepEqual(details.pull.sections[0].items[0].badges.map((badge) => badge.text), ["Draft", "Approved"]);
   assert.deepEqual(details.shield.sections.map((section) => section.title), ["Dependabot · 2"], "a source without alerts has no section");

@@ -613,15 +613,15 @@ test("issue and pull request tooltips list the latest items with their state", (
       value: 7,
       capped: false,
       items: [
-        { number: 12, title: "כותרת בעברית", author: "dana", time: daysAgo(1), labels: [{ name: "bug", color: "d73a4a" }, { name: "x", color: null }] },
+        { number: 12, title: "כותרת בעברית", author: "dana", avatar: "https://avatars.githubusercontent.com/u/3", time: daysAgo(1), labels: [{ name: "bug", color: "d73a4a" }, { name: "x", color: null }] },
       ],
     },
     pulls: {
       value: 2,
       capped: false,
       items: [
-        { number: 58, title: "Branches", author: "shlomi", time: daysAgo(0), draft: false, review: "APPROVED" },
-        { number: 49, title: "Tables", author: "", time: null, draft: true, review: null },
+        { number: 58, title: "Branches", author: "shlomi", avatar: "", time: daysAgo(0), draft: false, review: "APPROVED" },
+        { number: 49, title: "Tables", author: "", avatar: "", time: null, draft: true, review: null },
       ],
     },
   });
@@ -635,6 +635,7 @@ test("issue and pull request tooltips list the latest items with their state", (
             lead: "#12",
             text: "כותרת בעברית",
             meta: ["dana"],
+            row: { icon: "issue-open", author: "dana", avatar: "https://avatars.githubusercontent.com/u/3" },
             time: daysAgo(1),
             badges: [{ text: "bug", color: "d73a4a" }, { text: "x", color: null }],
             link: "issues/12",
@@ -646,10 +647,10 @@ test("issue and pull request tooltips list the latest items with their state", (
     ],
   });
   assert.deepEqual(
-    rows[1].detail.sections[0].items.map((item) => [item.lead, item.meta, item.badges]),
+    rows[1].detail.sections[0].items.map((item) => [item.lead, item.meta, item.row, item.badges]),
     [
-      ["#58", ["shlomi"], [{ text: "Approved", tone: "success" }]],
-      ["#49", [], [{ text: "Draft", tone: "muted" }]],
+      ["#58", ["shlomi"], { icon: "pull-open", author: "shlomi", avatar: "" }, [{ text: "Approved", tone: "success" }]],
+      ["#49", [], { icon: "pull-draft", author: "", avatar: "" }, [{ text: "Draft", tone: "muted" }]],
     ],
   );
 });
@@ -749,7 +750,11 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
               },
               pullRequests: {
                 totalCount: 1,
-                nodes: [{ number: 9, title: "p", updatedAt: "bad", isDraft: true, reviewDecision: "SOMETHING_NEW", headRefName: "fix/x", baseRefName: "main", author: { login: "me" } }],
+                nodes: [
+                  { number: 9, title: "p", updatedAt: "bad", isDraft: true, reviewDecision: "SOMETHING_NEW", headRefName: "fix/x", baseRefName: "main", author: { login: "me", avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4" } },
+                  { number: 10, title: "q", author: { login: "them", avatarUrl: "https://evil.example/u/1" } },
+                  { number: 11, title: "r", author: { login: "x", avatarUrl: "https://avatars.githubusercontent.com/u/2\" onerror=\"x" } },
+                ],
               },
               vulnerabilityAlerts: {
                 totalCount: 2,
@@ -783,11 +788,16 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
       number: 3,
       title: "x".repeat(300),
       author: "",
+      avatar: "",
       time: Date.parse("2026-11-16T12:00:00Z"),
       labels: [{ name: "bug", color: "d73a4a" }, { name: "evil", color: null }],
     },
   ]);
-  assert.deepEqual(status.pulls.items, [{ number: 9, title: "p", author: "me", time: null, draft: true, review: null, head: "fix/x", base: "main" }]);
+  assert.deepEqual(status.pulls.items, [
+    { number: 9, title: "p", author: "me", avatar: "https://avatars.githubusercontent.com/u/1?v=4", time: null, draft: true, review: null, head: "fix/x", base: "main" },
+    { number: 10, title: "q", author: "them", avatar: "", time: null, draft: false, review: null, head: "", base: "" },
+    { number: 11, title: "r", author: "x", avatar: "", time: null, draft: false, review: null, head: "", base: "" },
+  ]);
   assert.deepEqual(status.dependabot.alerts, [
     { number: 5, severity: "medium", package: "lodash" },
     { number: null, severity: null, package: "" },

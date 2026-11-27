@@ -78,6 +78,7 @@ const LIST_LINE_MIN = 5;
 // Dependabot severities are counted from one page of alerts.
 const DEPENDABOT_PAGE_SIZE = 100;
 const LABEL_COLOR = /^[0-9a-f]{6}$/i;
+const AVATAR_URL = /^https:\/\/avatars\.githubusercontent\.com\/[^\s"'<>]{1,500}$/;
 const SEVERITIES = ["critical", "high", "medium", "low"];
 const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
 // GitHub names severities differently for each kind of alert.
@@ -111,11 +112,11 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      nodes { number title updatedAt author { login } labels(first: 3) { nodes { name color } } }
+      nodes { number title updatedAt author { login avatarUrl(size: 40) } labels(first: 3) { nodes { name color } } }
     }
     pullRequests(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      nodes { number title updatedAt isDraft reviewDecision headRefName baseRefName author { login } }
+      nodes { number title updatedAt isDraft reviewDecision headRefName baseRefName author { login avatarUrl(size: 40) } }
     }
     hasVulnerabilityAlertsEnabled
     vulnerabilityAlerts(states: OPEN, first: ${DEPENDABOT_PAGE_SIZE}) {
@@ -449,6 +450,7 @@ function issueDetail(issues) {
         lead: `#${issue.number}`,
         text: issue.title,
         meta: compact([issue.author]),
+        row: { icon: "issue-open", author: issue.author, avatar: issue.avatar },
         time: issue.time,
         badges: (issue.labels || []).map((label) => ({ text: label.name, color: label.color })),
       }, numberLink("issues", issue.number)), null, "issues"),
@@ -465,6 +467,7 @@ function pullDetail(pulls) {
         lead: `#${pull.number}`,
         text: pull.title,
         meta: compact([pull.author]),
+        row: { icon: pull.draft ? "pull-draft" : "pull-open", author: pull.author, avatar: pull.avatar },
         time: pull.time,
         badges: compact([
           pull.draft ? { text: "Draft", tone: "muted" } : null,
@@ -733,6 +736,10 @@ function text(value, max = 300) {
   return typeof value === "string" ? value.slice(0, max) : "";
 }
 
+function avatarOf(value) {
+  return typeof value === "string" && AVATAR_URL.test(value) ? value : "";
+}
+
 function timeOf(value) {
   const time = Date.parse(value ?? "");
   return Number.isFinite(time) ? time : null;
@@ -763,6 +770,7 @@ function readIssues(connection) {
       number: issue.number,
       title: text(issue.title),
       author: text(issue.author?.login, 100),
+      avatar: avatarOf(issue.author?.avatarUrl),
       time: timeOf(issue.updatedAt),
       labels: nodesOf(issue.labels).map((label) => ({
         name: text(label.name, 50),
@@ -781,6 +789,7 @@ function readPulls(connection) {
       number: pull.number,
       title: text(pull.title),
       author: text(pull.author?.login, 100),
+      avatar: avatarOf(pull.author?.avatarUrl),
       time: timeOf(pull.updatedAt),
       draft: pull.isDraft === true,
       review: Object.hasOwn(REVIEW_BADGES, pull.reviewDecision ?? "") ? pull.reviewDecision : null,
@@ -1339,6 +1348,24 @@ const ICONS = {
     ["path", { d: "M13 6h3a2 2 0 0 1 2 2v7" }],
     ["path", { d: "M6 9v12" }],
   ],
+  "issue-open": [
+    ["circle", { cx: "12", cy: "12", r: "10" }],
+    ["circle", { cx: "12", cy: "12", r: "1" }],
+  ],
+  "pull-open": [
+    ["circle", { cx: "5", cy: "6", r: "3" }],
+    ["path", { d: "M5 9v12" }],
+    ["circle", { cx: "19", cy: "18", r: "3" }],
+    ["path", { d: "m15 9-3-3 3-3" }],
+    ["path", { d: "M12 6h5a2 2 0 0 1 2 2v7" }],
+  ],
+  "pull-draft": [
+    ["circle", { cx: "18", cy: "18", r: "3" }],
+    ["circle", { cx: "6", cy: "6", r: "3" }],
+    ["path", { d: "M18 6V5" }],
+    ["path", { d: "M18 11v-1" }],
+    ["line", { x1: "6", x2: "6", y1: "9", y2: "21" }],
+  ],
   security: [
     ["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }],
     ["path", { d: "M12 8v4" }],
@@ -1367,6 +1394,9 @@ const ICONS = {
     ["path", { d: "M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" }],
   ],
 };
+
+const GITHUB_MARK =
+  "M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z";
 
 const GROUP_TITLES = { branches: "Branches", deployments: "Deployments" };
 
@@ -1666,6 +1696,96 @@ const PAGE_CSS = `
   background: color-mix(in srgb, currentColor 8%, transparent);
   outline: none;
 }
+.${TIP_CLASS}:has(.t3-rtl-tip-item[data-row]) {
+  width: 20rem;
+}
+.${TIP_CLASS} .t3-rtl-tip-item[data-row] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 -8px;
+  padding: 4px 8px;
+}
+.${TIP_CLASS} .t3-rtl-tip-item[data-row] .t3-rtl-tip-badge {
+  flex: none;
+}
+.${TIP_CLASS} .t3-rtl-row-state {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+.${TIP_CLASS} .t3-rtl-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.${TIP_CLASS} .t3-rtl-row-line,
+.${TIP_CLASS} .t3-rtl-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.${TIP_CLASS} .t3-rtl-row-number {
+  flex: none;
+  color: var(--muted-foreground, #71717a);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.${TIP_CLASS} .t3-rtl-row-title,
+.${TIP_CLASS} .t3-rtl-row-author,
+.${TIP_CLASS} .t3-rtl-row-repo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.${TIP_CLASS} .t3-rtl-row-title {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.${TIP_CLASS} .t3-rtl-row-meta {
+  overflow: hidden;
+  color: var(--muted-foreground, #71717a);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+.${TIP_CLASS} .t3-rtl-row-actor {
+  display: flex;
+  flex-shrink: 1;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.${TIP_CLASS} .t3-rtl-row-avatar {
+  flex: none;
+  align-self: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: var(--muted, transparent);
+  object-fit: cover;
+}
+.${TIP_CLASS} .t3-rtl-row-author {
+  color: var(--foreground, currentColor);
+  font-weight: 500;
+}
+.${TIP_CLASS} .t3-rtl-row-repo {
+  flex-shrink: 20;
+}
+.${TIP_CLASS} .t3-rtl-row-provider {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.${TIP_CLASS} .t3-rtl-row-time {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .${TIP_CLASS} a.t3-rtl-tip-more {
   justify-self: start;
   border-radius: 4px;
@@ -1886,6 +2006,66 @@ function buildRepoStatusPageSource() {
     node.tabIndex = -1;
   };
 
+  const rowTones = {
+    "issue-open": "text-emerald-600 dark:text-emerald-300/90",
+    "pull-open": "text-emerald-600 dark:text-emerald-300/90",
+    "pull-draft": "text-zinc-500 dark:text-zinc-400/80",
+  };
+  const githubMark = () => {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "t3-rtl-row-provider");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "GitHub");
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", ${JSON.stringify(GITHUB_MARK)});
+    path.setAttribute("fill", "currentColor");
+    path.setAttribute("fill-rule", "evenodd");
+    svg.appendChild(path);
+    return svg;
+  };
+  const rowAgo = (time) => {
+    const short = shortAgo(time);
+    return short === "now" || short === "" ? short : short + " ago";
+  };
+  const avatarUrl = /^https:\\/\\/avatars\\.githubusercontent\\.com\\//;
+
+  const rowParts = (item) => {
+    const state = icon(item.row.icon);
+    state.setAttribute("class", "t3-rtl-row-state lucide " + (rowTones[item.row.icon] || ""));
+    const first = make("span", "t3-rtl-row-line");
+    first.appendChild(make("span", "t3-rtl-row-number", item.lead));
+    const title = make("span", "t3-rtl-row-title", item.text);
+    title.dir = "auto";
+    first.appendChild(title);
+    const second = make("span", "t3-rtl-row-meta");
+    if (item.row.author) {
+      const named = make("span", "t3-rtl-row-actor");
+      if (typeof item.row.avatar === "string" && avatarUrl.test(item.row.avatar)) {
+        const image = document.createElement("img");
+        image.setAttribute("aria-hidden", "true");
+        image.alt = "";
+        image.loading = "lazy";
+        image.draggable = false;
+        image.className = "t3-rtl-row-avatar";
+        image.src = item.row.avatar;
+        named.appendChild(image);
+      }
+      named.appendChild(make("span", "t3-rtl-row-author", item.row.author));
+      second.appendChild(named);
+    }
+    second.appendChild(githubMark());
+    second.appendChild(make("span", "t3-rtl-row-repo", tipRepo));
+    for (const data of item.badges || []) second.appendChild(badge(data));
+    const when = rowAgo(item.time);
+    if (when) second.appendChild(make("span", "t3-rtl-row-time", when));
+    const body = make("span", "t3-rtl-row-body");
+    body.append(first, second);
+    return [state, body];
+  };
+
   const tipItem = (item) => {
     const githubLinked = typeof item.link === "string" && item.link !== "";
     const target = githubLinked ? item.link : typeof item.url === "string" && item.url.startsWith("https://") ? item.url : "";
@@ -1911,6 +2091,11 @@ function buildRepoStatusPageSource() {
         state: "open",
         isDraft: pull.isDraft === true,
       });
+    }
+    if (item.row) {
+      node.dataset.row = "";
+      node.append(...rowParts(item));
+      return node;
     }
     if (item.lead) {
       node.dataset.lead = "";
