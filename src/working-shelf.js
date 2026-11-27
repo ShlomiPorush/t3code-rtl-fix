@@ -29,6 +29,7 @@
 // This module has no side effects when it is loaded, so tests can use it.
 
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("./home-route");
+const { patchSidebarPopups } = require("./sidebar-popups");
 
 const ID = "[\\w$]+";
 const URL_PATTERN = "t3code://app/assets/main-*.js";
@@ -555,7 +556,7 @@ async function forgetScripts(send, sessionId) {
 // Answers the browser's paused requests for T3 Code's main script and for the
 // script of its start route. Every paused request is answered once: patched
 // when its switch is on and the code is recognized, passed on unchanged otherwise.
-function createWorkingShelfService({ send, sections, home = () => false, log = () => {} } = {}) {
+function createWorkingShelfService({ send, sections, home = () => false, layout = () => false, log = () => {} } = {}) {
   const logged = new Set();
   const logOnce = (message) => {
     if (logged.has(message)) return;
@@ -565,9 +566,7 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
 
   const isOn = (wanted) => wanted.working || wanted.done || wanted.pinned;
 
-  function patchSidebar(text) {
-    const wanted = sections();
-    if (!isOn(wanted)) return null;
+  function patchSidebar(text, wanted) {
     const result = patchSidebarChunk(text, wanted);
     // The rest goes on when a T3 Code update changes only what Done needs.
     if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
@@ -576,8 +575,25 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
     }
     return result;
   }
+  function patchMain(text) {
+    const wanted = sections();
+    const steps = [
+      isOn(wanted) && { name: "sidebar", patch: (code) => patchSidebar(code, wanted), changed: "changed in the boring sidebar" },
+      layout() && { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
+    ].filter(Boolean);
+    let result = { applied: false, source: text, changed: [] };
+    for (const step of steps) {
+      const next = step.patch(result.source);
+      if (!next.applied) {
+        logOnce(`T3 Code's ${step.name} code was not recognized (${next.problem})`);
+        continue;
+      }
+      result = { applied: true, source: next.source, changed: [...result.changed, step.changed] };
+    }
+    return result.applied ? result : null;
+  }
   const scripts = {
-    sidebar: { name: "sidebar", isOn: () => isOn(sections()), patch: patchSidebar, changed: "changed in the boring sidebar" },
+    sidebar: { name: "sidebar", isOn: () => isOn(sections()) || layout(), patch: patchMain },
     home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
   };
 
@@ -625,7 +641,7 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
         responseHeaders,
         body: Buffer.from(result.source, "utf8").toString("base64"),
       });
-      logOnce(script.changed);
+      for (const message of result.changed || [script.changed]) logOnce(message);
     } catch (error) {
       logOnce(`T3 Code's script was passed on unchanged: ${error.message}`);
       await pass();

@@ -8,6 +8,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require("../src/working-shelf");
 const { ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
+const { patchSidebarPopups } = require("../src/sidebar-popups");
 
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
@@ -608,8 +609,12 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
     const alone = patchSidebarChunk(chunk.source, sections);
     assert.equal(alone.applied, true, `${chunk.name}: ${alone.problem}`);
   }
-  const result = patchSidebarChunk(chunk.source, BOTH);
-  assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
+  const shelf = patchSidebarChunk(chunk.source, BOTH);
+  assert.equal(shelf.applied, true, `${chunk.name}: ${shelf.problem}`);
+  const popups = patchSidebarPopups(shelf.source);
+  assert.equal(popups.applied, true, `${chunk.name}: ${popups.problem}`);
+  assert.equal(popups.source.split('getAttribute("data-t3-rtl-app")==="on"?`left`:`right`').length - 1, 5, "the settle buttons and the issue and pull request badges");
+  const result = { ...shelf, source: popups.source };
   // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,(?:[\\w$]+=[^,;{}()]*,)*?[\\w$]+=[\\w$]+\\(${setting}\\),`));
@@ -742,6 +747,40 @@ test("when only Done is not recognized, Working is still shown, and the log says
   assert.match(logs.join("\n"), /not recognized for Done/);
 });
 
+const POPUP = "function popup(n,$,xt){return(0,$.jsx)(xt,{side:`right`,render:(0,$.jsx)(`button`,{type:`button`,\"aria-label\":n(`Settle thread`)})})}";
+const OFF = { working: false, done: false };
+const decode = (body) => Buffer.from(body, "base64").toString("utf8");
+
+test("in the mirrored layout the sidebar's popups are changed, with or without the boring sidebar", async () => {
+  const body = `${FIXTURE}\n${POPUP}`;
+  for (const sections of [OFF, WORKING]) {
+    const connection = fakeConnection({ body });
+    const logs = [];
+    await createWorkingShelfService({ send: connection.send, sections: () => sections, layout: () => true, log: (m) => logs.push(m) }).handlePaused(paused());
+    const answer = connection.calls.at(-1);
+    assert.equal(answer.method, "Fetch.fulfillRequest");
+    const shelf = sections === WORKING ? patchSidebarChunk(body, WORKING).source : body;
+    assert.equal(decode(answer.params.body), patchSidebarPopups(shelf).source);
+    assert.match(logs.join("\n"), /popups open toward the conversation/);
+  }
+});
+
+test("popups that are not recognized leave the boring sidebar's changes, and are only logged", async () => {
+  const connection = fakeConnection();
+  const logs = [];
+  await createWorkingShelfService({ send: connection.send, sections: () => WORKING, layout: () => true, log: (m) => logs.push(m) }).handlePaused(paused());
+  assert.equal(decode(connection.calls.at(-1).params.body), patchSidebarChunk(FIXTURE, WORKING).source);
+  assert.match(logs.join("\n"), /sidebar popup code was not recognized/);
+
+  const alone = fakeConnection();
+  await createWorkingShelfService({ send: alone.send, sections: () => OFF, layout: () => true }).handlePaused(paused());
+  assert.deepEqual(alone.calls.map((call) => call.method), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
+
+  const neither = fakeConnection({ body: POPUP });
+  await createWorkingShelfService({ send: neither.send, sections: () => OFF, layout: () => false }).handlePaused(paused());
+  assert.deepEqual(neither.calls.map((call) => call.method), ["Fetch.continueRequest"]);
+});
+
 test("a switch changed while the script is read decides what it gets", async () => {
   const connection = fakeConnection({ body: DONE_FIXTURE });
   connection.gate.hold = true;
@@ -799,6 +838,9 @@ test("the fix watches before the first window and keeps the RTL fix when watchin
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
   assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("Target.setDiscoverTargets"), "watching starts before targets are found");
+  assert.match(core, /if \(!workingShelf \|\| \(!homePage && !rtlLayout && !Object\.values\(sidebarSections\)\.includes\(true\)\)\) return/);
+  assert.match(core, /layout: \(\) => rtlLayout,/);
+  assert.match(core, /if \(rtlLayout\) void watchWorkingShelf\(\);/);
   assert.match(core, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.match(launcher, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.doesNotMatch(core + launcher, /Fetch\.disable/);

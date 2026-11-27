@@ -129,6 +129,7 @@ $requiredFiles = @(
     (Join-Path $sourceDirectory "chat-width.js"),
     (Join-Path $sourceDirectory "reply-start.js"),
     (Join-Path $sourceDirectory "working-shelf.js"),
+    (Join-Path $sourceDirectory "sidebar-popups.js"),
     (Join-Path $sourceDirectory "home-github.js"),
     (Join-Path $sourceDirectory "home-workflows.js"),
     (Join-Path $sourceDirectory "home-route.js"),

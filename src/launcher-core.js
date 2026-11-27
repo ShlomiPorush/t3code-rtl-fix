@@ -92,6 +92,7 @@ function prepareCore({ send, log, rootDirectory }) {
       send: (...args) => send(...args),
       sections: () => sidebarSections,
       home: () => homePage,
+      layout: () => rtlLayout,
       log,
     });
   } catch (error) {
@@ -100,7 +101,7 @@ function prepareCore({ send, log, rootDirectory }) {
 
   // Never turned off, so a request paused while a switch turns off is still answered.
   function watchWorkingShelf() {
-    if (!workingShelf || (!homePage && !Object.values(sidebarSections).includes(true))) return Promise.resolve(false);
+    if (!workingShelf || (!homePage && !rtlLayout && !Object.values(sidebarSections).includes(true))) return Promise.resolve(false);
     if (!workingShelfWatch) {
       workingShelfWatch = workingShelf.enable().then((watching) => {
         if (!watching) workingShelfWatch = null;
@@ -177,6 +178,7 @@ function prepareCore({ send, log, rootDirectory }) {
       if (nextLayout !== rtlLayout) {
         rtlLayout = nextLayout;
         for (const sessionId of layoutSessions) void switchLayout(sessionId);
+        if (rtlLayout) void watchWorkingShelf();
       }
       void switchScripts(sectionsOf(settings), settings.homePage === true);
       const nextWidth = settings.chatWidth ?? null;

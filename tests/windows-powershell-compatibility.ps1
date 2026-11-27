@@ -194,7 +194,7 @@ try {
         Pop-Location
     }
 
-    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "home-github.js", "home-workflows.js", "home-route.js", "home-view.js", "updates.js", "version.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "install.ps1", "repair-shortcuts.txt")) {
+    foreach ($fileName in @("rtl.css", "injection.js", "t3-rtl-launcher.js", "launcher-core.js", "annotation-direction.js", "repo-status.js", "cdp-dispatch.js", "extras.js", "extras-page.js", "extras-settings.js", "usage-limits.js", "app-layout.js", "css-mirror.js", "chat-width.js", "reply-start.js", "working-shelf.js", "sidebar-popups.js", "home-github.js", "home-workflows.js", "home-route.js", "home-view.js", "updates.js", "version.txt", "launch-t3-rtl.vbs", "uninstall.ps1", "install.ps1", "repair-shortcuts.txt")) {
         Assert-Equal (Test-Path -LiteralPath (Join-Path $bootstrapInstallDirectory $fileName)) $true "The one-line install did not install $fileName"
     }
     foreach ($shortcutPath in $shortcutPaths) {
