@@ -9,6 +9,7 @@ const { execFileSync } = require("node:child_process");
 const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require("../src/working-shelf");
 const { ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
 const { CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("../src/sidebar-popups");
+const { patchCardRows, patchMainRows } = require("../src/pull-request-rows");
 
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
@@ -614,7 +615,9 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   const popups = patchSidebarPopups(shelf.source);
   assert.equal(popups.applied, true, `${chunk.name}: ${popups.problem}`);
   assert.equal(popups.source.split('getAttribute("data-t3-rtl-app")==="on"?`left`:`right`').length - 1, 5, "the settle buttons and the issue and pull request badges");
-  const result = { ...shelf, source: popups.source };
+  const rows = patchMainRows(popups.source);
+  assert.equal(rows.applied, true, `${chunk.name}: ${rows.problem}`);
+  const result = { ...shelf, source: rows.source };
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,(?:[\\w$]+=[^,;{}()]*,)*?[\\w$]+=[\\w$]+\\(${setting}\\),`));
   assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 7, "the flag is set once and read at the six added places");
@@ -655,7 +658,9 @@ test("the installed T3 Code's issue and pull request cards are recognized and st
   const asarPath = installedServerAsar();
   if (!asarPath) return t.skip("T3 Code is not installed here");
   const [chunk] = readInstalledChunks(asarPath, /^issuePresentation-.*\.js$/);
-  const result = patchCardAlignment(chunk.source);
+  const aligned = patchCardAlignment(chunk.source);
+  assert.equal(aligned.applied, true, `${chunk.name}: ${aligned.problem}`);
+  const result = patchCardRows(aligned.source);
   assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-cards-"));
   try {

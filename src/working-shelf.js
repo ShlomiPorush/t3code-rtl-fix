@@ -30,6 +30,7 @@
 
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("./home-route");
 const { CARDS_URL, CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("./sidebar-popups");
+const { patchCardRows, patchMainRows } = require("./pull-request-rows");
 
 const ID = "[\\w$]+";
 const URL_PATTERN = "t3code://app/assets/main-*.js";
@@ -571,12 +572,7 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
     }
     return result;
   }
-  function patchMain(text) {
-    const wanted = sections();
-    const steps = [
-      isOn(wanted) && { name: "sidebar", patch: (code) => patchSidebar(code, wanted), changed: "changed in the boring sidebar" },
-      { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
-    ].filter(Boolean);
+  function applySteps(text, steps) {
     let result = { applied: false, source: text, changed: [] };
     for (const step of steps) {
       const next = step.patch(result.source);
@@ -588,10 +584,25 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
     }
     return result.applied ? result : null;
   }
+  const pullRequestRows = "the pull request cards show their rows like the issue cards";
+  function patchMain(text) {
+    const wanted = sections();
+    return applySteps(text, [
+      ...(isOn(wanted) ? [{ name: "sidebar", patch: (code) => patchSidebar(code, wanted), changed: "changed in the boring sidebar" }] : []),
+      { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
+      { name: "issue row", patch: patchMainRows, changed: pullRequestRows },
+    ]);
+  }
+  function patchCards(text) {
+    return applySteps(text, [
+      { name: "card alignment", patch: patchCardAlignment, changed: "the issue and pull request cards keep their alignment on either side" },
+      { name: "pull request row", patch: patchCardRows, changed: pullRequestRows },
+    ]);
+  }
   const scripts = {
     sidebar: { name: "sidebar", isOn: () => true, patch: patchMain },
     home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
-    cards: { name: "issue card", isOn: () => true, patch: patchCardAlignment, changed: "the issue and pull request cards keep their alignment on either side" },
+    cards: { name: "card", isOn: () => true, patch: patchCards },
   };
 
   async function enable() {

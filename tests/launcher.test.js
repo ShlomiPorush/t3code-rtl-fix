@@ -331,6 +331,7 @@ test("every shipped source file contains only English UI text", () => {
     path.join("src", "reply-start.js"),
     path.join("src", "working-shelf.js"),
     path.join("src", "sidebar-popups.js"),
+    path.join("src", "pull-request-rows.js"),
     path.join("src", "home-github.js"),
     path.join("src", "home-workflows.js"),
     path.join("src", "home-route.js"),

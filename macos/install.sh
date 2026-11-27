@@ -39,7 +39,7 @@ SRC="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 INSTALL_DIR="$HOME/Library/Application Support/T3RTLFix"
 LAUNCHER_APP="$HOME/Applications/T3 Code RTL.app"
 
-for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js sidebar-popups.js home-github.js home-workflows.js home-route.js home-view.js updates.js; do
+for f in rtl.css injection.js t3-rtl-launcher.js launcher-core.js annotation-direction.js repo-status.js cdp-dispatch.js extras.js extras-page.js extras-settings.js usage-limits.js app-layout.js css-mirror.js chat-width.js reply-start.js working-shelf.js sidebar-popups.js pull-request-rows.js home-github.js home-workflows.js home-route.js home-view.js updates.js; do
   [ -f "$SRC/$f" ] || { echo "Missing file: src/$f"; exit 1; }
 done
 
@@ -81,7 +81,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$SRC/rtl.css" "$SRC/injection.js" "$SRC/t3-rtl-launcher.js" "$SRC/launcher-core.js" "$SRC/annotation-direction.js" "$SRC/repo-status.js" \
   "$SRC/cdp-dispatch.js" "$SRC/extras.js" "$SRC/extras-page.js" "$SRC/extras-settings.js" "$SRC/usage-limits.js" \
   "$SRC/app-layout.js" "$SRC/css-mirror.js" "$SRC/chat-width.js" "$SRC/reply-start.js" \
-  "$SRC/working-shelf.js" "$SRC/sidebar-popups.js" "$SRC/home-github.js" "$SRC/home-workflows.js" "$SRC/home-route.js" "$SRC/home-view.js" "$SRC/updates.js" "$INSTALL_DIR/"
+  "$SRC/working-shelf.js" "$SRC/sidebar-popups.js" "$SRC/pull-request-rows.js" "$SRC/home-github.js" "$SRC/home-workflows.js" "$SRC/home-route.js" "$SRC/home-view.js" "$SRC/updates.js" "$INSTALL_DIR/"
 printf '%s' "$APP_EXE" > "$INSTALL_DIR/app-path.txt"
 printf '%s' "$NODE_BIN" > "$INSTALL_DIR/node-path.txt"
 cp "$SCRIPT_DIR/uninstall.sh" "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/"
