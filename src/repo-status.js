@@ -1708,7 +1708,8 @@ const PAGE_CSS = `
   padding: 4px 8px;
 }
 .${TIP_CLASS} .t3-rtl-tip-item[data-row] .t3-rtl-tip-badge {
-  flex: none;
+  flex-shrink: 1;
+  min-width: 1.5rem;
 }
 .${TIP_CLASS} .t3-rtl-row-state {
   flex: none;
@@ -1754,7 +1755,7 @@ const PAGE_CSS = `
 }
 .${TIP_CLASS} .t3-rtl-row-actor {
   display: flex;
-  flex-shrink: 1;
+  flex-shrink: 0.2;
   align-items: baseline;
   gap: 0.375rem;
   min-width: 0;
@@ -1782,7 +1783,7 @@ const PAGE_CSS = `
 }
 .${TIP_CLASS} .t3-rtl-row-time {
   flex: none;
-  margin-left: auto;
+  margin-inline-start: auto;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -2028,13 +2029,12 @@ function buildRepoStatusPageSource() {
   };
   const rowAgo = (time) => {
     const short = shortAgo(time);
-    return short === "now" || short === "" ? short : short + " ago";
+    return short === "now" ? "just now" : short && short + " ago";
   };
-  const avatarUrl = /^https:\\/\\/avatars\\.githubusercontent\\.com\\//;
 
   const rowParts = (item) => {
     const state = icon(item.row.icon);
-    state.setAttribute("class", "t3-rtl-row-state lucide " + (rowTones[item.row.icon] || ""));
+    state.setAttribute("class", "t3-rtl-row-state lucide " + rowTones[item.row.icon]);
     const first = make("span", "t3-rtl-row-line");
     first.appendChild(make("span", "t3-rtl-row-number", item.lead));
     const title = make("span", "t3-rtl-row-title", item.text);
@@ -2043,7 +2043,7 @@ function buildRepoStatusPageSource() {
     const second = make("span", "t3-rtl-row-meta");
     if (item.row.author) {
       const named = make("span", "t3-rtl-row-actor");
-      if (typeof item.row.avatar === "string" && avatarUrl.test(item.row.avatar)) {
+      if (item.row.avatar) {
         const image = document.createElement("img");
         image.setAttribute("aria-hidden", "true");
         image.alt = "";
@@ -2058,7 +2058,7 @@ function buildRepoStatusPageSource() {
     }
     second.appendChild(githubMark());
     second.appendChild(make("span", "t3-rtl-row-repo", tipRepo));
-    for (const data of item.badges || []) second.appendChild(badge(data));
+    for (const data of item.badges) second.appendChild(badge(data));
     const when = rowAgo(item.time);
     if (when) second.appendChild(make("span", "t3-rtl-row-time", when));
     const body = make("span", "t3-rtl-row-body");
@@ -2078,8 +2078,6 @@ function buildRepoStatusPageSource() {
       .map((part) => (part == null ? "" : String(part).trim()))
       .filter(Boolean)
       .join(" ");
-    // A pull request also carries T3 Code's pull request reference, in the
-    // format of T3 Code's own pull request rows.
     const pull = item.pull;
     if (githubLinked && pull && Number.isInteger(pull.number) && typeof pull.headBranch === "string" && typeof pull.baseBranch === "string") {
       node.dataset.pull = JSON.stringify({

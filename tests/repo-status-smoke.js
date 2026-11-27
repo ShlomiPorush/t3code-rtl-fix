@@ -466,7 +466,7 @@ async function checkTooltip(sessionId) {
     avatar: "https://avatars.githubusercontent.com/u/9?v=4",
     provider: true,
     repo: "o/r",
-    time: "now",
+    time: "just now",
     rowLayout: ["flex", "center"],
     label: ["bug", "#d73a4a"],
     more: "and 2 more",
@@ -477,11 +477,9 @@ async function checkTooltip(sessionId) {
     throw new Error(`Unexpected tooltip: ${JSON.stringify(state)}`);
   }
 
-  // Leaving the row closes it.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close when the pointer leaves");
 
-  // The next row opens its own tooltip, and Escape closes it.
   await hoverRow(sessionId, "branches-local");
   await waitFor(
     sessionId,
@@ -492,7 +490,6 @@ async function checkTooltip(sessionId) {
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close on Escape");
 
-  // A click closes it on a row that is not a button too.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the pointer to leave");
   const local = await hoverRow(sessionId, "branches-local");
