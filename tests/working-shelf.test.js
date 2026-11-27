@@ -598,8 +598,6 @@ function readInstalledChunks(asarPath, wanted) {
   }
 }
 
-// Run on request only, with T3_CHECK_INSTALLED=1, because the result depends
-// on the T3 Code version installed here, not on this repository.
 test("the installed T3 Code's sidebar code is recognized and stays valid", (t) => {
   if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
   const asarPath = installedServerAsar();

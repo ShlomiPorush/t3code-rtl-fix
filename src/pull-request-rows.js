@@ -5,14 +5,16 @@ const ROW_GLOBAL = "__t3RtlPullRequestRow";
 
 function pullRequestRow({ react, Row, rowClass, numberClass, Actor, cn }) {
   return (props, key) => {
+    if (typeof props.onOpenPullRequest !== "function") return undefined;
+    const { fallbackIcon, tracker } = props.t3code();
+    const Icon = props.presentation?.Icon ?? fallbackIcon;
+    if (!Icon) return undefined;
     const link = props.link;
-    const Icon = props.presentation?.Icon ?? props.fallbackIcon;
-    if (!link || !Icon || typeof props.onOpenPullRequest !== "function") return undefined;
     const snapshot = link.snapshot;
     const meta = react.jsxs(react.Fragment, {
       children: [
         snapshot?.author ? react.jsx(Actor, { actor: snapshot.author, tooltip: false }) : null,
-        react.jsx(props.tracker.Icon, { role: "img", "aria-label": props.tracker.providerName, className: "size-3 shrink-0" }),
+        react.jsx(tracker.Icon, { role: "img", "aria-label": tracker.providerName, className: "size-3 shrink-0" }),
         react.jsx("span", { className: "truncate", children: link.repository }),
       ],
     });
@@ -53,6 +55,9 @@ function patchMainRows(source) {
     const number = single(source, new RegExp(`\\(0,${ID}\\.jsx\\)\\(\`span\`,\\{className:(${ID}),children:${ID}\\.displayKey\\}\\)`), "issue number");
     const line = single(source, new RegExp(`className:(${ID})\\((${ID}),\`px-2 hover:bg-accent\\/60 `), "issue line");
     const exported = single(source, /export\{[^}]*\};?\s*(?:\/\/[^\n]*\s*)?$/, "export");
+    const imported = { Row: row[2], rowClass: line[2], numberClass: number[1], Actor: actor[1], cn: line[1] };
+    const local = Object.keys(imported).find((part) => !new RegExp(`\\bimport\\{[^}]* as ${imported[part].replace(/\$/g, "\\$")}[,}]`).test(source));
+    if (local) throw new Error(`${local} is not imported by the module`);
     const parts = `{react:${row[1]},Row:${row[2]},rowClass:${line[2]},numberClass:${number[1]},Actor:${actor[1]},cn:${line[1]}}`;
     const added = `globalThis.${ROW_GLOBAL}=(props,key)=>{try{return(${pullRequestRow.toString()})(${parts})(props,key)}catch{return undefined}};`;
     return { applied: true, source: source.slice(0, exported.index) + added + source.slice(exported.index) };
@@ -75,8 +80,8 @@ function patchCardRows(source) {
     const url = `${entry}.link.url`;
     const replaced =
       `((props,key)=>globalThis.${ROW_GLOBAL}?.(props,key)??(0,${react}.jsx)(${row},props,key))` +
-      `({link:${entry}.link,fallbackIcon:${icons}.pullRequest,` +
-      `tracker:${provider}((${registry}.findByChangeRequestUrl(${url})??${registry}.get(void 0)).kind),` +
+      `({link:${entry}.link,t3code:()=>({fallbackIcon:${icons}.pullRequest,` +
+      `tracker:${provider}((${registry}.findByChangeRequestUrl(${url})??${registry}.get(void 0)).kind)}),` +
       `number:${entry}.link.number,url:${url},title:`;
     return { applied: true, source: source.slice(0, site.index) + replaced + source.slice(site.index + text.length) };
   } catch (error) {

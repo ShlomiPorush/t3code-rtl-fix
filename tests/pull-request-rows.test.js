@@ -32,8 +32,7 @@ const LINK = {
 
 const propsFor = (overrides = {}) => ({
   link: LINK,
-  fallbackIcon: "PullRequestIcon",
-  tracker: { Icon: "GitHubIcon", providerName: "GitHub" },
+  t3code: () => ({ fallbackIcon: "PullRequestIcon", tracker: { Icon: "GitHubIcon", providerName: "GitHub" } }),
   number: LINK.number,
   url: LINK.url,
   title: LINK.snapshot.title,
@@ -98,13 +97,15 @@ test("a linked pull request without a snapshot is an issue row too, with T3 Code
 test("lists whose rows do not open, such as a thread's hover card, keep T3 Code's own line", () => {
   const render = pullRequestRow(parts);
   assert.equal(render(propsFor({ onOpenPullRequest: undefined }), "k"), undefined);
-  assert.equal(render(propsFor({ link: undefined }), "k"), undefined);
-  assert.equal(render(propsFor({ presentation: null, fallbackIcon: undefined }), "k"), undefined);
+  assert.equal(render(propsFor({ presentation: null, t3code: () => ({ fallbackIcon: undefined }) }), "k"), undefined);
 });
 
+const IMPORTS = 'import{o as Uc,t as Gc,n as Hc}from"./PullRequestListRow-a.js";import{E as Fp}from"./pullRequests-a.js";import{t as ur}from"./utils-a.js";';
+const IMPORTED =
+  "var $={jsx:(t,p,k)=>({t,p,k}),jsxs:(t,p,k)=>({t,p,k}),Fragment:`f`};function Uc(){}function Fp(){}var Gc=`group/pr-row`,Hc=`font-mono`;function ur(...c){return c.filter(Boolean).join(` `)}";
+const runMain = (source) => new Function(IMPORTED + source.slice(IMPORTS.length, source.indexOf("export{")))();
 const MAIN = [
-  "var $={jsx:(t,p,k)=>({t,p,k}),jsxs:(t,p,k)=>({t,p,k}),Fragment:`f`};",
-  "function Uc(){}function Fp(){};var Gc=`group/pr-row`,Hc=`font-mono`;function ur(...c){return c.filter(Boolean).join(` `)}",
+  IMPORTS,
   "function AV(n,l,v,S,O,k){let T=(0,$.jsx)(`span`,{className:Hc,children:n.displayKey});",
   "let E=l?.author?(0,$.jsx)(Fp,{actor:l.author,tooltip:!1}):null;let A=(0,$.jsx)(Uc,{number:T,title:v,status:S,meta:O,updatedAt:k});",
   "return(0,$.jsx)(`a`,{className:ur(Gc,`px-2 hover:bg-accent/60 focus-visible:outline-2`),children:A})}",
@@ -118,7 +119,7 @@ test("the main script gets a pull request row built from T3 Code's issue row par
   const exportAt = result.source.indexOf("export{");
   assert.ok(result.source.indexOf(`globalThis.${ROW_GLOBAL}=`) < exportAt);
   delete globalThis[ROW_GLOBAL];
-  new Function(result.source.slice(0, exportAt))();
+  runMain(result.source);
   try {
     const item = globalThis[ROW_GLOBAL](propsFor(), "k");
     assert.equal(item.t, "li");
@@ -141,14 +142,23 @@ test("the main script is left as it is when a part is missing", () => {
   }
 });
 
-test("a part that T3 Code keeps inside the issue row still lets the script load, and the card keeps T3 Code's own line", () => {
-  const local = MAIN.replace(";var Gc=`group/pr-row`,Hc=`font-mono`;", ";var Gc=`group/pr-row`;").replace("function AV(n,l,v,S,O,k){", "function AV(n,l,v,S,O,k){let Hc=`font-mono`;");
-  const result = patchMainRows(local);
-  assert.equal(result.applied, true, result.problem);
+test("a part that T3 Code keeps inside the issue row leaves the main script as it is", () => {
+  const local = MAIN.replace(",n as Hc}", "}").replace("function AV(n,l,v,S,O,k){", "function AV(n,l,v,S,O,k){let Hc=`font-mono`;");
+  const refused = patchMainRows(local);
+  assert.equal(refused.applied, false);
+  assert.equal(refused.source, local);
+  assert.match(refused.problem, /numberClass is not imported by the module/);
+});
+
+test("a row whose T3 Code parts cannot be read keeps T3 Code's own line", () => {
+  const result = patchMainRows(MAIN);
   delete globalThis[ROW_GLOBAL];
-  new Function(result.source.slice(0, result.source.indexOf("export{")))();
+  runMain(result.source);
   try {
-    assert.equal(globalThis[ROW_GLOBAL](propsFor(), "k"), undefined);
+    const missing = () => {
+      throw new ReferenceError("K is not defined");
+    };
+    assert.equal(globalThis[ROW_GLOBAL](propsFor({ t3code: missing }), "k"), undefined);
   } finally {
     delete globalThis[ROW_GLOBAL];
   }
@@ -175,11 +185,10 @@ test("the card uses the pull request row while the main script provides it, and 
   assert.equal(native.native, "dn");
   assert.equal(native.key, "github.com#44191");
   assert.equal(native.props.link, LINK);
-  assert.equal(native.props.fallbackIcon, "PullRequestIcon");
-  assert.deepEqual(native.props.tracker, { Icon: "GitHubIcon", providerName: "GitHub" });
+  assert.deepEqual(native.props.t3code(), { fallbackIcon: "PullRequestIcon", tracker: { Icon: "GitHubIcon", providerName: "GitHub" } });
   assert.equal(native.props.title, LINK.snapshot.title);
   const elsewhere = un([{ link: { ...LINK, url: "https://code.example.com/x/y/pulls/1" }, depth: 0 }], "open", "dn", Y)[0];
-  assert.deepEqual(elsewhere.props.tracker, { providerName: "git", Icon: "Generic" });
+  assert.deepEqual(elsewhere.props.t3code().tracker, { providerName: "git", Icon: "Generic" });
   globalThis[ROW_GLOBAL] = (props, key) => ({ ours: props.link.number, key });
   try {
     assert.deepEqual(un(entries, "open", "dn", Y), [{ ours: 44191, key: "github.com#44191" }]);
@@ -192,4 +201,27 @@ test("the card uses the pull request row while the main script provides it, and 
   for (const broken of ["let x=1;", CARD.replace("??K.pullRequest,", "??K.pr,"), CARD.replace(".changeRequest}", ".request}")]) {
     assert.equal(patchCardRows(broken).applied, false);
   }
+});
+
+test("a card whose pull request icon T3 Code keeps inside its own row still renders T3 Code's line", () => {
+  const moved = CARD.replace(",K={pullRequest:`PullRequestIcon`};", ";").replace("function dn(e){let{presentation:a}=e,", "function dn(e){let K={pullRequest:`PullRequestIcon`},{presentation:a}=e,");
+  const result = patchCardRows(moved);
+  assert.equal(result.applied, true, result.problem);
+  const un = new Function(`${result.source}
+return un;`)();
+  const Y = { jsx: (type, props, key) => ({ native: type, props, key }) };
+  globalThis[ROW_GLOBAL] = (props) => {
+    try {
+      props.t3code();
+      return { ours: true };
+    } catch {
+      return undefined;
+    }
+  };
+  try {
+    assert.equal(un([{ link: LINK, depth: 0 }], "open", "dn", Y)[0].native, "dn");
+  } finally {
+    delete globalThis[ROW_GLOBAL];
+  }
+  assert.equal(un([{ link: LINK, depth: 0 }], undefined, "dn", Y)[0].native, "dn");
 });
