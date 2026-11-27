@@ -473,8 +473,6 @@ function pullDetail(pulls) {
           pull.draft ? { text: "Draft", tone: "muted" } : null,
           REVIEW_BADGES[pull.review] || null,
         ]),
-        // Dragged into the composer, it becomes T3 Code's own pull request
-        // reference. The page adds the address it links to.
         pull: pull.head && pull.base
           ? { number: pull.number, title: pull.title || `#${pull.number}`, headBranch: pull.head, baseBranch: pull.base, isDraft: pull.draft }
           : null,
@@ -1708,8 +1706,17 @@ const PAGE_CSS = `
   padding: 4px 8px;
 }
 .${TIP_CLASS} .t3-rtl-tip-item[data-row] .t3-rtl-tip-badge {
-  flex-shrink: 1;
+  display: inline-block;
   min-width: 1.5rem;
+}
+.${TIP_CLASS} .t3-rtl-row-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground, #71717a);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1;
 }
 .${TIP_CLASS} .t3-rtl-row-state {
   flex: none;
@@ -1755,7 +1762,6 @@ const PAGE_CSS = `
 }
 .${TIP_CLASS} .t3-rtl-row-actor {
   display: flex;
-  flex-shrink: 0.2;
   align-items: baseline;
   gap: 0.375rem;
   min-width: 0;
@@ -1772,9 +1778,6 @@ const PAGE_CSS = `
 .${TIP_CLASS} .t3-rtl-row-author {
   color: var(--foreground, currentColor);
   font-weight: 500;
-}
-.${TIP_CLASS} .t3-rtl-row-repo {
-  flex-shrink: 20;
 }
 .${TIP_CLASS} .t3-rtl-row-provider {
   flex: none;
@@ -2017,7 +2020,6 @@ function buildRepoStatusPageSource() {
     const svg = document.createElementNS(ns, "svg");
     svg.setAttribute("class", "t3-rtl-row-provider");
     svg.setAttribute("viewBox", "0 0 16 16");
-    svg.setAttribute("fill", "none");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", "GitHub");
     const path = document.createElementNS(ns, "path");
@@ -2043,6 +2045,11 @@ function buildRepoStatusPageSource() {
     const second = make("span", "t3-rtl-row-meta");
     if (item.row.author) {
       const named = make("span", "t3-rtl-row-actor");
+      const initial = () => {
+        const letter = make("span", "t3-rtl-row-avatar t3-rtl-row-initial", [...item.row.author][0].toUpperCase());
+        letter.setAttribute("aria-hidden", "true");
+        return letter;
+      };
       if (item.row.avatar) {
         const image = document.createElement("img");
         image.setAttribute("aria-hidden", "true");
@@ -2050,8 +2057,11 @@ function buildRepoStatusPageSource() {
         image.loading = "lazy";
         image.draggable = false;
         image.className = "t3-rtl-row-avatar";
+        image.addEventListener("error", () => image.replaceWith(initial()), { once: true });
         image.src = item.row.avatar;
         named.appendChild(image);
+      } else {
+        named.appendChild(initial());
       }
       named.appendChild(make("span", "t3-rtl-row-author", item.row.author));
       second.appendChild(named);
