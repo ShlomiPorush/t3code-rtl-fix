@@ -553,10 +553,7 @@ async function forgetScripts(send, sessionId) {
   await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
 }
 
-// Answers the browser's paused requests for T3 Code's main script and for the
-// script of its start route. Every paused request is answered once: patched
-// when its switch is on and the code is recognized, passed on unchanged otherwise.
-function createWorkingShelfService({ send, sections, home = () => false, layout = () => false, log = () => {} } = {}) {
+function createWorkingShelfService({ send, sections, home = () => false, log = () => {} } = {}) {
   const logged = new Set();
   const logOnce = (message) => {
     if (logged.has(message)) return;
@@ -568,7 +565,6 @@ function createWorkingShelfService({ send, sections, home = () => false, layout 
 
   function patchSidebar(text, wanted) {
     const result = patchSidebarChunk(text, wanted);
-    // The rest goes on when a T3 Code update changes only what Done needs.
     if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
       logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
       return patchSidebarChunk(text, { ...wanted, done: false });
@@ -579,7 +575,7 @@ function createWorkingShelfService({ send, sections, home = () => false, layout 
     const wanted = sections();
     const steps = [
       isOn(wanted) && { name: "sidebar", patch: (code) => patchSidebar(code, wanted), changed: "changed in the boring sidebar" },
-      layout() && { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
+      { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
     ].filter(Boolean);
     let result = { applied: false, source: text, changed: [] };
     for (const step of steps) {
@@ -593,13 +589,10 @@ function createWorkingShelfService({ send, sections, home = () => false, layout 
     return result.applied ? result : null;
   }
   const scripts = {
-    sidebar: { name: "sidebar", isOn: () => isOn(sections()) || layout(), patch: patchMain },
+    sidebar: { name: "sidebar", isOn: () => true, patch: patchMain },
     home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
   };
 
-  // Interception stays on once enabled: turning the sections off makes every
-  // paused request pass unchanged, so no request is left waiting by a
-  // Fetch.disable while its body is read.
   async function enable() {
     try {
       await send("Fetch.enable", {
@@ -624,7 +617,6 @@ function createWorkingShelfService({ send, sections, home = () => false, layout 
       if (!script.isOn() || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
       const body = await send("Fetch.getResponseBody", { requestId });
       const text = body.base64Encoded ? Buffer.from(body.body || "", "base64").toString("utf8") : body.body || "";
-      // The switches may have changed while the body was read.
       const result = script.patch(text);
       if (!result) return await pass();
       if (!result.applied) {

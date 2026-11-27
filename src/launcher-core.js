@@ -92,16 +92,14 @@ function prepareCore({ send, log, rootDirectory }) {
       send: (...args) => send(...args),
       sections: () => sidebarSections,
       home: () => homePage,
-      layout: () => rtlLayout,
       log,
     });
   } catch (error) {
     log(`The Home page and the changes to the boring sidebar are off: ${error.message}`);
   }
 
-  // Never turned off, so a request paused while a switch turns off is still answered.
   function watchWorkingShelf() {
-    if (!workingShelf || (!homePage && !rtlLayout && !Object.values(sidebarSections).includes(true))) return Promise.resolve(false);
+    if (!workingShelf) return Promise.resolve(false);
     if (!workingShelfWatch) {
       workingShelfWatch = workingShelf.enable().then((watching) => {
         if (!watching) workingShelfWatch = null;
@@ -115,7 +113,7 @@ function prepareCore({ send, log, rootDirectory }) {
     if (nextHome === homePage && Object.keys(next).every((name) => next[name] === sidebarSections[name])) return;
     sidebarSections = next;
     homePage = nextHome;
-    const watching = homePage || Object.values(next).includes(true) ? await watchWorkingShelf() : workingShelfWatch !== null && (await workingShelfWatch);
+    const watching = await watchWorkingShelf();
     if (!watching) return;
     const reloaded = await workingShelf.reloadWindows([...appPages.values()]);
     const state = (on) => (on ? "on" : "off");
@@ -178,7 +176,6 @@ function prepareCore({ send, log, rootDirectory }) {
       if (nextLayout !== rtlLayout) {
         rtlLayout = nextLayout;
         for (const sessionId of layoutSessions) void switchLayout(sessionId);
-        if (rtlLayout) void watchWorkingShelf();
       }
       void switchScripts(sectionsOf(settings), settings.homePage === true);
       const nextWidth = settings.chatWidth ?? null;

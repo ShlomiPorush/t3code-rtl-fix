@@ -101,7 +101,7 @@ test("one watch covers T3 Code's main script and its start route", async () => {
   assert.doesNotMatch("t3code://app/assets/_chat.index-a/evil.js", ROUTE_URL);
 });
 
-test("each script follows its own switch, and the other passes without being read", async () => {
+test("each script follows its own switch, and the other passes unchanged", async () => {
   const none = { working: false, done: false, pinned: false };
   const home = connection(ROUTE);
   await createWorkingShelfService({ send: home.send, sections: () => none, home: () => true }).handlePaused(paused(ROUTE_ADDRESS));
@@ -110,7 +110,7 @@ test("each script follows its own switch, and the other passes without being rea
 
   const main = connection(ROUTE);
   await createWorkingShelfService({ send: main.send, sections: () => none, home: () => true }).handlePaused(paused("t3code://app/assets/main-a.js"));
-  assert.deepEqual(main.methods(), ["Fetch.continueRequest"]);
+  assert.deepEqual(main.methods(), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
 
   const off = connection(ROUTE);
   await createWorkingShelfService({ send: off.send, sections: () => ({ working: true }), home: () => false }).handlePaused(paused(ROUTE_ADDRESS));

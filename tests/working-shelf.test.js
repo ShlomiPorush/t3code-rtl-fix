@@ -615,7 +615,6 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
   assert.equal(popups.applied, true, `${chunk.name}: ${popups.problem}`);
   assert.equal(popups.source.split('getAttribute("data-t3-rtl-app")==="on"?`left`:`right`').length - 1, 5, "the settle buttons and the issue and pull request badges");
   const result = { ...shelf, source: popups.source };
-  // The gate is the setting alone now, and nothing else of it is left.
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,(?:[\\w$]+=[^,;{}()]*,)*?[\\w$]+=[\\w$]+\\(${setting}\\),`));
   assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 7, "the flag is set once and read at the six added places");
@@ -708,7 +707,7 @@ test("a recognized script is answered with the patched code and without its leng
 
 test("the script passes unchanged when the switch is off, the answer is not 200, or the code is unknown", async () => {
   const cases = [
-    { name: "off", enabled: false, params: paused(), reads: false },
+    { name: "off", enabled: false, params: paused(), reads: true },
     { name: "304", enabled: true, params: paused({ responseStatusCode: 304 }), reads: false },
     { name: "error", enabled: true, params: paused({ responseStatusCode: undefined, responseErrorReason: "Failed" }), reads: false },
     { name: "unknown", enabled: true, params: paused(), reads: true, body: "export const sidebarWorkingShelfEnabled = 1;" },
@@ -751,12 +750,12 @@ const POPUP = "function popup(n,$,xt){return(0,$.jsx)(xt,{side:`right`,render:(0
 const OFF = { working: false, done: false };
 const decode = (body) => Buffer.from(body, "base64").toString("utf8");
 
-test("in the mirrored layout the sidebar's popups are changed, with or without the boring sidebar", async () => {
+test("the sidebar's popups are changed, with or without the boring sidebar", async () => {
   const body = `${FIXTURE}\n${POPUP}`;
   for (const sections of [OFF, WORKING]) {
     const connection = fakeConnection({ body });
     const logs = [];
-    await createWorkingShelfService({ send: connection.send, sections: () => sections, layout: () => true, log: (m) => logs.push(m) }).handlePaused(paused());
+    await createWorkingShelfService({ send: connection.send, sections: () => sections, log: (m) => logs.push(m) }).handlePaused(paused());
     const answer = connection.calls.at(-1);
     assert.equal(answer.method, "Fetch.fulfillRequest");
     const shelf = sections === WORKING ? patchSidebarChunk(body, WORKING).source : body;
@@ -768,17 +767,13 @@ test("in the mirrored layout the sidebar's popups are changed, with or without t
 test("popups that are not recognized leave the boring sidebar's changes, and are only logged", async () => {
   const connection = fakeConnection();
   const logs = [];
-  await createWorkingShelfService({ send: connection.send, sections: () => WORKING, layout: () => true, log: (m) => logs.push(m) }).handlePaused(paused());
+  await createWorkingShelfService({ send: connection.send, sections: () => WORKING, log: (m) => logs.push(m) }).handlePaused(paused());
   assert.equal(decode(connection.calls.at(-1).params.body), patchSidebarChunk(FIXTURE, WORKING).source);
   assert.match(logs.join("\n"), /sidebar popup code was not recognized/);
 
   const alone = fakeConnection();
-  await createWorkingShelfService({ send: alone.send, sections: () => OFF, layout: () => true }).handlePaused(paused());
+  await createWorkingShelfService({ send: alone.send, sections: () => OFF }).handlePaused(paused());
   assert.deepEqual(alone.calls.map((call) => call.method), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
-
-  const neither = fakeConnection({ body: POPUP });
-  await createWorkingShelfService({ send: neither.send, sections: () => OFF, layout: () => false }).handlePaused(paused());
-  assert.deepEqual(neither.calls.map((call) => call.method), ["Fetch.continueRequest"]);
 });
 
 test("a switch changed while the script is read decides what it gets", async () => {
@@ -838,9 +833,7 @@ test("the fix watches before the first window and keeps the RTL fix when watchin
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
   assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("Target.setDiscoverTargets"), "watching starts before targets are found");
-  assert.match(core, /if \(!workingShelf \|\| \(!homePage && !rtlLayout && !Object\.values\(sidebarSections\)\.includes\(true\)\)\) return/);
-  assert.match(core, /layout: \(\) => rtlLayout,/);
-  assert.match(core, /if \(rtlLayout\) void watchWorkingShelf\(\);/);
+  assert.match(core, /function watchWorkingShelf\(\) \{\n    if \(!workingShelf\) return Promise\.resolve\(false\);/);
   assert.match(core, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.match(launcher, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.doesNotMatch(core + launcher, /Fetch\.disable/);
