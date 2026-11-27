@@ -8,7 +8,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require("../src/working-shelf");
 const { ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
-const { patchSidebarPopups } = require("../src/sidebar-popups");
+const { CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("../src/sidebar-popups");
 
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
@@ -650,6 +650,23 @@ test("the installed T3 Code's start route is recognized and stays valid", (t) =>
   }
 });
 
+test("the installed T3 Code's issue and pull request cards are recognized and stay valid", (t) => {
+  if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
+  const asarPath = installedServerAsar();
+  if (!asarPath) return t.skip("T3 Code is not installed here");
+  const [chunk] = readInstalledChunks(asarPath, /^issuePresentation-.*\.js$/);
+  const result = patchCardAlignment(chunk.source);
+  assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-cards-"));
+  try {
+    const file = path.join(directory, "cards.mjs");
+    fs.writeFileSync(file, result.source);
+    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // A stand-in for the browser's DevTools connection.
 function fakeConnection({ body = FIXTURE, failBody = false, failEnable = false } = {}) {
   const calls = [];
@@ -684,7 +701,7 @@ test("the browser watches T3 Code's main script and start route, and a refusal i
   assert.equal(await createWorkingShelfService({ send: ok.send, sections: () => WORKING }).enable(), true);
   assert.deepEqual(ok.calls[0], {
     method: "Fetch.enable",
-    params: { patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })) },
+    params: { patterns: [URL_PATTERN, ROUTE_URL_PATTERN, CARDS_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })) },
   });
   const refused = fakeConnection({ failEnable: true });
   const logs = [];
@@ -774,6 +791,17 @@ test("popups that are not recognized leave the boring sidebar's changes, and are
   const alone = fakeConnection();
   await createWorkingShelfService({ send: alone.send, sections: () => OFF }).handlePaused(paused());
   assert.deepEqual(alone.calls.map((call) => call.method), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
+});
+
+test("the script of the issue and pull request cards gets its alignment for either side", async () => {
+  const card = "let l=c===`right`?{align:`start`}:{};";
+  const connection = fakeConnection({ body: card });
+  const logs = [];
+  await createWorkingShelfService({ send: connection.send, sections: () => OFF, log: (m) => logs.push(m) }).handlePaused(
+    paused({ request: { url: "t3code://app/assets/issuePresentation-a.js" } }),
+  );
+  assert.equal(decode(connection.calls.at(-1).params.body), patchCardAlignment(card).source);
+  assert.match(logs.join("\n"), /cards keep their alignment/);
 });
 
 test("a switch changed while the script is read decides what it gets", async () => {

@@ -22,4 +22,22 @@ function patchSidebarPopups(source) {
   return { applied: true, source: patched + source.slice(cursor) };
 }
 
-module.exports = { patchSidebarPopups };
+const CARDS_URL_PATTERN = "t3code://app/assets/issuePresentation-*.js";
+const CARDS_URL = /^t3code:\/\/app\/assets\/issuePresentation-[^/]*\.js$/;
+const CARD_ALIGNMENT = new RegExp(`(${ID})===\`right\`\\?\\{align:\`start\`\\}:\\{\\}`, "g");
+
+function patchCardAlignment(source) {
+  const found = [...source.matchAll(CARD_ALIGNMENT)];
+  if (found.length !== 1) return { applied: false, source, problem: `card alignment: ${found.length} matches` };
+  const [match] = found;
+  const side = match[1];
+  return {
+    applied: true,
+    source:
+      source.slice(0, match.index) +
+      `(${side}===\`right\`||${side}===\`left\`)?{align:\`start\`}:{}` +
+      source.slice(match.index + match[0].length),
+  };
+}
+
+module.exports = { CARDS_URL, CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups };

@@ -29,7 +29,7 @@
 // This module has no side effects when it is loaded, so tests can use it.
 
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("./home-route");
-const { patchSidebarPopups } = require("./sidebar-popups");
+const { CARDS_URL, CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("./sidebar-popups");
 
 const ID = "[\\w$]+";
 const URL_PATTERN = "t3code://app/assets/main-*.js";
@@ -591,12 +591,13 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
   const scripts = {
     sidebar: { name: "sidebar", isOn: () => true, patch: patchMain },
     home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
+    cards: { name: "issue card", isOn: () => true, patch: patchCardAlignment, changed: "the issue and pull request cards keep their alignment on either side" },
   };
 
   async function enable() {
     try {
       await send("Fetch.enable", {
-        patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })),
+        patterns: [URL_PATTERN, ROUTE_URL_PATTERN, CARDS_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })),
       });
       return true;
     } catch (error) {
@@ -612,7 +613,8 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
       send("Fetch.continueRequest", { requestId }).catch((error) => {
         logOnce(`could not pass T3 Code's script on: ${error.message}`);
       });
-    const script = ROUTE_URL.test(params.request?.url || "") ? scripts.home : scripts.sidebar;
+    const url = params.request?.url || "";
+    const script = ROUTE_URL.test(url) ? scripts.home : CARDS_URL.test(url) ? scripts.cards : scripts.sidebar;
     try {
       if (!script.isOn() || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
       const body = await send("Fetch.getResponseBody", { requestId });

@@ -8,6 +8,7 @@ const path = require("node:path");
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
 const { BACKGROUND_MS, FRESH_MS, LANES, createHomeGithub, readAlerts, readAnswer, readRequest, stageOf } = require("../src/home-github");
 const { createWorkingShelfService, URL_PATTERN } = require("../src/working-shelf");
+const { CARDS_URL_PATTERN } = require("../src/sidebar-popups");
 const { createExtrasService } = require("../src/extras");
 const { HOME_CSS, homeView } = require("../src/home-view");
 
@@ -96,7 +97,7 @@ function connection(body) {
 test("one watch covers T3 Code's main script and its start route", async () => {
   const { calls, send } = connection("");
   await createWorkingShelfService({ send, sections: () => ({}), home: () => true }).enable();
-  assert.deepEqual(calls[0].params.patterns.map((pattern) => pattern.urlPattern), [URL_PATTERN, ROUTE_URL_PATTERN]);
+  assert.deepEqual(calls[0].params.patterns.map((pattern) => pattern.urlPattern), [URL_PATTERN, ROUTE_URL_PATTERN, CARDS_URL_PATTERN]);
   assert.match(ROUTE_ADDRESS, ROUTE_URL);
   assert.doesNotMatch("t3code://app/assets/_chat.index-a/evil.js", ROUTE_URL);
 });
