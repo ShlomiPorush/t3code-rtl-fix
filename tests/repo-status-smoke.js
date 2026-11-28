@@ -230,8 +230,7 @@ const fakeRun = async (file, args) => {
                 number: 7,
                 title: "תיקון כיוון בטבלאות",
                 updatedAt: recent,
-                author: { login: "dana" },
-                labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
+                author: { login: "dana", avatarUrl: "https://avatars.githubusercontent.com/u/9?v=4" },
               }],
             },
             pullRequests: {
@@ -404,8 +403,10 @@ const TIP_STATE = `JSON.stringify((() => {
   if (!tip) return null;
   const box = tip.getBoundingClientRect();
   const anchor = row.getBoundingClientRect();
-  const text = tip.querySelector(".t3-rtl-tip-text");
-  const label = tip.querySelector(".t3-rtl-tip-badge[data-label]");
+  const item = tip.querySelector(".t3-rtl-tip-item[data-row]");
+  const text = item.querySelector(".t3-rtl-row-title");
+  const state = item.querySelector(".t3-rtl-row-state");
+  const stateBox = state.getBoundingClientRect();
   return {
     shown: tip.hasAttribute("data-shown"),
     topLayer: tip.matches(":popover-open"),
@@ -414,9 +415,16 @@ const TIP_STATE = `JSON.stringify((() => {
     head: [tip.querySelector(".t3-rtl-tip-title").textContent, tip.querySelector(".t3-rtl-tip-summary").textContent],
     text: text.textContent,
     textDirection: getComputedStyle(text).direction,
-    meta: tip.querySelector(".t3-rtl-tip-meta").textContent,
-    lead: tip.querySelector(".t3-rtl-tip-lead").textContent,
-    label: label ? [label.textContent, label.style.getPropertyValue("--t3-rtl-tip-label")] : null,
+    textWraps: getComputedStyle(text).whiteSpace,
+    lead: item.querySelector(".t3-rtl-row-number").textContent,
+    state: [state.getAttribute("class"), state.children.length, Math.round(stateBox.width), Math.round(stateBox.height)],
+    author: item.querySelector(".t3-rtl-row-author").textContent,
+    avatar: item.querySelector(".t3-rtl-row-avatar")?.getAttribute("src") ?? null,
+    provider: Math.round(item.querySelector(".t3-rtl-row-provider[aria-label='GitHub']").getBoundingClientRect().width),
+    repo: item.querySelector(".t3-rtl-row-repo").textContent,
+    time: item.querySelector(".t3-rtl-row-time").textContent,
+    rowLayout: [getComputedStyle(item).display, getComputedStyle(item).alignItems],
+    badges: item.querySelectorAll(".t3-rtl-tip-badge").length,
     more: tip.querySelector(".t3-rtl-tip-more").textContent,
     inWindow: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
     leftOfRow: box.right <= anchor.left,
@@ -451,9 +459,16 @@ async function checkTooltip(sessionId) {
     head: ["Issues", "3 open"],
     text: "תיקון כיוון בטבלאות",
     textDirection: "rtl",
-    meta: "dana · just now",
+    textWraps: "normal",
     lead: "#7",
-    label: ["bug", "#d73a4a"],
+    state: ["t3-rtl-row-state lucide text-emerald-600 dark:text-emerald-300/90", 2, 16, 16],
+    author: "dana",
+    avatar: "https://avatars.githubusercontent.com/u/9?v=4",
+    provider: 12,
+    repo: "o/r",
+    time: "just now",
+    rowLayout: ["flex", "center"],
+    badges: 0,
     more: "and 2 more",
     inWindow: true,
     leftOfRow: true,
@@ -462,11 +477,9 @@ async function checkTooltip(sessionId) {
     throw new Error(`Unexpected tooltip: ${JSON.stringify(state)}`);
   }
 
-  // Leaving the row closes it.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close when the pointer leaves");
 
-  // The next row opens its own tooltip, and Escape closes it.
   await hoverRow(sessionId, "branches-local");
   await waitFor(
     sessionId,
@@ -477,7 +490,6 @@ async function checkTooltip(sessionId) {
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the tooltip to close on Escape");
 
-  // A click closes it on a row that is not a button too.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 }, sessionId);
   await waitFor(sessionId, TIP_HIDDEN, "the pointer to leave");
   const local = await hoverRow(sessionId, "branches-local");

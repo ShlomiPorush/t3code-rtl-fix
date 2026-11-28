@@ -8,6 +8,8 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { URL_PATTERN, patchSidebarChunk, createWorkingShelfService } = require("../src/working-shelf");
 const { ROUTE_URL_PATTERN, patchHomeRoute } = require("../src/home-route");
+const { CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("../src/sidebar-popups");
+const { patchCardRows, patchMainRows } = require("../src/pull-request-rows");
 
 // A small stand-in for T3 Code's sidebar code, with every site the patch
 // changes written the way T3 Code 0.0.3 minifies it, and runnable, so a
@@ -596,8 +598,6 @@ function readInstalledChunks(asarPath, wanted) {
   }
 }
 
-// Run on request only, with T3_CHECK_INSTALLED=1, because the result depends
-// on the T3 Code version installed here, not on this repository.
 test("the installed T3 Code's sidebar code is recognized and stays valid", (t) => {
   if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
   const asarPath = installedServerAsar();
@@ -608,9 +608,14 @@ test("the installed T3 Code's sidebar code is recognized and stays valid", (t) =
     const alone = patchSidebarChunk(chunk.source, sections);
     assert.equal(alone.applied, true, `${chunk.name}: ${alone.problem}`);
   }
-  const result = patchSidebarChunk(chunk.source, BOTH);
-  assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
-  // The gate is the setting alone now, and nothing else of it is left.
+  const shelf = patchSidebarChunk(chunk.source, BOTH);
+  assert.equal(shelf.applied, true, `${chunk.name}: ${shelf.problem}`);
+  const popups = patchSidebarPopups(shelf.source);
+  assert.equal(popups.applied, true, `${chunk.name}: ${popups.problem}`);
+  assert.equal(popups.source.split('getAttribute("data-t3-rtl-app")==="on"?`left`:`right`').length - 1, 5, "the settle buttons and the issue and pull request badges");
+  const rows = patchMainRows(popups.source);
+  assert.equal(rows.applied, true, `${chunk.name}: ${rows.problem}`);
+  const result = { ...shelf, source: rows.source };
   const setting = /function ([\w$]+)\(e\)\{return e\.sidebarWorkingShelfEnabled\}/.exec(result.source)[1].replace(/\$/g, "\\$");
   assert.match(result.source, new RegExp(`folderGroups:[\\w$]+(?:,[\\w$]+:[\\w$]+)*\\}=e,(?:[\\w$]+=[^,;{}()]*,)*?[\\w$]+=[\\w$]+\\(${setting}\\),`));
   assert.equal((result.source.match(/t3RtlFixHasFolders\$/g) || []).length, 7, "the flag is set once and read at the six added places");
@@ -639,6 +644,25 @@ test("the installed T3 Code's start route is recognized and stays valid", (t) =>
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-home-route-"));
   try {
     const file = path.join(directory, "route.mjs");
+    fs.writeFileSync(file, result.source);
+    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the installed T3 Code's issue and pull request cards are recognized and stay valid", (t) => {
+  if (process.env.T3_CHECK_INSTALLED !== "1") return t.skip("set T3_CHECK_INSTALLED=1 to check the installed T3 Code");
+  const asarPath = installedServerAsar();
+  if (!asarPath) return t.skip("T3 Code is not installed here");
+  const [chunk] = readInstalledChunks(asarPath, /^issuePresentation-.*\.js$/);
+  const aligned = patchCardAlignment(chunk.source);
+  assert.equal(aligned.applied, true, `${chunk.name}: ${aligned.problem}`);
+  const result = patchCardRows(aligned.source);
+  assert.equal(result.applied, true, `${chunk.name}: ${result.problem}`);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-cards-"));
+  try {
+    const file = path.join(directory, "cards.mjs");
     fs.writeFileSync(file, result.source);
     execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
   } finally {
@@ -680,7 +704,7 @@ test("the browser watches T3 Code's main script and start route, and a refusal i
   assert.equal(await createWorkingShelfService({ send: ok.send, sections: () => WORKING }).enable(), true);
   assert.deepEqual(ok.calls[0], {
     method: "Fetch.enable",
-    params: { patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })) },
+    params: { patterns: [URL_PATTERN, ROUTE_URL_PATTERN, CARDS_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })) },
   });
   const refused = fakeConnection({ failEnable: true });
   const logs = [];
@@ -703,7 +727,7 @@ test("a recognized script is answered with the patched code and without its leng
 
 test("the script passes unchanged when the switch is off, the answer is not 200, or the code is unknown", async () => {
   const cases = [
-    { name: "off", enabled: false, params: paused(), reads: false },
+    { name: "off", enabled: false, params: paused(), reads: true },
     { name: "304", enabled: true, params: paused({ responseStatusCode: 304 }), reads: false },
     { name: "error", enabled: true, params: paused({ responseStatusCode: undefined, responseErrorReason: "Failed" }), reads: false },
     { name: "unknown", enabled: true, params: paused(), reads: true, body: "export const sidebarWorkingShelfEnabled = 1;" },
@@ -740,6 +764,47 @@ test("when only Done is not recognized, Working is still shown, and the log says
   assert.equal(answer.method, "Fetch.fulfillRequest");
   assert.equal(Buffer.from(answer.params.body, "base64").toString("utf8"), patchSidebarChunk(FIXTURE, WORKING).source);
   assert.match(logs.join("\n"), /not recognized for Done/);
+});
+
+const POPUP = "function popup(n,$,xt){return(0,$.jsx)(xt,{side:`right`,render:(0,$.jsx)(`button`,{type:`button`,\"aria-label\":n(`Settle thread`)})})}";
+const OFF = { working: false, done: false };
+const decode = (body) => Buffer.from(body, "base64").toString("utf8");
+
+test("the sidebar's popups are changed, with or without the boring sidebar", async () => {
+  const body = `${FIXTURE}\n${POPUP}`;
+  for (const sections of [OFF, WORKING]) {
+    const connection = fakeConnection({ body });
+    const logs = [];
+    await createWorkingShelfService({ send: connection.send, sections: () => sections, log: (m) => logs.push(m) }).handlePaused(paused());
+    const answer = connection.calls.at(-1);
+    assert.equal(answer.method, "Fetch.fulfillRequest");
+    const shelf = sections === WORKING ? patchSidebarChunk(body, WORKING).source : body;
+    assert.equal(decode(answer.params.body), patchSidebarPopups(shelf).source);
+    assert.match(logs.join("\n"), /popups open toward the conversation/);
+  }
+});
+
+test("popups that are not recognized leave the boring sidebar's changes, and are only logged", async () => {
+  const connection = fakeConnection();
+  const logs = [];
+  await createWorkingShelfService({ send: connection.send, sections: () => WORKING, log: (m) => logs.push(m) }).handlePaused(paused());
+  assert.equal(decode(connection.calls.at(-1).params.body), patchSidebarChunk(FIXTURE, WORKING).source);
+  assert.match(logs.join("\n"), /sidebar popup code was not recognized/);
+
+  const alone = fakeConnection();
+  await createWorkingShelfService({ send: alone.send, sections: () => OFF }).handlePaused(paused());
+  assert.deepEqual(alone.calls.map((call) => call.method), ["Fetch.getResponseBody", "Fetch.continueRequest"]);
+});
+
+test("the script of the issue and pull request cards gets its alignment for either side", async () => {
+  const card = "let l=c===`right`?{align:`start`}:{};";
+  const connection = fakeConnection({ body: card });
+  const logs = [];
+  await createWorkingShelfService({ send: connection.send, sections: () => OFF, log: (m) => logs.push(m) }).handlePaused(
+    paused({ request: { url: "t3code://app/assets/issuePresentation-a.js" } }),
+  );
+  assert.equal(decode(connection.calls.at(-1).params.body), patchCardAlignment(card).source);
+  assert.match(logs.join("\n"), /cards keep their alignment/);
 });
 
 test("a switch changed while the script is read decides what it gets", async () => {
@@ -799,6 +864,7 @@ test("the fix watches before the first window and keeps the RTL fix when watchin
   assert.ok(start > 0);
   const body = core.slice(start, core.indexOf("\n  }\n", start));
   assert.ok(body.indexOf("await watchWorkingShelf()") < body.indexOf("Target.setDiscoverTargets"), "watching starts before targets are found");
+  assert.match(core, /function watchWorkingShelf\(\) \{\n    if \(!workingShelf\) return Promise\.resolve\(false\);/);
   assert.match(core, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.match(launcher, /message\.method === "Fetch\.requestPaused" && !message\.sessionId/);
   assert.doesNotMatch(core + launcher, /Fetch\.disable/);

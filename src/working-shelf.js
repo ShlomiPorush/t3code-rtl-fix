@@ -29,6 +29,8 @@
 // This module has no side effects when it is loaded, so tests can use it.
 
 const { ROUTE_URL, ROUTE_URL_PATTERN, patchHomeRoute } = require("./home-route");
+const { CARDS_URL, CARDS_URL_PATTERN, patchCardAlignment, patchSidebarPopups } = require("./sidebar-popups");
+const { patchCardRows, patchMainRows } = require("./pull-request-rows");
 
 const ID = "[\\w$]+";
 const URL_PATTERN = "t3code://app/assets/main-*.js";
@@ -552,9 +554,6 @@ async function forgetScripts(send, sessionId) {
   await send("Network.setCacheDisabled", { cacheDisabled: false }, sessionId);
 }
 
-// Answers the browser's paused requests for T3 Code's main script and for the
-// script of its start route. Every paused request is answered once: patched
-// when its switch is on and the code is recognized, passed on unchanged otherwise.
 function createWorkingShelfService({ send, sections, home = () => false, log = () => {} } = {}) {
   const logged = new Set();
   const logOnce = (message) => {
@@ -565,29 +564,51 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
 
   const isOn = (wanted) => wanted.working || wanted.done || wanted.pinned;
 
-  function patchSidebar(text) {
-    const wanted = sections();
-    if (!isOn(wanted)) return null;
+  function patchSidebar(text, wanted) {
     const result = patchSidebarChunk(text, wanted);
-    // The rest goes on when a T3 Code update changes only what Done needs.
     if (!result.applied && wanted.done && (wanted.working || wanted.pinned)) {
       logOnce(`T3 Code's sidebar code was not recognized for Done (${result.problem})`);
       return patchSidebarChunk(text, { ...wanted, done: false });
     }
     return result;
   }
+  function applySteps(text, steps) {
+    let result = { applied: false, source: text, changed: [] };
+    for (const step of steps) {
+      const next = step.patch(result.source);
+      if (!next.applied) {
+        logOnce(`T3 Code's ${step.name} code was not recognized (${next.problem})`);
+        continue;
+      }
+      result = { applied: true, source: next.source, changed: [...result.changed, step.changed] };
+    }
+    return result.applied ? result : null;
+  }
+  const pullRequestRows = "the pull request cards show their rows like the issue cards";
+  function patchMain(text) {
+    const wanted = sections();
+    return applySteps(text, [
+      ...(isOn(wanted) ? [{ name: "sidebar", patch: (code) => patchSidebar(code, wanted), changed: "changed in the boring sidebar" }] : []),
+      { name: "sidebar popup", patch: patchSidebarPopups, changed: "the sidebar's popups open toward the conversation" },
+      { name: "issue row", patch: patchMainRows, changed: pullRequestRows },
+    ]);
+  }
+  function patchCards(text) {
+    return applySteps(text, [
+      { name: "card alignment", patch: patchCardAlignment, changed: "the issue and pull request cards keep their alignment on either side" },
+      { name: "pull request row", patch: patchCardRows, changed: pullRequestRows },
+    ]);
+  }
   const scripts = {
-    sidebar: { name: "sidebar", isOn: () => isOn(sections()), patch: patchSidebar, changed: "changed in the boring sidebar" },
+    sidebar: { name: "sidebar", isOn: () => true, patch: patchMain },
     home: { name: "start page", isOn: home, patch: (text) => (home() ? patchHomeRoute(text) : null), changed: "the Home page was added" },
+    cards: { name: "card", isOn: () => true, patch: patchCards },
   };
 
-  // Interception stays on once enabled: turning the sections off makes every
-  // paused request pass unchanged, so no request is left waiting by a
-  // Fetch.disable while its body is read.
   async function enable() {
     try {
       await send("Fetch.enable", {
-        patterns: [URL_PATTERN, ROUTE_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })),
+        patterns: [URL_PATTERN, ROUTE_URL_PATTERN, CARDS_URL_PATTERN].map((urlPattern) => ({ urlPattern, resourceType: "Script", requestStage: "Response" })),
       });
       return true;
     } catch (error) {
@@ -603,12 +624,12 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
       send("Fetch.continueRequest", { requestId }).catch((error) => {
         logOnce(`could not pass T3 Code's script on: ${error.message}`);
       });
-    const script = ROUTE_URL.test(params.request?.url || "") ? scripts.home : scripts.sidebar;
+    const url = params.request?.url || "";
+    const script = ROUTE_URL.test(url) ? scripts.home : CARDS_URL.test(url) ? scripts.cards : scripts.sidebar;
     try {
       if (!script.isOn() || params.responseStatusCode !== 200 || params.responseErrorReason) return await pass();
       const body = await send("Fetch.getResponseBody", { requestId });
       const text = body.base64Encoded ? Buffer.from(body.body || "", "base64").toString("utf8") : body.body || "";
-      // The switches may have changed while the body was read.
       const result = script.patch(text);
       if (!result) return await pass();
       if (!result.applied) {
@@ -625,7 +646,7 @@ function createWorkingShelfService({ send, sections, home = () => false, log = (
         responseHeaders,
         body: Buffer.from(result.source, "utf8").toString("base64"),
       });
-      logOnce(script.changed);
+      for (const message of result.changed || [script.changed]) logOnce(message);
     } catch (error) {
       logOnce(`T3 Code's script was passed on unchanged: ${error.message}`);
       await pass();

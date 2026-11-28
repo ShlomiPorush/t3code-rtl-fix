@@ -9,7 +9,7 @@
 
 function homeView({
   React, useProjects, useThreads, useBootstrapped, useNewThread, useRouter, useEnvironments,
-  projectReference, Frame, focusProps, Header, electron, main, frameClass, css,
+  projectReference, Frame, focusProps, Header, electron, main, frameClass, css, rowIcons,
 }) {
   const h = React.createElement;
   const OLD_MS = 14 * 24 * 60 * 60 * 1000;
@@ -312,14 +312,49 @@ function homeView({
   const LIST_LINE_MIN = 5;
 
   function Badge({ badge }) {
-    const color = /^[0-9a-f]{6}$/i.test(badge.color || "") ? badge.color : null;
-    return h("span", {
-      className: "t3h-tip-badge", dir: "auto", "data-tone": badge.tone || undefined,
-      "data-label": color ? "" : undefined, style: color ? { "--t3h-label": `#${color}` } : undefined,
-    }, badge.text);
+    return h("span", { className: "t3h-tip-badge", dir: "auto", "data-tone": badge.tone || undefined }, badge.text);
   }
 
-  function TipItem({ item, now, linkTo }) {
+  const ROW_TONES = {
+    "issue-open": "text-emerald-600 dark:text-emerald-300/90",
+    "pull-open": "text-emerald-600 dark:text-emerald-300/90",
+    "pull-draft": "text-zinc-500 dark:text-zinc-400/80",
+  };
+
+  function RowState({ name }) {
+    return h("svg", {
+      className: `t3h-row-state ${ROW_TONES[name] || ""}`, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+      strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true,
+    }, (rowIcons.states[name] || []).map(([tag, attributes], index) => h(tag, { key: index, ...attributes })));
+  }
+
+  function RowActor({ author, avatar }) {
+    const [failed, setFailed] = React.useState(false);
+    const picture = avatar && !failed
+      ? h("img", { className: "t3h-row-avatar", src: avatar, alt: "", "aria-hidden": true, loading: "lazy", draggable: false, onError: () => setFailed(true) })
+      : h("span", { className: "t3h-row-avatar t3h-row-initial", "aria-hidden": true }, [...author][0].toUpperCase());
+    return h("span", { className: "t3h-row-actor" }, picture, h("span", { className: "t3h-row-author" }, author));
+  }
+
+  function TipRow({ item, now, linkTo, repository }) {
+    const { row } = item;
+    return h(item.link ? "a" : "div", { className: "t3h-tip-item", "data-row": "", ...(item.link ? linkTo(item.link) : {}) },
+      h(RowState, { name: row.icon }),
+      h("span", { className: "t3h-row-body" },
+        h("span", { className: "t3h-row-line" },
+          h("span", { className: "t3h-row-number" }, item.lead),
+          h("span", { className: "t3h-row-title", dir: "auto" }, item.text)),
+        h("span", { className: "t3h-row-meta" },
+          row.author ? h(RowActor, { author: row.author, avatar: row.avatar }) : null,
+          h("svg", { className: "t3h-row-provider", viewBox: "0 0 16 16", role: "img", "aria-label": "GitHub" },
+            h("path", { d: rowIcons.github, fill: "currentColor", fillRule: "evenodd" })),
+          h("span", { className: "t3h-row-repo" }, repository),
+          (item.badges || []).map((badge, index) => h(Badge, { key: index, badge })),
+          item.time ? h("span", { className: "t3h-row-time" }, `${ago(now - item.time)} ago`) : null)));
+  }
+
+  function TipItem({ item, now, linkTo, repository }) {
+    if (item.row) return h(TipRow, { item, now, linkTo, repository });
     const meta = [...(item.meta || []), item.time ? `${ago(now - item.time)} ago` : ""].filter(Boolean).join(" · ");
     const badges = item.badges || [];
     return h(item.link ? "a" : "div", {
@@ -335,14 +370,14 @@ function homeView({
       : null);
   }
 
-  function TipSection({ section, now, linkTo }) {
+  function TipSection({ section, now, linkTo, repository }) {
     const items = section.items || [];
     const lined = section.more > 0 || (section.link && (section.partial || items.length > LIST_LINE_MIN));
     const line = section.more > 0 ? `and ${section.more} more` : section.partial ? "View all on GitHub" : `View all ${items.length} on GitHub`;
     return h("div", { className: "t3h-tip-section" },
       section.title ? h("div", { className: "t3h-tip-section-title", dir: "auto" }, section.title) : null,
       section.chips?.length ? h("div", { className: "t3h-tip-chips" }, section.chips.map((chip, index) => h(Badge, { key: index, badge: chip }))) : null,
-      items.map((item, index) => h(TipItem, { key: item.link || index, item, now, linkTo })),
+      items.map((item, index) => h(TipItem, { key: item.link || index, item, now, linkTo, repository })),
       lined ? h(section.link ? "a" : "div", { className: "t3h-tip-more", dir: "auto", ...(section.link ? linkTo(section.link) : {}) }, line) : null);
   }
 
@@ -526,7 +561,7 @@ function homeView({
     }, open
       ? [
         h("div", { key: "head", className: "t3h-tip-head" }, h("span", { className: "t3h-tip-title", dir: "auto" }, detail.title), h("span", { className: "t3h-tip-summary", dir: "auto" }, detail.summary)),
-        ...(detail.sections || []).map((section, index) => h(TipSection, { key: index, section, now, linkTo })),
+        ...(detail.sections || []).map((section, index) => h(TipSection, { key: index, section, now, linkTo, repository: tip.repository })),
         detail.note ? h("div", { key: "note", className: "t3h-tip-note", dir: "auto" }, detail.note) : null,
       ]
       : null);
@@ -1243,7 +1278,23 @@ const HOME_CSS = `
 .t3h-tip-badge[data-tone="low"] { --t3h-tone: var(--t3h-tip-low); }
 .t3h-tip-badge[data-tone="success"] { --t3h-tone: var(--t3h-tip-success); }
 .t3h-tip-badge[data-tone="info"] { --t3h-tone: var(--t3h-tip-info); }
-.t3h-tip-badge[data-label] { --t3h-tone: var(--t3h-label); color: color-mix(in oklab, var(--t3h-label) 45%, currentColor); }
+.t3h-tip:has(.t3h-tip-item[data-row]) { width: 20rem; }
+.t3h-tip-item[data-row] { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0 -8px; padding: 4px 8px; }
+.t3h-tip-item[data-row] .t3h-tip-badge { display: inline-block; min-width: 1.5rem; }
+.t3h-row-state { flex: none; width: 1rem; height: 1rem; }
+.t3h-row-body { flex: 1; min-width: 0; }
+.t3h-row-line, .t3h-row-meta { display: flex; align-items: center; gap: .375rem; min-width: 0; }
+.t3h-row-line { align-items: baseline; }
+.t3h-row-number { flex: none; color: var(--muted-foreground, #71717a); font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem; line-height: 1rem; font-variant-numeric: tabular-nums; }
+.t3h-row-title { min-width: 0; overflow-wrap: anywhere; font-size: .875rem; line-height: 1.25rem; }
+.t3h-row-meta { overflow: hidden; color: var(--muted-foreground, #71717a); font-size: .6875rem; line-height: 1rem; }
+.t3h-row-actor { display: flex; align-items: baseline; gap: .375rem; min-width: 0; }
+.t3h-row-avatar { flex: none; align-self: center; width: 1rem; height: 1rem; border-radius: 999px; background: var(--muted, transparent); object-fit: cover; }
+.t3h-row-initial { display: flex; align-items: center; justify-content: center; color: var(--muted-foreground, #71717a); font-size: .625rem; font-weight: 500; line-height: 1; }
+.t3h-row-author { color: var(--foreground, currentColor); font-weight: 500; }
+.t3h-row-author, .t3h-row-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t3h-row-provider { flex: none; width: .75rem; height: .75rem; }
+.t3h-row-time { flex: none; margin-inline-start: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .t3h-tip-more { padding-top: 2px; font-size: 11px; justify-self: start; border-radius: 4px; text-decoration: none; }
 .t3h-tip a.t3h-tip-more:is(:hover, :focus-visible) { color: inherit; text-decoration: underline; outline: none; }
 .t3h-tip-note { padding: 7px 12px 8px; border-top: 1px solid var(--border, rgb(0 0 0 / .12)); font-size: 11px; }
