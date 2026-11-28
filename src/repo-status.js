@@ -1742,7 +1742,6 @@ const PAGE_CSS = `
   line-height: 1rem;
   font-variant-numeric: tabular-nums;
 }
-.${TIP_CLASS} .t3-rtl-row-title,
 .${TIP_CLASS} .t3-rtl-row-author,
 .${TIP_CLASS} .t3-rtl-row-repo {
   min-width: 0;
@@ -1750,7 +1749,12 @@ const PAGE_CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.${TIP_CLASS} .t3-rtl-row-line {
+  align-items: baseline;
+}
 .${TIP_CLASS} .t3-rtl-row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 0.875rem;
   line-height: 1.25rem;
 }
