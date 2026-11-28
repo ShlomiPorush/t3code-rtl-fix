@@ -184,6 +184,11 @@ test("an answer tells apart what is absent, what is unknown, and what is cut", (
   assert.equal(read.openPulls, 1);
   assert.deepEqual(read.release, { tag: "v1", at: Date.parse("2026-11-23T00:00:00Z"), ahead: 2 });
   assert.equal(read.pulls[0].number, 7);
+  assert.equal(read.pulls[0].avatar, "");
+  const pictured = { ...pull(8), author: { login: "a", avatarUrl: "https://avatars.githubusercontent.com/u/8?v=4" } };
+  const strange = { ...pull(9), author: { login: "b", avatarUrl: "https://example.com/u/9" } };
+  const avatars = readAnswer(answer(repository({ pullRequests: { totalCount: 2, nodes: [pictured, strange] } }))).pulls.map((item) => item.avatar);
+  assert.deepEqual(avatars, ["https://avatars.githubusercontent.com/u/8?v=4", ""]);
 
   assert.equal(readAnswer(answer(repository({ latestRelease: null }))).release, null);
   const failed = readAnswer(answer(repository({ latestRelease: null }), [{ path: ["repository", "latestRelease"] }]));
@@ -471,10 +476,10 @@ test("the thread details card's counts update Home, keep what they do not say, a
 });
 
 test("each count above zero has the popover of the thread details card, from Home's own reads and from the card's", async () => {
-  const issue = (number) => ({ number, title: `Issue ${number}`, updatedAt: "2026-11-24T00:00:00Z", author: { login: "someone" }, labels: { nodes: [{ name: "bug", color: "d73a4a" }] } });
+  const issue = (number) => ({ number, title: `Issue ${number}`, updatedAt: "2026-11-24T00:00:00Z", author: { login: "someone", avatarUrl: "https://avatars.githubusercontent.com/u/5?v=4" } });
   const node = repository({
     issues: { totalCount: 40, nodes: [issue(5), issue(4)] },
-    pullRequests: { totalCount: 1, nodes: [{ ...pull(7), isDraft: true, reviewDecision: "APPROVED" }] },
+    pullRequests: { totalCount: 1, nodes: [{ ...pull(7), isDraft: true, reviewDecision: "APPROVED", author: { login: "p", avatarUrl: "https://avatars.githubusercontent.com/u/7?v=4" } }] },
   });
   const { service } = github({
     answers: () => answer(node),
@@ -487,19 +492,21 @@ test("each count above zero has the popover of the thread details card, from Hom
   assert.equal(issueItems, undefined, "the lists reach the page only as the popovers");
   assert.deepEqual([details.issue.title, details.issue.summary, details.issue.sections[0].more, details.issue.sections[0].link], ["Issues", "40 open", 38, "issues"]);
   assert.deepEqual(details.issue.sections[0].items[0], {
-    lead: "#5", text: "Issue 5", meta: ["someone"], row: { icon: "issue-open", author: "someone", avatar: "" }, time: Date.parse("2026-11-24T00:00:00Z"), badges: [{ text: "bug", color: "d73a4a" }], link: "issues/5",
+    lead: "#5", text: "Issue 5", meta: ["someone"], row: { icon: "issue-open", author: "someone", avatar: "https://avatars.githubusercontent.com/u/5?v=4" }, time: Date.parse("2026-11-24T00:00:00Z"), link: "issues/5",
   });
   assert.deepEqual(details.pull.sections[0].items[0].badges.map((badge) => badge.text), ["Draft", "Approved"]);
+  assert.deepEqual(details.pull.sections[0].items[0].row, { icon: "pull-draft", author: "p", avatar: "https://avatars.githubusercontent.com/u/7?v=4" });
   assert.deepEqual(details.shield.sections.map((section) => section.title), ["Dependabot · 2"], "a source without alerts has no section");
   assert.deepEqual(details.shield.sections[0].items.map((item) => [item.text, item.link]), [["p0", "security/dependabot/1"], ["p1", "security/dependabot/2"]]);
 
   service.note("o/one", {
-    issues: { value: 1, capped: false, items: [{ number: 9, title: "From the card", author: "a", time: 1, labels: [] }] },
-    pulls: { value: 1, items: [{ number: 7, title: "Seven", author: "b", time: 2, draft: false, review: "CHANGES_REQUESTED" }] },
+    issues: { value: 1, capped: false, items: [{ number: 9, title: "From the card", author: "a", time: 1 }] },
+    pulls: { value: 1, items: [{ number: 7, title: "Seven", author: "b", avatar: "https://avatars.githubusercontent.com/u/2?v=4", time: 2, draft: false, review: "CHANGES_REQUESTED" }] },
   });
   const noted = got.at(-1).details;
   assert.deepEqual(noted.issue.sections[0].items.map((item) => item.text), ["From the card"]);
   assert.deepEqual(noted.pull.sections[0].items[0].badges.map((badge) => badge.text), ["Changes requested"]);
+  assert.equal(noted.pull.sections[0].items[0].row.avatar, "https://avatars.githubusercontent.com/u/2?v=4");
   service.note("o/one", { issues: { value: 0, items: [] }, pulls: null });
   assert.equal(got.at(-1).details.issue, undefined, "no popover for nothing");
 });

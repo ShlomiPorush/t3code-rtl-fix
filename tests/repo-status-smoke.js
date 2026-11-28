@@ -231,7 +231,6 @@ const fakeRun = async (file, args) => {
                 title: "תיקון כיוון בטבלאות",
                 updatedAt: recent,
                 author: { login: "dana", avatarUrl: "https://avatars.githubusercontent.com/u/9?v=4" },
-                labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
               }],
             },
             pullRequests: {
@@ -406,7 +405,6 @@ const TIP_STATE = `JSON.stringify((() => {
   const anchor = row.getBoundingClientRect();
   const item = tip.querySelector(".t3-rtl-tip-item[data-row]");
   const text = item.querySelector(".t3-rtl-row-title");
-  const label = item.querySelector(".t3-rtl-tip-badge[data-label]");
   const state = item.querySelector(".t3-rtl-row-state");
   const stateBox = state.getBoundingClientRect();
   return {
@@ -426,7 +424,7 @@ const TIP_STATE = `JSON.stringify((() => {
     repo: item.querySelector(".t3-rtl-row-repo").textContent,
     time: item.querySelector(".t3-rtl-row-time").textContent,
     rowLayout: [getComputedStyle(item).display, getComputedStyle(item).alignItems],
-    label: label ? [label.textContent, label.style.getPropertyValue("--t3-rtl-tip-label")] : null,
+    badges: item.querySelectorAll(".t3-rtl-tip-badge").length,
     more: tip.querySelector(".t3-rtl-tip-more").textContent,
     inWindow: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
     leftOfRow: box.right <= anchor.left,
@@ -470,7 +468,7 @@ async function checkTooltip(sessionId) {
     repo: "o/r",
     time: "just now",
     rowLayout: ["flex", "center"],
-    label: ["bug", "#d73a4a"],
+    badges: 0,
     more: "and 2 more",
     inWindow: true,
     leftOfRow: true,

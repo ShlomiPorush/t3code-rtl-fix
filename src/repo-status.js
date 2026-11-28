@@ -77,7 +77,6 @@ const LIST_ITEMS = 100;
 const LIST_LINE_MIN = 5;
 // Dependabot severities are counted from one page of alerts.
 const DEPENDABOT_PAGE_SIZE = 100;
-const LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const AVATAR_URL = /^https:\/\/avatars\.githubusercontent\.com\/[^\s"'<>]{1,500}$/;
 const SEVERITIES = ["critical", "high", "medium", "low"];
 const SEVERITY_LABELS = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
@@ -112,7 +111,7 @@ const COUNTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      nodes { number title updatedAt author { login avatarUrl(size: 40) } labels(first: 3) { nodes { name color } } }
+      nodes { number title updatedAt author { login avatarUrl(size: 40) } }
     }
     pullRequests(states: OPEN, first: ${LIST_ITEMS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
@@ -452,7 +451,6 @@ function issueDetail(issues) {
         meta: compact([issue.author]),
         row: { icon: "issue-open", author: issue.author, avatar: issue.avatar },
         time: issue.time,
-        badges: (issue.labels || []).map((label) => ({ text: label.name, color: label.color })),
       }, numberLink("issues", issue.number)), null, "issues"),
     ],
   };
@@ -770,10 +768,6 @@ function readIssues(connection) {
       author: text(issue.author?.login, 100),
       avatar: avatarOf(issue.author?.avatarUrl),
       time: timeOf(issue.updatedAt),
-      labels: nodesOf(issue.labels).map((label) => ({
-        name: text(label.name, 50),
-        color: LABEL_COLOR.test(label.color ?? "") ? label.color.toLowerCase() : null,
-      })),
     }));
   return count;
 }
@@ -1656,11 +1650,6 @@ const PAGE_CSS = `
 .${TIP_CLASS} .t3-rtl-tip-badge[data-tone="low"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-low); }
 .${TIP_CLASS} .t3-rtl-tip-badge[data-tone="success"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-success); }
 .${TIP_CLASS} .t3-rtl-tip-badge[data-tone="info"] { --t3-rtl-tip-tone: var(--t3-rtl-tip-info); }
-.${TIP_CLASS} .t3-rtl-tip-badge[data-label] {
-  --t3-rtl-tip-tone: var(--t3-rtl-tip-label);
-  /* A label can have any color, so its text leans toward the text color. */
-  color: color-mix(in oklab, var(--t3-rtl-tip-label) 45%, currentColor);
-}
 /* An item with badges only keeps them on its line. */
 .${TIP_CLASS} .t3-rtl-tip-item[data-inline] {
   display: flex;
@@ -1999,10 +1988,6 @@ function buildRepoStatusPageSource() {
     const node = make("span", "t3-rtl-tip-badge", data.text);
     node.dir = "auto";
     if (data.tone) node.dataset.tone = data.tone;
-    if (typeof data.color === "string" && /^[0-9a-f]{6}$/i.test(data.color)) {
-      node.dataset.label = "";
-      node.style.setProperty("--t3-rtl-tip-label", "#" + data.color);
-    }
     return node;
   };
 
@@ -2072,7 +2057,7 @@ function buildRepoStatusPageSource() {
     }
     second.appendChild(githubMark());
     second.appendChild(make("span", "t3-rtl-row-repo", tipRepo));
-    for (const data of item.badges) second.appendChild(badge(data));
+    for (const data of item.badges || []) second.appendChild(badge(data));
     const when = rowAgo(item.time);
     if (when) second.appendChild(make("span", "t3-rtl-row-time", when));
     const body = make("span", "t3-rtl-row-body");
@@ -2860,12 +2845,15 @@ function buildRepoStatusPageSource() {
 }
 
 module.exports = {
+  GITHUB_MARK,
+  ICONS,
   REPO_STATUS_BINDING,
   RECEIVER,
   SECTION_ATTRIBUTE,
   FRESH_MS,
   REFRESH_INTERVAL_MS,
   buildRepoStatusPageSource,
+  avatarOf,
   buildRows,
   summarizeBranches,
   createRepoStatusService,

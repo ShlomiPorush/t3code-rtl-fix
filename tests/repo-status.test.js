@@ -613,7 +613,7 @@ test("issue and pull request tooltips list the latest items with their state", (
       value: 7,
       capped: false,
       items: [
-        { number: 12, title: "כותרת בעברית", author: "dana", avatar: "https://avatars.githubusercontent.com/u/3", time: daysAgo(1), labels: [{ name: "bug", color: "d73a4a" }, { name: "x", color: null }] },
+        { number: 12, title: "כותרת בעברית", author: "dana", avatar: "https://avatars.githubusercontent.com/u/3", time: daysAgo(1) },
       ],
     },
     pulls: {
@@ -637,7 +637,6 @@ test("issue and pull request tooltips list the latest items with their state", (
             meta: ["dana"],
             row: { icon: "issue-open", author: "dana", avatar: "https://avatars.githubusercontent.com/u/3" },
             time: daysAgo(1),
-            badges: [{ text: "bug", color: "d73a4a" }, { text: "x", color: null }],
             link: "issues/12",
           },
         ],
@@ -742,7 +741,6 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
                     title: "x".repeat(400),
                     updatedAt: "2026-11-16T12:00:00Z",
                     author: null,
-                    labels: { nodes: [{ name: "bug", color: "D73A4A" }, { name: "evil", color: "red;background:url(x)" }] },
                   },
                   null,
                   { number: "4", title: "not a number" },
@@ -790,7 +788,6 @@ test("GitHub details are read into plain fields, and a found secret is dropped",
       author: "",
       avatar: "",
       time: Date.parse("2026-11-16T12:00:00Z"),
-      labels: [{ name: "bug", color: "d73a4a" }, { name: "evil", color: null }],
     },
   ]);
   assert.deepEqual(status.pulls.items, [
@@ -1020,7 +1017,7 @@ test("open accepts only known pages of the repository shown", async () => {
 
 test("tooltip items and lists link to their own GitHub pages", () => {
   const rows = buildRows({
-    issues: { value: 9, capped: false, items: [{ number: 12, title: "a", labels: [] }] },
+    issues: { value: 9, capped: false, items: [{ number: 12, title: "a" }] },
     pulls: { value: 1, capped: false, items: [{ number: 58, title: "b" }] },
     dependabot: { value: 2, capped: false, alerts: [{ number: 4, severity: "high", package: "x" }, { number: null, severity: "low", package: "y" }] },
     codeScanning: { value: 1, capped: false, alerts: [{ number: 8, severity: "high", rule: "r" }] },

@@ -5,7 +5,7 @@
 // which keeps its own sign-in. The token never reaches the page.
 
 const fs = require("node:fs");
-const { issueDetail, pullDetail, readIssues, readSeverity, runFile, securityDetail } = require("./repo-status");
+const { avatarOf, issueDetail, pullDetail, readIssues, readSeverity, runFile, securityDetail } = require("./repo-status");
 
 // One query per repository: GitHub answers a large one slowly, and fails a
 // query of several together with its neighbors.
@@ -27,13 +27,13 @@ const QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: ${ISSUES}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
-      nodes { number title updatedAt author { login } labels(first: 3) { nodes { name color } } }
+      nodes { number title updatedAt author { login avatarUrl(size: 40) } }
     }
     pullRequests(states: OPEN, first: ${PULLS}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       nodes {
         number title isDraft updatedAt mergeable mergeStateStatus reviewDecision
-        author { login }
+        author { login avatarUrl(size: 40) }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -98,6 +98,7 @@ function readPull(node) {
     title: typeof node.title === "string" ? node.title.slice(0, 300) : "",
     at: Date.parse(node.updatedAt) || null,
     author: shortText(node.author?.login, 100),
+    avatar: avatarOf(node.author?.avatarUrl),
     draft: node.isDraft === true,
     review: REVIEWS.includes(node.reviewDecision) ? node.reviewDecision : null,
     update: isUpdate(node.author?.login),
@@ -199,10 +200,10 @@ function noteAlerts(before, { dependabot, codeScanning, secretScanning }) {
 }
 
 function notePulls(before, { value, items }) {
-  const pulls = items.map(({ number, title, author, time, draft, review }) => {
+  const pulls = items.map(({ number, title, author, avatar, time, draft, review }) => {
     const known = before.find((pull) => pull.number === number && !(draft && pull.stage === "ready"));
     const stage = known ? { stage: known.stage, tone: known.tone, note: known.note } : { stage: "open", tone: "", note: draft ? "draft" : "merge state unknown" };
-    return { number, title, at: time, author, draft, review: review ?? null, update: isUpdate(author), ...stage };
+    return { number, title, at: time, author, avatar, draft, review: review ?? null, update: isUpdate(author), ...stage };
   });
   return { pulls, openPulls: value, cut: pulls.length !== value };
 }
@@ -213,7 +214,7 @@ function detailsOf(facts, alerts) {
   const details = {};
   if (facts.issues > 0) details.issue = issueDetail({ value: facts.issues, capped: false, items: facts.issueItems || [] });
   if (facts.openPulls > 0) {
-    const items = facts.pulls.map((pull) => ({ number: pull.number, title: pull.title, author: pull.author, time: pull.at, draft: pull.draft, review: pull.review }));
+    const items = facts.pulls.map((pull) => ({ number: pull.number, title: pull.title, author: pull.author, avatar: pull.avatar, time: pull.at, draft: pull.draft, review: pull.review }));
     details.pull = pullDetail({ value: facts.openPulls, capped: false, items });
   }
   if (alerts?.total > 0 && alerts.lists) {

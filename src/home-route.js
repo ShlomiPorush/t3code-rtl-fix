@@ -12,6 +12,9 @@
 // build.
 
 const { homeView, HOME_CSS } = require("./home-view");
+const { GITHUB_MARK, ICONS } = require("./repo-status");
+
+const ROW_ICONS = { github: GITHUB_MARK, states: { "issue-open": ICONS["issue-open"], "pull-open": ICONS["pull-open"], "pull-draft": ICONS["pull-draft"] } };
 
 const ID = "[\\w$]+";
 const ROUTE_URL_PATTERN = "t3code://app/assets/_chat.index-*.js";
@@ -97,7 +100,7 @@ function patchHomeRoute(source) {
     const added =
       `import*as t3RtlHomeMain$ from"./${found.mainScript}";` +
       `const t3RtlHome$=(${homeView.toString()})({${given},main:t3RtlHomeMain$,` +
-      `frameClass:${JSON.stringify(found.frameClass)},css:${JSON.stringify(HOME_CSS)}});`;
+      `frameClass:${JSON.stringify(found.frameClass)},css:${JSON.stringify(HOME_CSS)},rowIcons:${JSON.stringify(ROW_ICONS)}});`;
     const { route } = found;
     return {
       applied: true,
